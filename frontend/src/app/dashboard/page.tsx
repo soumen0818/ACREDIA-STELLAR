@@ -26,6 +26,19 @@ function DashboardContent() {
     const [institutionId, setInstitutionId] = useState<string>('');
     const [loading, setLoading] = useState(true);
 
+    // Persist wallet address to institution row whenever it changes
+    useEffect(() => {
+        if (!user || userRole !== 'institution' || !institutionId || !address) return;
+
+        supabase
+            .from('institutions')
+            .update({ wallet_address: address })
+            .eq('id', institutionId)
+            .then(({ error }) => {
+                if (error) console.error('Error persisting wallet address:', error);
+            });
+    }, [address, institutionId, user, userRole]);
+
     // Fetch institution ID from database
     useEffect(() => {
         const fetchInstitutionId = async () => {
