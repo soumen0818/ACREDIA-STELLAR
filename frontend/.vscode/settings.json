@@ -1,21 +1,21 @@
 {
-  "tailwindCSS.experimental.classRegex": [],
-  "css.lint.unknownAtRules": "ignore",
-  "tailwindCSS.validate": true,
-  "tailwindCSS.lint.cssConflict": "warning",
-  "tailwindCSS.lint.invalidApply": "error",
-  "tailwindCSS.lint.invalidScreen": "error",
-  "tailwindCSS.lint.invalidVariant": "error",
-  "tailwindCSS.lint.invalidConfigPath": "error",
-  "tailwindCSS.lint.invalidTailwindDirective": "error",
-  "tailwindCSS.lint.recommendedVariantOrder": "warning",
-  // Disable the incorrect suggestion about bg-gradient-* classes
-  "tailwindCSS.lint.suggestCanonicalClasses": false,
-  "editor.quickSuggestions": {
-    "strings": true
-  },
-  "tailwindCSS.includeLanguages": {
-    "typescript": "javascript",
-    "typescriptreact": "javascript"
-  }
+    "tailwindCSS.experimental.classRegex": [],
+    "css.lint.unknownAtRules": "ignore",
+    "tailwindCSS.validate": true,
+    "tailwindCSS.lint.cssConflict": "warning",
+    "tailwindCSS.lint.invalidApply": "error",
+    "tailwindCSS.lint.invalidScreen": "error",
+    "tailwindCSS.lint.invalidVariant": "error",
+    "tailwindCSS.lint.invalidConfigPath": "error",
+    "tailwindCSS.lint.invalidTailwindDirective": "error",
+    "tailwindCSS.lint.recommendedVariantOrder": "warning",
+    // Disable the incorrect suggestion about bg-gradient-* classes
+    "tailwindCSS.lint.suggestCanonicalClasses": false,
+    "editor.quickSuggestions": {
+        "strings": true
+    },
+    "tailwindCSS.includeLanguages": {
+        "typescript": "javascript",
+        "typescriptreact": "javascript"
+    }
 }

@@ -13,14 +13,13 @@ import {
     nativeToScVal,
     scValToNative,
     xdr,
-} from "@stellar/stellar-sdk";
+} from '@stellar/stellar-sdk';
+import { credentialHashBytesToHex, credentialHashHexToScVal } from './credentialHashEncoding';
+import { runtimeConfig } from './runtimeConfig';
 
-const RPC_URL =
-    process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
-const NETWORK_PASSPHRASE =
-    process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || "Test SDF Network ; September 2015";
-const CONTRACT_ID =
-    process.env.NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT || "";
+const RPC_URL = runtimeConfig.stellar.sorobanRpcUrl;
+const NETWORK_PASSPHRASE = runtimeConfig.stellar.networkPassphrase;
+const CONTRACT_ID = runtimeConfig.contracts.CREDENTIAL_NFT;
 
 // Dummy funded account used as transaction source for read-only simulations.
 // The contract itself is always present on-ledger, so we borrow its address.
@@ -29,42 +28,90 @@ const DUMMY_SOURCE = CONTRACT_ID;
 const server = new rpc.Server(RPC_URL);
 
 export interface OnChainCredential {
+    token_id?: bigint | number;
     student: string;
     issuer: string;
     hash: string;
     uri: string;
     issued_at: bigint | number;
+    revoked?: boolean;
 }
 
 async function simulate(method: string, args: xdr.ScVal[]): Promise<unknown> {
-    if (!CONTRACT_ID) throw new Error("CONTRACT_ID not configured");
+    if (!CONTRACT_ID) throw new Error('CONTRACT_ID not configured');
 
     const contract = new Contract(CONTRACT_ID);
     // Use a dummy Account with sequence "0" — valid for read-only simulation
-    const source = new Account(DUMMY_SOURCE, "0");
+    const source = new Account(DUMMY_SOURCE, '0');
 
     const tx = new TransactionBuilder(source, {
-        fee: "100",
+        fee: '100',
         networkPassphrase: NETWORK_PASSPHRASE,
     })
         .addOperation(contract.call(method, ...args))
         .setTimeout(TimeoutInfinite)
         .build();
+    const sim = await server.simulateTransaction(tx as never);
 
-    const sim = await server.simulateTransaction(tx as any);
-
-    if ("error" in sim) {
-        throw new Error(`Simulation error (${method}): ${(sim as any).error}`);
+    if ('error' in sim) {
+        throw new Error(`Simulation error (${method}): ${(sim as { error: string }).error}`);
     }
-
-    const retval = (sim as any).result?.retval;
+    const retval = (sim as { result?: { retval?: unknown } }).result?.retval;
     if (retval === undefined || retval === null) return null;
 
     // retval may be an xdr.ScVal object or a base64 string depending on SDK version
-    if (typeof retval === "string") {
-        return scValToNative(xdr.ScVal.fromXDR(retval, "base64"));
+    if (typeof retval === 'string') {
+        return scValToNative(xdr.ScVal.fromXDR(retval, 'base64'));
     }
-    return scValToNative(retval);
+    return scValToNative(retval as xdr.ScVal);
+}
+
+function nativeStructToRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+
+    if (value instanceof Map) {
+        return Object.fromEntries(
+            Array.from(value.entries()).map(([key, item]) => [String(key), item]),
+        );
+    }
+
+    return value as Record<string, unknown>;
+}
+
+function firstPresent(record: Record<string, unknown>, keys: string[]): unknown {
+    for (const key of keys) {
+        if (record[key] !== undefined && record[key] !== null) {
+            return record[key];
+        }
+    }
+
+    return undefined;
+}
+
+export function normalizeOnChainCredential(result: unknown): OnChainCredential | null {
+    const record = nativeStructToRecord(result);
+    if (!record) {
+        return null;
+    }
+
+    const credentialHash = firstPresent(record, ['credential_hash', 'credentialHash', 'hash']);
+    const ipfsHash = firstPresent(record, ['ipfs_hash', 'ipfsHash', 'uri']);
+
+    if (!credentialHash || !ipfsHash) {
+        return null;
+    }
+
+    return {
+        token_id: firstPresent(record, ['token_id', 'tokenId']) as bigint | number | undefined,
+        student: String(firstPresent(record, ['student']) ?? ''),
+        issuer: String(firstPresent(record, ['issuer']) ?? ''),
+        hash: credentialHashBytesToHex(credentialHash),
+        uri: String(ipfsHash),
+        issued_at: (firstPresent(record, ['issued_at', 'issuedAt']) as bigint | number) ?? 0,
+        revoked: firstPresent(record, ['revoked']) as boolean | undefined,
+    };
 }
 
 /**
@@ -73,18 +120,10 @@ async function simulate(method: string, args: xdr.ScVal[]): Promise<unknown> {
  */
 export async function getCredential(tokenId: string | number): Promise<OnChainCredential | null> {
     try {
-        const result = await simulate("get_credential", [
-            nativeToScVal(Number(tokenId), { type: "u64" }),
+        const result = await simulate('get_credential', [
+            nativeToScVal(Number(tokenId), { type: 'u64' }),
         ]);
-        if (!result || typeof result !== "object") return null;
-        const r = result as Record<string, unknown>;
-        return {
-            student: String(r.student ?? ""),
-            issuer: String(r.issuer ?? ""),
-            hash: String(r.hash ?? ""),
-            uri: String(r.uri ?? ""),
-            issued_at: (r.issued_at as bigint | number) ?? 0,
-        };
+        return normalizeOnChainCredential(result);
     } catch {
         return null;
     }
@@ -92,15 +131,12 @@ export async function getCredential(tokenId: string | number): Promise<OnChainCr
 
 /**
  * Look up a credential by its SHA-256 hash.
- * Returns the token_id (number) or null if not found.
+ * Returns the full credential struct or null if not found.
  */
-export async function verifyCredentialByHash(hash: string): Promise<number | null> {
+export async function verifyCredentialByHash(hash: string): Promise<OnChainCredential | null> {
     try {
-        const result = await simulate("verify_credential", [
-            nativeToScVal(hash, { type: "string" }),
-        ]);
-        if (result === null || result === undefined) return null;
-        return Number(result);
+        const result = await simulate('verify_credential', [credentialHashHexToScVal(hash)]);
+        return normalizeOnChainCredential(result);
     } catch {
         return null;
     }
@@ -111,8 +147,19 @@ export async function verifyCredentialByHash(hash: string): Promise<number | nul
  */
 export async function isRevoked(tokenId: string | number): Promise<boolean> {
     try {
-        const result = await simulate("is_revoked", [
-            nativeToScVal(Number(tokenId), { type: "u64" }),
+        const result = await simulate('is_revoked', [
+            nativeToScVal(Number(tokenId), { type: 'u64' }),
+        ]);
+        return result === true;
+    } catch {
+        return false;
+    }
+}
+
+export async function isAuthorizedIssuer(issuerAddress: string): Promise<boolean> {
+    try {
+        const result = await simulate('is_authorized_issuer', [
+            new Address(issuerAddress).toScVal(),
         ]);
         return result === true;
     } catch {

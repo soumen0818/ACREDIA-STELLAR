@@ -1,5 +1,30 @@
 # Security Advisories
 
+## Public Verification Audit Logs
+
+`/api/verify/[token]` writes an operational audit row only after its rate limiter
+allows the request. Logs are stored in `verification_logs.verification_result`
+with a coarse `result_type` such as `verified`, `revoked`, `not_found`,
+`chain_unavailable`, or `mismatch`.
+
+The route does not store raw IP addresses, raw token IDs, user-agent strings,
+verifier email, or verifier organization. Request identifiers are HMAC hashes
+derived from `VERIFICATION_LOG_HASH_SECRET`; if that is not set, the server-only
+`SUPABASE_SERVICE_ROLE_KEY` is used as the fallback secret. Set a dedicated
+`VERIFICATION_LOG_HASH_SECRET` in production when possible.
+
+Verification logs are for abuse detection, aggregate reliability monitoring,
+and incident response. Treat them as operational data: keep them admin-only,
+avoid exporting raw rows, and purge rows older than 90 days unless an active
+security investigation or legal requirement needs a longer hold.
+
+Example retention cleanup:
+
+```sql
+DELETE FROM public.verification_logs
+WHERE created_at < NOW() - INTERVAL '90 days';
+```
+
 ## Dependency Audit — 2026-05-27
 
 All known vulnerabilities resolved. `npm audit` reports **0 vulnerabilities**.

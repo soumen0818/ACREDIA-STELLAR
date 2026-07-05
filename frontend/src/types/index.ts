@@ -1,4 +1,15 @@
-export type UserRole = 'institution' | 'student' | 'verifier';
+/** All possible application roles. */
+export type AppRole = 'student' | 'institution' | 'admin';
+
+/**
+ * Role states used by the auth system, including transient states.
+ * - `'loading'`: role resolution is in progress (initial render)
+ * - `'unknown'`: role could not be determined (no DB rows, no metadata)
+ */
+export type RoleState = AppRole | 'unknown' | 'loading';
+
+/** @deprecated Use `AppRole` instead. Kept for backward compatibility. */
+export type UserRole = AppRole;
 
 export interface Institution {
     id: string;
@@ -54,6 +65,6 @@ export interface VerificationResult {
 export interface AuthUser {
     id: string;
     email: string;
-    role: UserRole;
+    role: AppRole;
     profile?: Institution | Student;
 }

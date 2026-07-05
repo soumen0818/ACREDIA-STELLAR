@@ -87,10 +87,18 @@ Before opening a pull request:
 - Keep the change scoped to the issue or documented problem.
 - Add or update tests when changing behavior.
 - Update README, env examples, SQL notes, or issue templates when setup behavior changes.
+- **Responsive Design Checklist**:
+  - Test UI changes at 320px, 375px, 768px, 1024px, and 1440px.
+  - Ensure no horizontal scrolling occurs on mobile devices (e.g., test using browser dev tools).
+  - Verify tap targets are at least 44x44px on mobile devices.
+  - Ensure flex/grid layouts collapse properly on smaller screens.
+  - Wrap data tables and long credential lists in `overflow-x-auto`.
 - Run the relevant checks locally where possible:
 
 ```powershell
 cd frontend
+npm run format
+npm run lint
 npm test
 npm run build
 ```

@@ -5,8 +5,16 @@ import {
     hasServiceRoleEnv,
     requireAuthenticatedRequest,
 } from '@/lib/serverAuth';
+import { enforceRateLimit } from '@/lib/rateLimit';
+import { structuredLog, captureException } from '@/lib/debug';
 
 export const dynamic = 'force-dynamic';
+
+const STUDENT_CREDENTIALS_RATE_LIMIT = {
+    windowSeconds: 60,
+    maxRequests: 60,
+    prefix: 'student-credentials',
+} as const;
 
 type CredentialRow = {
     id: string;
@@ -20,12 +28,18 @@ type CredentialRow = {
 };
 
 export async function GET(request: NextRequest) {
+    const requestId = request.headers.get('x-request-id') || 'unknown';
     try {
+        const rateLimitResponse = enforceRateLimit(request, STUDENT_CREDENTIALS_RATE_LIMIT);
+        if (rateLimitResponse) {
+            return rateLimitResponse;
+        }
+
         const authCheck = await requireAuthenticatedRequest(request);
         if (!authCheck.ok) {
             return NextResponse.json(
                 { success: false, error: authCheck.error },
-                { status: authCheck.status }
+                { status: authCheck.status },
             );
         }
 
@@ -34,137 +48,93 @@ export async function GET(request: NextRequest) {
             ? authHeader.slice(7)
             : '';
 
-        // Always prefer the service role client on the server side so RLS
-        // never blocks legitimate server-to-server reads.
-        // Falls back to a user-scoped client when the key is not configured.
         const supabase = hasServiceRoleEnv()
             ? getServiceRoleClient()
             : createUserScopedServerClient(accessToken);
 
-        let { data: studentRow, error: studentError } = await supabase
+        // ── Pagination & filter params ────────────────────────────────────────
+        const { searchParams } = new URL(request.url);
+        const rawPage     = parseInt(searchParams.get('page')     ?? '1');
+        const rawPageSize = parseInt(searchParams.get('pageSize') ?? '20');
+        const page     = Math.max(1, isNaN(rawPage)     ? 1  : rawPage);
+        const pageSize = Math.min(100, Math.max(1, isNaN(rawPageSize) ? 20 : rawPageSize));
+        const search   = searchParams.get('search')   ?? '';
+        const status   = searchParams.get('status')   ?? 'all';
+        const dateFrom = searchParams.get('dateFrom') ?? '';
+        const dateTo   = searchParams.get('dateTo')   ?? '';
+        const offset   = (page - 1) * pageSize;
+
+        // ── Resolve student row ───────────────────────────────────────────────
+        const { data: initialStudentRow, error: studentError } = await supabase
             .from('students')
             .select('id, wallet_address')
             .eq('auth_user_id', authCheck.userId)
             .maybeSingle();
 
+        const studentRow = initialStudentRow;
+
         if (studentError) {
-            console.error('[student/credentials] Error fetching student row:', studentError);
+            structuredLog('ERROR', 'Error fetching student row', requestId, { error: studentError });
             return NextResponse.json(
                 { success: false, error: 'Failed to load student profile' },
-                { status: 500 }
+                { status: 500 },
             );
         }
 
-        // ── Auto-create the student row if it is missing ──────────────────────
-        // This fixes students who registered after the secure RLS migration was
-        // applied — their signUp() INSERT was silently blocked because auth.uid()
-        // is NULL when using the anon client directly after supabase.auth.signUp().
-        if (!studentRow) {
-            console.warn(
-                '[student/credentials] No student row found for userId:',
-                authCheck.userId,
-                '— attempting auto-create'
-            );
-
-            const serviceClient = hasServiceRoleEnv() ? getServiceRoleClient() : null;
-            if (serviceClient) {
-                const { data: authUser } = await serviceClient.auth.admin.getUserById(
-                    authCheck.userId
-                );
-                const userEmail = authUser?.user?.email ?? '';
-                const userName =
-                    authUser?.user?.user_metadata?.name ??
-                    userEmail.split('@')[0] ??
-                    'Student';
-
-                if (userEmail) {
-                    const { data: newStudent, error: createError } = await serviceClient
-                        .from('students')
-                        .upsert(
-                            { auth_user_id: authCheck.userId, name: userName, email: userEmail },
-                            { onConflict: 'email', ignoreDuplicates: false }
-                        )
-                        .select('id, wallet_address')
-                        .maybeSingle();
-
-                    if (!createError && newStudent) {
-                        studentRow = newStudent;
-                        console.log(
-                            '[student/credentials] Auto-created student row:',
-                            newStudent.id
-                        );
-                    } else {
-                        // E-mail collision — row exists with a different auth_user_id,
-                        // try fetching the row by email and adopt it.
-                        const { data: byEmail } = await serviceClient
-                            .from('students')
-                            .select('id, wallet_address')
-                            .eq('email', userEmail)
-                            .maybeSingle();
-                        if (byEmail) studentRow = byEmail;
-                    }
-                }
-            }
+        if (!studentRow?.id) {
+            return NextResponse.json({ success: true, credentials: [], total: 0, page, pageSize, totalPages: 0 });
         }
 
-        const fetchByStudentId = async (): Promise<CredentialRow[]> => {
-            if (!studentRow?.id) return [];
+        // ── Build paginated query ─────────────────────────────────────────────
+        let query = supabase
+            .from('credentials')
+            .select(
+                `id, token_id, ipfs_hash, blockchain_hash, metadata, issued_at, revoked,
+                 institution:institutions(name)`,
+                { count: 'exact' }
+            )
+            .eq('student_id', studentRow.id)
+            .order('issued_at', { ascending: false })
+            .range(offset, offset + pageSize - 1);
 
-            const { data, error } = await supabase
-                .from('credentials')
-                .select(
-                    `id, token_id, ipfs_hash, blockchain_hash, metadata, issued_at, revoked,
-                     institution:institutions(name)`
-                )
-                .eq('student_id', studentRow.id)
-                .order('issued_at', { ascending: false });
-
-            if (error) throw error;
-            return (data || []) as CredentialRow[];
-        };
-
-        const fetchByWallet = async (): Promise<CredentialRow[]> => {
-            if (!studentRow?.wallet_address) return [];
-
-            const { data, error } = await supabase
-                .from('credentials')
-                .select(
-                    `id, token_id, ipfs_hash, blockchain_hash, metadata, issued_at, revoked,
-                     institution:institutions(name)`
-                )
-                .eq('student_wallet_address', studentRow.wallet_address)
-                .order('issued_at', { ascending: false });
-
-            if (error) throw error;
-            return (data || []) as CredentialRow[];
-        };
-
-        const [byStudentId, byWallet] = await Promise.all([
-            fetchByStudentId(),
-            fetchByWallet(),
-        ]);
-
-        const merged = new Map<string, CredentialRow>();
-        [...byStudentId, ...byWallet].forEach((c) => merged.set(c.id, c));
-
-        const credentials = Array.from(merged.values())
-            .map((c) => ({
-                ...c,
-                institution: Array.isArray(c.institution)
-                    ? c.institution[0] || null
-                    : c.institution || null,
-            }))
-            .sort(
-                (a, b) =>
-                    new Date(b.issued_at).getTime() - new Date(a.issued_at).getTime()
+        if (status === 'active')  query = query.eq('revoked', false);
+        if (status === 'revoked') query = query.eq('revoked', true);
+        if (dateFrom) query = query.gte('issued_at', dateFrom);
+        if (dateTo)   query = query.lte('issued_at', dateTo + 'T23:59:59Z');
+        if (search.trim()) {
+            const term = search.trim();
+            query = query.or(
+                `token_id.ilike.%${term}%,` +
+                `metadata->credentialData->>institutionName.ilike.%${term}%,` +
+                `metadata->credentialData->>credentialType.ilike.%${term}%,` +
+                `metadata->credentialData->>degree.ilike.%${term}%`
             );
+        }
 
-        return NextResponse.json({ success: true, credentials });
+        const { data, error, count } = await query;
+        if (error) throw error;
+
+        const credentials = (data || []).map((c: CredentialRow) => ({
+            ...c,
+            institution: Array.isArray(c.institution)
+                ? c.institution[0] || null
+                : c.institution || null,
+        }));
+
+        return NextResponse.json({
+            success: true,
+            credentials,
+            total: count ?? 0,
+            page,
+            pageSize,
+            totalPages: Math.ceil((count ?? 0) / pageSize),
+        });
+
     } catch (err) {
-        console.error('[student/credentials] Unhandled error:', err);
+        captureException(err, { requestId, context: 'GET /api/student/credentials' });
         return NextResponse.json(
             { success: false, error: 'Failed to fetch student credentials' },
-            { status: 500 }
+            { status: 500 },
         );
     }
 }

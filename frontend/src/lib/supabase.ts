@@ -1,18 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
 import { normalizePublicSignupRole, type PublicSignupRole } from './adminAccess';
+import { normalizeEmail } from './authFlow';
+import { runtimeConfig } from './runtimeConfig';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseUrl = runtimeConfig.supabase.url;
+const supabaseAnonKey = runtimeConfig.supabase.anonKey;
+
+import { debugWarn } from './debug';
 
 if (!supabaseUrl || !supabaseAnonKey) {
-    if (process.env.NODE_ENV !== 'production') {
-        console.warn('⚠️ Missing Supabase environment variables');
+    if (!runtimeConfig.isProduction) {
+        debugWarn('⚠️ Missing Supabase environment variables');
     }
 }
 
 export const supabase = createClient(
-    supabaseUrl || 'https://placeholder.supabase.co', 
-    supabaseAnonKey || 'placeholder'
+    supabaseUrl || 'https://placeholder.supabase.co',
+    supabaseAnonKey || 'placeholder',
 );
 
 function isInvalidRefreshTokenError(error: unknown): boolean {
@@ -79,18 +83,26 @@ type PublicSignupData = {
     [key: string]: unknown;
 };
 
-export async function signUp(email: string, password: string, options?: { data?: PublicSignupData }) {
+type PublicSignupOptions = {
+    data?: PublicSignupData;
+    emailRedirectTo?: string;
+};
+
+export async function signUp(email: string, password: string, options?: PublicSignupOptions) {
     const signupData = options?.data
         ? {
-            ...options.data,
-            role: normalizePublicSignupRole(options.data.role),
-        }
+              ...options.data,
+              role: normalizePublicSignupRole(options.data.role),
+          }
         : undefined;
 
     const { data, error } = await supabase.auth.signUp({
-        email,
+        email: normalizeEmail(email),
         password,
-        options: signupData ? { ...options, data: signupData } : options,
+        options: {
+            ...options,
+            data: signupData,
+        },
     });
 
     // Create student or institution record after successful signup
@@ -100,13 +112,9 @@ export async function signUp(email: string, password: string, options?: { data?:
         const email = data.user.email!;
 
         if (role === 'student') {
-            await supabase
-                .from('students')
-                .insert([{ auth_user_id: userId, name, email }]);
+            await supabase.from('students').insert([{ auth_user_id: userId, name, email }]);
         } else if (role === 'institution') {
-            await supabase
-                .from('institutions')
-                .insert([{ auth_user_id: userId, name, email }]);
+            await supabase.from('institutions').insert([{ auth_user_id: userId, name, email }]);
         }
     }
 
@@ -115,9 +123,33 @@ export async function signUp(email: string, password: string, options?: { data?:
 
 export async function signIn(email: string, password: string) {
     const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: normalizeEmail(email),
         password,
     });
+    return { data, error };
+}
+
+export async function requestPasswordReset(email: string, redirectTo?: string) {
+    const { data, error } = await supabase.auth.resetPasswordForEmail(
+        normalizeEmail(email),
+        redirectTo ? { redirectTo } : undefined
+    );
+    return { data, error };
+}
+
+export async function updatePassword(password: string) {
+    const { data, error } = await supabase.auth.updateUser({ password });
+    return { data, error };
+}
+
+export async function resendVerificationEmail(email: string, emailRedirectTo?: string) {
+    const credentials = {
+        type: 'signup' as const,
+        email: normalizeEmail(email),
+        ...(emailRedirectTo ? { options: { emailRedirectTo } } : {}),
+    };
+
+    const { data, error } = await supabase.auth.resend(credentials);
     return { data, error };
 }
 
@@ -130,7 +162,7 @@ export async function signOut() {
 export const authHelpers = {
     async signUp(email: string, password: string, role: PublicSignupRole) {
         const { data, error } = await supabase.auth.signUp({
-            email,
+            email: normalizeEmail(email),
             password,
             options: {
                 data: {
@@ -143,10 +175,22 @@ export const authHelpers = {
 
     async signIn(email: string, password: string) {
         const { data, error } = await supabase.auth.signInWithPassword({
-            email,
+            email: normalizeEmail(email),
             password,
         });
         return { data, error };
+    },
+
+    async requestPasswordReset(email: string, redirectTo?: string) {
+        return requestPasswordReset(email, redirectTo);
+    },
+
+    async updatePassword(password: string) {
+        return updatePassword(password);
+    },
+
+    async resendVerificationEmail(email: string, emailRedirectTo?: string) {
+        return resendVerificationEmail(email, emailRedirectTo);
     },
 
     async signOut() {
@@ -241,7 +285,9 @@ export const dbHelpers = {
         token_id: string;
         ipfs_hash: string;
         blockchain_hash: string;
-        metadata: any;
+        metadata: unknown;
+        metadata_schema_version?: number;
+        hash_algorithm?: string;
     }) {
         const { data, error } = await supabase
             .from('credentials')
@@ -254,14 +300,16 @@ export const dbHelpers = {
     async getCredentialsByStudent(studentId: string) {
         const { data, error } = await supabase
             .from('credentials')
-            .select(`
+            .select(
+                `
         *,
         institutions (
           id,
           name,
           email
         )
-      `)
+      `,
+            )
             .eq('student_id', studentId)
             .eq('revoked', false)
             .order('issued_at', { ascending: false });
@@ -271,14 +319,16 @@ export const dbHelpers = {
     async getCredentialsByInstitution(institutionId: string) {
         const { data, error } = await supabase
             .from('credentials')
-            .select(`
+            .select(
+                `
         *,
         students (
           id,
           name,
           email
         )
-      `)
+      `,
+            )
             .eq('institution_id', institutionId)
             .order('issued_at', { ascending: false });
         return { data, error };
@@ -287,7 +337,8 @@ export const dbHelpers = {
     async getCredentialByTokenId(tokenId: string) {
         const { data, error } = await supabase
             .from('credentials')
-            .select(`
+            .select(
+                `
         *,
         institutions (
           id,
@@ -300,7 +351,8 @@ export const dbHelpers = {
           name,
           email
         )
-      `)
+      `,
+            )
             .eq('token_id', tokenId)
             .single();
         return { data, error };
@@ -321,7 +373,7 @@ export const dbHelpers = {
         credential_id: string;
         verifier_email?: string;
         verifier_org?: string;
-        verification_result: any;
+        verification_result: unknown;
     }) {
         const { data, error } = await supabase
             .from('verification_logs')

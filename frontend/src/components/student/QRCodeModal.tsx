@@ -12,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Check, Copy, Download, Share2 } from 'lucide-react';
-import { debugLog } from '@/lib/debug';
+import { debugLog, debugWarn, captureException } from '@/lib/debug';
 
 interface QRCodeModalProps {
     open: boolean;
@@ -21,7 +21,12 @@ interface QRCodeModalProps {
         token_id: string;
         blockchain_hash: string;
         ipfs_hash: string;
-        metadata: any;
+        metadata: {
+            credentialData?: {
+                credentialType?: string;
+                institutionName?: string;
+            }
+        } | null;
         student_wallet_address?: string;
     };
 }
@@ -39,7 +44,7 @@ export default function QRCodeModal({ open, onClose, credential }: QRCodeModalPr
 
         const timer = setTimeout(() => {
             if (!canvasRef.current) {
-                console.error('QR canvas is not ready.');
+                debugWarn('QR canvas is not ready.');
                 return;
             }
 
@@ -66,12 +71,12 @@ export default function QRCodeModal({ open, onClose, credential }: QRCodeModalPr
                 },
                 (error) => {
                     if (error) {
-                        console.error('Error generating QR code:', error);
+                        captureException(error, { context: 'toCanvas_QR' });
                         return;
                     }
 
                     debugLog('Credential QR code generated.');
-                }
+                },
             );
         }, 100);
 
@@ -101,7 +106,7 @@ export default function QRCodeModal({ open, onClose, credential }: QRCodeModalPr
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch (error) {
-            console.error('Failed to copy verification link:', error);
+            captureException(error, { context: 'handleCopyLink' });
         }
     };
 
@@ -141,7 +146,12 @@ export default function QRCodeModal({ open, onClose, credential }: QRCodeModalPr
                             height={240}
                             role="img"
                             aria-label={`QR code for verifying credential token ${credential?.token_id || 'unknown'}`}
-                            style={{ display: 'block', width: '240px', maxWidth: '100%', height: 'auto' }}
+                            style={{
+                                display: 'block',
+                                width: '240px',
+                                maxWidth: '100%',
+                                height: 'auto',
+                            }}
                         />
                     </div>
 
@@ -153,9 +163,12 @@ export default function QRCodeModal({ open, onClose, credential }: QRCodeModalPr
                     </div>
 
                     <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-gray-700">Verification Link</label>
+                        <label htmlFor="verification-link-input" className="text-xs font-medium text-gray-700">
+                            Verification Link
+                        </label>
                         <div className="flex min-w-0 gap-2">
                             <Input
+                                id="verification-link-input"
                                 value={verificationUrl}
                                 readOnly
                                 className="h-9 min-w-0 truncate bg-white font-mono text-xs"
@@ -165,7 +178,9 @@ export default function QRCodeModal({ open, onClose, credential }: QRCodeModalPr
                                 variant="outline"
                                 size="sm"
                                 className="h-9 w-9 shrink-0 p-0"
-                                aria-label={copied ? 'Verification link copied' : 'Copy verification link'}
+                                aria-label={
+                                    copied ? 'Verification link copied' : 'Copy verification link'
+                                }
                             >
                                 {copied ? (
                                     <Check className="h-3.5 w-3.5 text-green-600" />

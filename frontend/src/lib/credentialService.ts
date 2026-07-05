@@ -5,11 +5,8 @@ import {
     generateCredentialHash,
     revokeCredentialOnStellar,
 } from './contracts';
-import {
-    CREDENTIAL_HASH_ALGORITHM,
-    CREDENTIAL_METADATA_SCHEMA_VERSION,
-} from './credentialHash';
-import { debugLog } from './debug';
+import { CREDENTIAL_HASH_ALGORITHM, CREDENTIAL_METADATA_SCHEMA_VERSION } from './credentialHash';
+import { debugLog, captureException } from './debug';
 
 export interface Subject {
     id: string;
@@ -61,7 +58,7 @@ export type CredentialIssueProgressStep = 'upload-ipfs' | 'sign-transaction' | '
 export async function issueCredential(
     data: CredentialData,
     issuerAddress: string,
-    onProgress?: (step: CredentialIssueProgressStep) => void
+    onProgress?: (step: CredentialIssueProgressStep) => void,
 ): Promise<{
     tokenId: string;
     transactionHash: string;
@@ -99,27 +96,27 @@ export async function issueCredential(
                 },
                 ...(data.major
                     ? [
-                        {
-                            trait_type: 'Major',
-                            value: data.major,
-                        },
-                    ]
+                          {
+                              trait_type: 'Major',
+                              value: data.major,
+                          },
+                      ]
                     : []),
                 ...(data.gpa
                     ? [
-                        {
-                            trait_type: 'GPA',
-                            value: data.gpa,
-                        },
-                    ]
+                          {
+                              trait_type: 'GPA',
+                              value: data.gpa,
+                          },
+                      ]
                     : []),
                 ...(data.subjects && data.subjects.length > 0
                     ? [
-                        {
-                            trait_type: 'Total Subjects',
-                            value: data.subjects.length.toString(),
-                        },
-                    ]
+                          {
+                              trait_type: 'Total Subjects',
+                              value: data.subjects.length.toString(),
+                          },
+                      ]
                     : []),
             ],
             credentialData: {
@@ -150,14 +147,17 @@ export async function issueCredential(
             data.studentWallet,
             credentialHash,
             metadataUrl,
-            issuerAddress
+            issuerAddress,
         );
+        // eslint-disable-next-line no-console
         console.log('✅ Credential issued! Token ID:', tokenId);
+        // eslint-disable-next-line no-console
         console.log('✅ Transaction:', transactionHash);
 
         // Step 5: (Skipped) Registry handled atomically by Stellar contract
 
         // Step 6: Save to Supabase database
+        // eslint-disable-next-line no-console
         console.log('💾 Saving to database...');
 
         if (!data.institutionId) {
@@ -188,11 +188,13 @@ export async function issueCredential(
         });
 
         if (dbError) {
-            console.error('Database save error:', dbError);
+            captureException(dbError, { context: 'db_save_credential' });
             const details = [dbError.code, dbError.message, dbError.details]
                 .filter(Boolean)
                 .join(' | ');
-            throw new Error(`Failed to save credential to database: ${details || 'Unknown database error'}`);
+            throw new Error(
+                `Failed to save credential to database: ${details || 'Unknown database error'}`,
+            );
         }
 
         debugLog('Credential saved to the database.');
@@ -204,7 +206,7 @@ export async function issueCredential(
             metadataHash: metadataPath,
         };
     } catch (error) {
-        console.error('Error issuing credential:', error);
+        captureException(error, { context: 'issueCredential_service' });
         throw error;
     }
 }
@@ -221,7 +223,7 @@ export async function getInstitutionCredentials(institutionId: string) {
 
         return data;
     } catch (error) {
-        console.error('Error fetching institution credentials:', error);
+        captureException(error, { context: 'getInstitutionCredentials_service' });
         throw error;
     }
 }
@@ -238,14 +240,14 @@ export async function getCredentialById(credentialId: string) {
 
         return data;
     } catch (error) {
-        console.error('Error fetching credential:', error);
+        captureException(error, { context: 'getCredentialById_service' });
         throw error;
     }
 }
 
 export async function revokeCredentialById(
     credentialId: string,
-    issuerAddress: string
+    issuerAddress: string,
 ): Promise<void> {
     try {
         const credential = await getCredentialById(credentialId);
@@ -270,7 +272,7 @@ export async function revokeCredentialById(
             throw new Error(
                 `Authorization failed: You must use the same wallet that issued this credential.\n` +
                     `Expected: ${storedIssuerWallet}\n` +
-                    `Connected: ${connectedWallet}`
+                    `Connected: ${connectedWallet}`,
             );
         }
 
@@ -291,7 +293,123 @@ export async function revokeCredentialById(
 
         debugLog('Credential revocation saved to the database.');
     } catch (error) {
-        console.error('Error revoking credential:', error);
+        captureException(error, { context: 'revokeCredentialById_service' });
         throw error;
     }
+}
+
+// ─── Paginated functions for Issue #82 ───────────────────────────────────────
+
+export interface PaginationParams {
+  page: number;
+  pageSize: number;
+}
+
+export interface CredentialFilters {
+  search?: string;
+  status?: 'active' | 'revoked' | 'all';
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface PaginatedResult {
+  data: unknown[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export async function getInstitutionCredentialsPaginated(
+  institutionId: string,
+  pagination: PaginationParams,
+  filters: CredentialFilters = {}
+): Promise<PaginatedResult> {
+  const { page, pageSize } = pagination;
+  const offset = (page - 1) * pageSize;
+
+  let query = supabase
+    .from('credentials')
+    .select('*', { count: 'exact' })
+    .eq('institution_id', institutionId)
+    .order('issued_at', { ascending: false });
+
+  if (filters.status && filters.status !== 'all') {
+    query = query.eq('revoked', filters.status === 'revoked');
+  }
+  if (filters.dateFrom) {
+    query = query.gte('issued_at', filters.dateFrom);
+  }
+  if (filters.dateTo) {
+    query = query.lte('issued_at', filters.dateTo + 'T23:59:59Z');
+  }
+  if (filters.search?.trim()) {
+    const term = filters.search.trim();
+    query = query.or(
+      `token_id.ilike.%${term}%,` +
+      `metadata->credentialData->>studentName.ilike.%${term}%,` +
+      `metadata->credentialData->>degree.ilike.%${term}%,` +
+      `metadata->credentialData->>credentialType.ilike.%${term}%`
+    );
+  }
+
+  query = query.range(offset, offset + pageSize - 1);
+
+  const { data, error, count } = await query;
+  if (error) throw new Error(error.message ?? String(error));
+
+  return {
+    data: data ?? [],
+    total: count ?? 0,
+    page,
+    pageSize,
+    totalPages: Math.ceil((count ?? 0) / pageSize),
+  };
+}
+
+export async function getStudentCredentialsPaginated(
+  studentId: string,
+  pagination: PaginationParams,
+  filters: CredentialFilters = {}
+): Promise<PaginatedResult> {
+  const { page, pageSize } = pagination;
+  const offset = (page - 1) * pageSize;
+
+  let query = supabase
+    .from('credentials')
+    .select('*', { count: 'exact' })
+    .eq('student_id', studentId)
+    .order('issued_at', { ascending: false });
+
+  if (filters.status && filters.status !== 'all') {
+    query = query.eq('revoked', filters.status === 'revoked');
+  }
+  if (filters.dateFrom) {
+    query = query.gte('issued_at', filters.dateFrom);
+  }
+  if (filters.dateTo) {
+    query = query.lte('issued_at', filters.dateTo + 'T23:59:59Z');
+  }
+  if (filters.search?.trim()) {
+    const term = filters.search.trim();
+    query = query.or(
+      `metadata->credentialData->>institutionName.ilike.%${term}%,` +
+      `metadata->credentialData->>credentialType.ilike.%${term}%,` +
+      `metadata->credentialData->>degree.ilike.%${term}%,` +
+      `token_id.ilike.%${term}%`
+    );
+  }
+
+  query = query.range(offset, offset + pageSize - 1);
+
+  const { data, error, count } = await query;
+  if (error) throw new Error(error.message ?? String(error));
+
+  return {
+    data: data ?? [],
+    total: count ?? 0,
+    page,
+    pageSize,
+    totalPages: Math.ceil((count ?? 0) / pageSize),
+  };
 }

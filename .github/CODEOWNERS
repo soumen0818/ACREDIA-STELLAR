@@ -1,0 +1,11 @@
+# Default owners for all repository content
+* @soumen0818
+
+# Frontend and related UI ownership
+/frontend/ @soumen0818
+
+# Smart contract ownership
+/contracts/ @soumen0818
+
+# GitHub automation and repository governance
+/.github/ @soumen0818

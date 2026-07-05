@@ -32,8 +32,8 @@ export function DashboardTopbar({
     onSignOut,
 }: DashboardTopbarProps) {
     return (
-        <nav className="sticky top-0 z-50 border-b border-gray-200 bg-white/90 shadow-sm backdrop-blur-lg">
-            <div className="container mx-auto px-4 py-4">
+        <nav className="sticky top-0 z-50 border-b border-border/80 bg-background/90 shadow-sm backdrop-blur-lg">
+            <div className="container-shell py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <Link href="/" className="flex items-center space-x-3">
                         <Image
@@ -50,8 +50,8 @@ export function DashboardTopbar({
                             {brandBadge && (
                                 <span
                                     className={cn(
-                                        'rounded-full bg-red-600 px-2 py-1 text-xs font-semibold text-white',
-                                        brandBadgeClassName
+                                        'rounded-full bg-destructive px-2 py-1 text-xs font-semibold text-white',
+                                        brandBadgeClassName,
                                     )}
                                 >
                                     {brandBadge}
@@ -64,7 +64,7 @@ export function DashboardTopbar({
                         <Button
                             onClick={onSignOut}
                             variant="ghost"
-                            className="px-3 text-sm text-gray-700 hover:text-red-600 sm:px-4 sm:text-base"
+                            className="px-3 text-sm text-muted-foreground hover:text-destructive sm:px-4 sm:text-base"
                         >
                             <LogOut className="mr-2 h-5 w-5" />
                             <span className="hidden sm:inline">Sign Out</span>
@@ -86,9 +86,9 @@ export function DashboardPageHeader({
         <div className={cn('mb-8', className)}>
             <div className={cn('mb-2', icon && 'flex items-center space-x-3')}>
                 {icon}
-                <h1 className="text-3xl font-bold text-gray-900 sm:text-4xl">{title}</h1>
+                <h1 className="text-3xl font-semibold text-foreground sm:text-4xl">{title}</h1>
             </div>
-            {subtitle && <p className="text-lg text-gray-600">{subtitle}</p>}
+            {subtitle && <p className="text-lg text-muted-foreground">{subtitle}</p>}
         </div>
     );
 }
@@ -105,13 +105,13 @@ export function DashboardShell({
     onSignOut,
 }: DashboardShellProps) {
     return (
-        <div className="min-h-screen bg-linear-to-br from-gray-50 via-teal-50 to-cyan-50">
+        <div className="min-h-screen bg-background">
             <DashboardTopbar
                 brandBadge={brandBadge}
                 brandBadgeClassName={brandBadgeClassName}
                 onSignOut={onSignOut}
             />
-            <main className={cn('container mx-auto px-4 py-8', contentClassName)}>
+            <main className={cn('container-shell py-8', contentClassName)}>
                 <DashboardPageHeader
                     title={title}
                     subtitle={subtitle}

@@ -2,7 +2,7 @@
 # Prerequisites: cargo, stellar-cli/soroban-cli installed
 
 CONTRACT_NAME := acredia-credential
-WASM_PATH := target/wasm32-unknown-unknown/release/acredia_credential.wasm
+WASM_PATH := target/wasm32v1-none/release/acredia_stellar.wasm
 TESTNET_NETWORK := testnet
 MAINNET_NETWORK := mainnet
 
@@ -12,7 +12,7 @@ all: build
 
 # Install rust target if not exists
 setup:
-	rustup target add wasm32-unknown-unknown
+	rustup target add wasm32v1-none
 
 # Format the Rust code
 format:
@@ -20,7 +20,7 @@ format:
 
 # Build the smart contract and optimize for WASM
 build: setup
-	cargo build --target wasm32-unknown-unknown --release
+	cargo build --target wasm32v1-none --release
 	stellar contract optimize --wasm $(WASM_PATH)
 	@echo "Build successful! Optimized WASM located at $(WASM_PATH)"
 

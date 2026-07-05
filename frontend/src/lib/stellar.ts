@@ -1,10 +1,11 @@
-import { rpc } from "@stellar/stellar-sdk";
-import { debugWarn } from "./debug";
+import { rpc } from '@stellar/stellar-sdk';
+import { debugWarn } from './debug';
+import { runtimeConfig } from './runtimeConfig';
 
 // Contract addresses (Stellar contract addresses)
 export const CONTRACTS = {
-    CREDENTIAL_NFT: process.env.NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT || '',
-    CREDENTIAL_REGISTRY: process.env.NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT || '',
+    CREDENTIAL_NFT: runtimeConfig.contracts.CREDENTIAL_NFT,
+    CREDENTIAL_REGISTRY: runtimeConfig.contracts.CREDENTIAL_REGISTRY,
 };
 
 export function getContractAddress(contractName: keyof typeof CONTRACTS) {
@@ -18,21 +19,28 @@ export function getContractAddress(contractName: keyof typeof CONTRACTS) {
 // Stellar Network Configuration
 export const STELLAR_CONFIG = {
     testnet: {
-        horizonUrl: process.env.NEXT_PUBLIC_HORIZON_URL || 'https://horizon-testnet.stellar.org',
-        sorobanRpcUrl: process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
-        networkPassphrase: process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || 'Test SDF Network ; September 2015',
-        networkName: 'testnet',
+        horizonUrl: runtimeConfig.stellar.horizonUrl,
+        sorobanRpcUrl: runtimeConfig.stellar.sorobanRpcUrl,
+        networkPassphrase: runtimeConfig.stellar.networkPassphrase,
+        networkName: runtimeConfig.stellar.networkName,
     },
     mainnet: {
-        horizonUrl: 'https://horizon.stellar.org',
-        sorobanRpcUrl: 'https://soroban-mainnet.stellar.org',
-        networkPassphrase: 'Public Global Stellar Network ; September 2015',
-        networkName: 'public',
+        horizonUrl: runtimeConfig.stellar.horizonUrl,
+        sorobanRpcUrl: runtimeConfig.stellar.sorobanRpcUrl,
+        networkPassphrase: runtimeConfig.stellar.networkPassphrase,
+        networkName: runtimeConfig.stellar.networkName,
     },
 };
 
-// Active network - change to mainnet for production
-export const activeNetwork = STELLAR_CONFIG.testnet;
+// Active network - uses the validated runtime selection.
+export const activeNetwork = {
+    kind: runtimeConfig.stellar.kind,
+    horizonUrl: runtimeConfig.stellar.horizonUrl,
+    sorobanRpcUrl: runtimeConfig.stellar.sorobanRpcUrl,
+    networkPassphrase: runtimeConfig.stellar.networkPassphrase,
+    networkName: runtimeConfig.stellar.networkName,
+    explorerBaseUrl: runtimeConfig.stellar.explorerBaseUrl,
+};
 
 // Instantiate Soroban SDK Server helper
 export const sorobanServer = new rpc.Server(activeNetwork.sorobanRpcUrl);

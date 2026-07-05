@@ -21,7 +21,7 @@
 
 [🌐 Stellar Network](https://stellar.org) | [📊 Stellar Expert Explorer](https://stellar.expert) | [💧 Get Test XLM](https://laboratory.stellar.org/)
 
-<h3><a href="https://acredia-stellar.vercel.app/"> 🌐 VIEW LIVE DEMO </a></h3>
+<h3><a href="https://acredia-stellar-tau.vercel.app/"> 🌐 VIEW LIVE DEMO </a></h3>
 <h3><a href="https://youtu.be/CG7UF-_Du2Y"> 📽️ VIEW LIVE DEMO </a></h3>
 
 </div>
@@ -245,11 +245,11 @@ Acredia uses a unified Soroban smart contract deployed on **Stellar Network**:
 
 ### ✅ AcrediaCredential Contract — Live on Testnet
 
-> **Contract ID**: `CCGDFDLPELTOWG5H5OA4MBR5OZWDP4XJI3S3TQZVZ7XTVP77EKOFORYF`  
+> **Contract ID**: `CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK`  
 > **Network**: Stellar Testnet  
-> **Owner / Deployer**: `GAJRNUO6HSMQG4FNHNWQVRXJZJZ7QRA7HXPYYB6H5PTA3EAAJXJNZD7U`  
-> **Deployed**: 2026-04-01 (Updated Setup)
-> **Explorer**: [View on Stellar Expert ↗](https://stellar.expert/explorer/testnet/contract/CCGDFDLPELTOWG5H5OA4MBR5OZWDP4XJI3S3TQZVZ7XTVP77EKOFORYF)
+> **Owner / Deployer**: `GAMI3XDDII72W23RADNPPAZ2GYEZ2MTYXLETOU36R4ISXMQ7IURFEKFP`  
+> **Deployed**: 2026-06-27 (Redeployed)
+> **Explorer**: [View on Stellar Expert ↗](https://stellar.expert/explorer/testnet/contract/CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK)
 
 This single contract replaces two separate EVM contracts (CredentialNFT + CredentialRegistry) with one unified Soroban contract written in Rust. Additionally, it features upgraded Next.js boundary protection to bypass `@stellar/stellar-sdk` object coercions on the browser.
 
@@ -281,7 +281,7 @@ This single contract replaces two separate EVM contracts (CredentialNFT + Creden
 **Storage Architecture**:
 - `DataKey::Authorized(Address)` → `instance` storage (low-cost, ephemeral)
 - `DataKey::Credential(u64)` → `persistent` storage (permanent, survives ledger closings)
-- `DataKey::HashIndex(String)` → `persistent` storage (hash → token_id index)
+- `DataKey::HashIndex(BytesN<32>)` → `persistent` storage (SHA-256 hash bytes → token_id index)
 
 ### Stellar Testnet Deployment (Active)
 
@@ -301,8 +301,8 @@ This single contract replaces two separate EVM contracts (CredentialNFT + Creden
 
 All deployments, metadata hashes, and transaction executions can be publicly verified directly on the Stellar ledger explorer:
 
-1. **Main Contract Viewer**: [AcrediaCredential Testnet Explorer ↗](https://stellar.expert/explorer/testnet/contract/CCGDFDLPELTOWG5H5OA4MBR5OZWDP4XJI3S3TQZVZ7XTVP77EKOFORYF)
-2. **Deployer Account Ledger**: [Stellar Account Overview ↗](https://stellar.expert/explorer/testnet/account/GAJRNUO6HSMQG4FNHNWQVRXJZJZ7QRA7HXPYYB6H5PTA3EAAJXJNZD7U)
+1. **Main Contract Viewer**: [AcrediaCredential Testnet Explorer ↗](https://stellar.expert/explorer/testnet/contract/CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK)
+2. **Deployer Account Ledger**: [Stellar Account Overview ↗](https://stellar.expert/explorer/testnet/account/GAMI3XDDII72W23RADNPPAZ2GYEZ2MTYXLETOU36R4ISXMQ7IURFEKFP)
 3. **Soroban RPC Instance**: `https://soroban-testnet.stellar.org`
 
 > **⚠️ Important**: Always verify contract IDs on Stellar Expert before interacting with them. Never trust addresses from unofficial sources.
@@ -557,7 +557,7 @@ npm ci
 ```powershell
 cd ../contracts
 # Install the WASM32 build target (one-time setup)
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32v1-none
 # Install Stellar CLI if not already installed
 cargo install --locked stellar-cli
 ```
@@ -576,10 +576,10 @@ Copy-Item .env.local.example .env.local
 Edit `frontend\.env.local` and replace placeholder values:
 
 ```env
-# Smart Contract Addresses — Stellar Testnet (deployed 2026-04-01)
+# Smart Contract Addresses — Stellar Testnet (deployed 2026-06-27)
 # Single unified AcrediaCredential contract (replaces separate NFT + Registry)
-NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT=CCGDFDLPELTOWG5H5OA4MBR5OZWDP4XJI3S3TQZVZ7XTVP77EKOFORYF
-NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT=CCGDFDLPELTOWG5H5OA4MBR5OZWDP4XJI3S3TQZVZ7XTVP77EKOFORYF
+NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT=CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK
+NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT=CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK
 
 # Stellar Network Configuration
 NEXT_PUBLIC_CHAIN_ID=testnet
@@ -592,6 +592,7 @@ NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+VERIFICATION_LOG_HASH_SECRET=your_random_audit_hash_secret
 
 # Admin access control
 # Comma-separated list of emails that may access admin API routes.
@@ -625,18 +626,17 @@ STELLAR_CONTRACT_ID=
 
 5. **Set Up Supabase Database**
 
-Run the canonical SQL setup listed in `frontend/sql/README.md`. For a fresh
-Supabase project, run only these scripts in your Supabase SQL Editor:
+Run the canonical SQL setup in your Supabase SQL Editor. For a fresh Supabase
+project, run the single idempotent setup file:
 
 ```sql
--- Run these in order:
-1. frontend/sql/database_schema.sql
-2. frontend/sql/secure_rls_migration.sql
+frontend/sql/FULL_SETUP.sql
 ```
 
-`database_schema.sql` creates tables, indexes, triggers, and enables RLS without
-opening broad public policies. `secure_rls_migration.sql` is the canonical
-production policy set and can be safely re-run after older deployments.
+`FULL_SETUP.sql` creates tables, indexes, triggers, canonical credential hash
+metadata columns, and production RLS policies. It can be safely re-run after
+older deployments. `frontend/sql/database_schema.sql` is kept as a focused base
+schema reference, but clean deployments should use `FULL_SETUP.sql`.
 
 The older one-off SQL repair scripts are retained only as compatibility notices:
 they point back to the canonical setup flow and should not be run for new
@@ -665,18 +665,18 @@ stellar keys address deployer
 cd contracts
 
 # Step 1: Build the WASM binary
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 
 # Step 2: Deploy to Stellar Testnet
 stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/acredia_credential.wasm \
+  --wasm target/wasm32v1-none/release/acredia_stellar.wasm \
   --source deployer \
   --network testnet
-# => Returns: CCGDFDLPELTOWG5H5OA4MBR5OZWDP4XJI3S3TQZVZ7XTVP77EKOFORYF
+# => Returns: CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK
 
 # Step 3: Initialize the contract with your admin address
 stellar contract invoke \
-  --id CCGDFDLPELTOWG5H5OA4MBR5OZWDP4XJI3S3TQZVZ7XTVP77EKOFORYF \
+  --id CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK \
   --source deployer \
   --network testnet \
   -- initialize \
@@ -684,7 +684,7 @@ stellar contract invoke \
 
 # Step 4: Authorize an institution to issue credentials
 stellar contract invoke \
-  --id CCGDFDLPELTOWG5H5OA4MBR5OZWDP4XJI3S3TQZVZ7XTVP77EKOFORYF \
+  --id CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK \
   --source deployer \
   --network testnet \
   -- authorize_issuer \
@@ -722,7 +722,7 @@ Before deploying to production:
 - Use Stellar Public Network values only after contract review and a verified mainnet deployment.
 - Rotate any secret that was pasted into chat, screenshots, logs, browser code, or an issue.
 - Set server-only secrets (`SUPABASE_SERVICE_ROLE_KEY`, `PINATA_JWT`, Stellar secret keys) only in the hosting provider's protected environment variables.
-- Confirm Supabase RLS is enabled and production policies come from `frontend/sql/secure_rls_migration.sql`.
+- Confirm Supabase RLS is enabled and production policies come from `frontend/sql/FULL_SETUP.sql`.
 - Verify contract IDs on Stellar Expert before pointing users at a production environment.
 
 ---
@@ -746,11 +746,9 @@ Before deploying to production:
 1. Create account at [Supabase](https://supabase.com)
 2. Create a new project
 3. Get your project URL and anon key from Settings > API
-4. Run the canonical SQL scripts in SQL Editor (see `frontend/sql/README.md`):
-   - `frontend/sql/database_schema.sql`
-   - `frontend/sql/secure_rls_migration.sql`
+4. Run `frontend/sql/FULL_SETUP.sql` in the Supabase SQL Editor.
 
-The older repair scripts are kept for legacy deployments only. For a clean clone, use the two scripts above.
+The base `frontend/sql/database_schema.sql` file is retained as a schema reference. For a clean clone, use `FULL_SETUP.sql`.
 
 #### Stellar Account Setup
 
@@ -1000,7 +998,7 @@ institutions
 verification_logs
 ├── id (uuid)
 ├── credential_id (uuid)
-├── verified_at (timestamp)
+├── created_at (timestamp)
 └── verification_result (jsonb)
 ```
 
@@ -1010,10 +1008,12 @@ Credential hashes are derived from a versioned canonical payload, not directly f
 
 - Current schema: `metadata_schema_version = 1`
 - Current algorithm: `hash_algorithm = sha256:canonical-json:v1`
+- Legacy schema: `metadata_schema_version = 0`, `hash_algorithm = sha256:json-stringify`
 - Shared implementation: `frontend/src/lib/credentialHash.ts`
+- Stellar byte encoding: `frontend/src/lib/credentialHashEncoding.ts`
 - Test vectors: `frontend/tests/credentialHash.test.ts`
 
-Schema v1 hashes only the credential meaning needed for verification: name, description, image, student wallet/name, credential type, degree, major, GPA, issue date, institution name, and normalized subjects. Optional fields are represented as `null` or empty arrays, numeric-like values are converted to strings where the UI treats them as text, and object keys are serialized in sorted canonical order.
+Schema v1 hashes only the credential meaning needed for verification: name, description, image, student wallet/name, credential type, degree, major, GPA, issue date, institution name, and normalized subjects. Optional fields are represented as `null` or empty arrays, numeric-like values are converted to strings where the UI treats them as text, ISO date-times are normalized to `YYYY-MM-DD`, and object keys are serialized in sorted canonical order.
 
 Future metadata fields can be added to stored `metadata` or IPFS display metadata without changing old hashes. To make a new field part of the on-chain digest, add a new schema version and algorithm identifier, keep the v1 builder intact, add new fixed test vectors, store the new version on newly issued credentials, and keep verification dispatching by each row's stored `metadata_schema_version` and `hash_algorithm`.
 
@@ -1068,7 +1068,7 @@ cd contracts
 cargo test
 
 # Build WASM
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 
 # Frontend tests (if configured)
 cd frontend

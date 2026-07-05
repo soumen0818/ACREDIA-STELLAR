@@ -48,7 +48,7 @@ export default function AdminLoginPage() {
             });
 
             if (error) {
-                toast.error('Login failed: ' + error.message);
+                toast.error('Login failed: ' + (error instanceof Error ? error.message : String(error)));
                 return;
             }
 
@@ -56,8 +56,8 @@ export default function AdminLoginPage() {
                 toast.success('Login successful! Now connect your contract owner wallet.');
                 router.push('/admin');
             }
-        } catch (error: any) {
-            toast.error('An error occurred: ' + error.message);
+        } catch (error: unknown) {
+            toast.error('An error occurred: ' + (error instanceof Error ? error.message : String(error)));
         } finally {
             setLoading(false);
         }
@@ -83,15 +83,11 @@ export default function AdminLoginPage() {
                                 height={80}
                                 className="rounded-lg"
                             />
-                            <Shield className="absolute -bottom-2 -right-2 h-8 w-8 text-red-600 bg-white rounded-full p-1 shadow-lg" />
+                            <Shield className="absolute -bottom-2 -right-2 h-11 w-11 text-red-600 bg-white rounded-full p-1 shadow-lg" />
                         </div>
                     </div>
-                    <h1 className="text-3xl font-bold text-gray-900">
-                        Admin Portal
-                    </h1>
-                    <p className="text-gray-600">
-                        Contract Owner Access Only
-                    </p>
+                    <h1 className="text-3xl font-bold text-gray-900">Admin Portal</h1>
+                    <p className="text-gray-600">Contract Owner Access Only</p>
                 </div>
 
                 {/* Admin Notice */}
@@ -103,7 +99,8 @@ export default function AdminLoginPage() {
                                 Wallet Verification Required
                             </p>
                             <p className="text-xs text-red-700 mt-1">
-                                After login, you must connect the contract owner wallet to access admin features.
+                                After login, you must connect the contract owner wallet to access
+                                admin features.
                             </p>
                         </div>
                     </div>
@@ -198,10 +195,7 @@ export default function AdminLoginPage() {
                         Or register a new account below
                     </p>
                     <Link href="/auth/register">
-                        <Button
-                            variant="ghost"
-                            className="w-full text-gray-600 hover:bg-gray-50"
-                        >
+                        <Button variant="ghost" className="w-full text-gray-600 hover:bg-gray-50">
                             Register New Account
                         </Button>
                     </Link>

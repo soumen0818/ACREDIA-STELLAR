@@ -1,6 +1,7 @@
-import { debugLog } from './debug';
+import { debugLog, captureException } from './debug';
+import { runtimeConfig } from './runtimeConfig';
 
-const PINATA_GATEWAY = process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://gateway.pinata.cloud';
+const PINATA_GATEWAY = runtimeConfig.ipfs.gatewayUrl;
 const IPFS_FILE_ROUTE = '/api/ipfs/file';
 const IPFS_JSON_ROUTE = '/api/ipfs/json';
 
@@ -23,13 +24,13 @@ export async function uploadToIPFS(file: File): Promise<string> {
         const cid = payload.cid as string;
         debugLog('File uploaded to IPFS via server IPFS route.');
         return cid;
-    } catch (error: any) {
-        console.error('Error uploading file to IPFS:', error);
-        throw new Error(`Failed to upload to IPFS: ${error.message}`);
+    } catch (error: unknown) {
+        captureException(error, { context: 'uploadToIPFS' });
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to upload to IPFS: ${message}`, { cause: error });
     }
 }
-
-export async function uploadJSONToIPFS(data: any): Promise<string> {
+export async function uploadJSONToIPFS(data: unknown): Promise<string> {
     try {
         const response = await fetch(IPFS_JSON_ROUTE, {
             method: 'POST',
@@ -48,9 +49,10 @@ export async function uploadJSONToIPFS(data: any): Promise<string> {
         const cid = payload.cid as string;
         debugLog('JSON uploaded to IPFS via server IPFS route.');
         return cid;
-    } catch (error: any) {
-        console.error('Error uploading JSON to IPFS:', error);
-        throw new Error(`Failed to upload JSON to IPFS: ${error.message}`);
+    } catch (error: unknown) {
+        captureException(error, { context: 'uploadJSONToIPFS' });
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to upload JSON to IPFS: ${message}`, { cause: error });
     }
 }
 
@@ -70,8 +72,7 @@ export function getIPFSUrl(cidOrUri: string): string {
 
     return `${PINATA_GATEWAY}/ipfs/${cid}${path}`;
 }
-
-export async function fetchFromIPFS(cid: string): Promise<any> {
+export async function fetchFromIPFS(cid: string): Promise<unknown> {
     try {
         const url = getIPFSUrl(cid);
         const response = await fetch(url);
@@ -80,8 +81,9 @@ export async function fetchFromIPFS(cid: string): Promise<any> {
         }
 
         return await response.json();
-    } catch (error: any) {
-        console.error('Error fetching from IPFS:', error);
-        throw new Error(`Failed to fetch from IPFS: ${error.message}`);
+    } catch (error: unknown) {
+        captureException(error, { context: 'fetchFromIPFS' });
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to fetch from IPFS: ${message}`, { cause: error });
     }
 }

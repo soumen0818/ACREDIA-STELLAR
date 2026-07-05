@@ -4,9 +4,14 @@ title = "Acredia Gitleaks Configuration"
 useDefault = true
 
 [allowlist]
-description = "Allow documentation-only placeholder values while still blocking real secrets."
+description = "Allow documentation-only placeholder values and public Stellar identifiers while still blocking real secrets."
 regexes = [
   '''your_[A-Za-z0-9_]+''',
   '''placeholder[-A-Za-z0-9_]*''',
   '''eyJhbGci\.\.\.''',
+  # Public Stellar identifiers are safe to commit (on-chain public data):
+  #   C... = Soroban contract IDs, G... = account public keys.
+  # Secret seeds (S...) are intentionally NOT allowlisted and remain blocked.
+  '''C[A-Z2-7]{55}''',
+  '''G[A-Z2-7]{55}''',
 ]

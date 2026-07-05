@@ -38,11 +38,7 @@ function parseIssueDate(value: string): Date | null {
     const day = Number(match[3]);
     const date = new Date(year, month - 1, day);
 
-    if (
-        date.getFullYear() !== year ||
-        date.getMonth() !== month - 1 ||
-        date.getDate() !== day
-    ) {
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
         return null;
     }
 
@@ -51,7 +47,7 @@ function parseIssueDate(value: string): Date | null {
 
 export function validateCredentialDraft(
     input: CredentialValidationInput,
-    isWalletAddressValid = defaultIsValidAddress
+    isWalletAddressValid = defaultIsValidAddress,
 ): string[] {
     const errors: string[] = [];
 
@@ -128,7 +124,10 @@ export function validateCredentialDraft(
             errors.push(`${label}: marks obtained cannot exceed max marks`);
         }
 
-        if (subject.grade?.trim() && (!gradePattern.test(subject.grade.trim()) || subject.grade.trim().length > 20)) {
+        if (
+            subject.grade?.trim() &&
+            (!gradePattern.test(subject.grade.trim()) || subject.grade.trim().length > 20)
+        ) {
             errors.push(`${label}: please enter a valid grade`);
         }
     });

@@ -1,13 +1,22 @@
+import { serverRuntimeConfig } from './runtimeConfig';
+import { captureException } from './debug';
+
 const PINATA_API_BASE = 'https://api.pinata.cloud/pinning';
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_JSON_SIZE_BYTES = 1 * 1024 * 1024;
 const ALLOWED_FILE_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/jpg', 'image/png']);
 
 function requirePinataJwt(): string {
-    const jwt = process.env.PINATA_JWT;
+    const jwt = serverRuntimeConfig.ipfs.jwt;
 
     if (!jwt) {
-        throw new Error('Missing server-only PINATA_JWT environment variable.');
+        throw new Error(
+            'Missing server-only PINATA_JWT environment variable. Set PINATA_JWT before using IPFS uploads.',
+        );
+    }
+
+    if (process.env.NODE_ENV === 'production' && !jwt) {
+        throw new Error('PINATA_JWT is required in production for IPFS uploads.');
     }
 
     return jwt;
@@ -78,7 +87,7 @@ export async function pinFileToPinata(file: File): Promise<string> {
 
     if (!response.ok) {
         const errorBody = await response.text();
-        console.error('Pinata file upload failed:', response.status, errorBody);
+        captureException(new Error(`Pinata file upload failed: ${response.status} ${errorBody}`), { context: 'pinFileToPinata' });
         throw new Error('Pinata file upload failed.');
     }
 
@@ -103,7 +112,7 @@ export async function pinJsonToPinata(content: unknown): Promise<string> {
 
     if (!response.ok) {
         const errorBody = await response.text();
-        console.error('Pinata JSON upload failed:', response.status, errorBody);
+        captureException(new Error(`Pinata JSON upload failed: ${response.status} ${errorBody}`), { context: 'pinJsonToPinata' });
         throw new Error('Pinata JSON upload failed.');
     }
 

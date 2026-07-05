@@ -8,7 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { authorizeIssuer, getContractOwner, isAuthorizedIssuer } from '@/lib/contracts';
-import { debugLog, debugWarn } from '@/lib/debug';
+import { debugLog, debugWarn, captureException } from '@/lib/debug';
 import { safeGetSession } from '@/lib/supabase';
 import { useStellarAccount } from '@/contexts/StellarContext';
 
@@ -28,7 +28,7 @@ export function AuthorizeIssuer() {
                 const owner = await getContractOwner(address);
                 setContractOwner(owner);
             } catch (error) {
-                console.error('Error loading contract owner:', error);
+                captureException(error, { context: 'loadOwner' });
             }
         };
 
@@ -62,7 +62,7 @@ export function AuthorizeIssuer() {
                 toast.success('Wallet is authorized');
             }
         } catch (error) {
-            console.error('Error checking authorization:', error);
+            captureException(error, { context: 'checkAuthorization' });
             toast.error('Failed to check authorization');
         } finally {
             setIsChecking(false);
@@ -122,15 +122,25 @@ export function AuthorizeIssuer() {
                 const data = await response.json();
                 if (data.success) {
                     debugLog('Issuer authorization synced to the database.');
+                } else {
+                    throw new Error(
+                        data.error ||
+                            'Authorization transaction could not be verified by the server.',
+                    );
                 }
             } catch (error) {
                 debugWarn('Failed to sync issuer authorization to the database.', error);
+                toast.warning(
+                    `Wallet authorized on-chain, but database sync failed: ${
+                        error instanceof Error ? (error instanceof Error ? error.message : String(error)) : 'Unknown error'
+                    }`,
+                );
             }
 
             await checkAuthorization(walletToAuthorize);
-        } catch (error: any) {
-            console.error('Error authorizing wallet:', error);
-            let msg = error.message || 'Failed to authorize wallet';
+        } catch (error: unknown) {
+            captureException(error, { context: 'handleAuthorizeWallet' });
+            let msg = (error instanceof Error ? error.message : String(error)) || 'Failed to authorize wallet';
             if (msg.includes('canceled') || msg.includes('User')) {
                 msg = 'Authorization transaction was canceled.';
             } else if (msg.includes('Network')) {
@@ -165,9 +175,7 @@ export function AuthorizeIssuer() {
 
             {contractOwner && (
                 <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
-                    <p className="mb-1 text-sm font-medium text-blue-900">
-                        Contract Owner Address
-                    </p>
+                    <p className="mb-1 text-sm font-medium text-blue-900">Contract Owner Address</p>
                     <p className="break-all text-xs font-mono text-blue-700">{contractOwner}</p>
                     <p className="mt-2 text-xs text-blue-600">
                         Only this wallet can authorize other institutions
@@ -184,11 +192,13 @@ export function AuthorizeIssuer() {
                         <p className="break-all text-xs font-mono text-teal-700">
                             {address || 'Not connected'}
                         </p>
-                        {address && contractOwner && address.toLowerCase() === contractOwner.toLowerCase() && (
-                            <p className="mt-2 text-xs font-medium text-green-600">
-                                You are the contract owner and can authorize other wallets.
-                            </p>
-                        )}
+                        {address &&
+                            contractOwner &&
+                            address.toLowerCase() === contractOwner.toLowerCase() && (
+                                <p className="mt-2 text-xs font-medium text-green-600">
+                                    You are the contract owner and can authorize other wallets.
+                                </p>
+                            )}
                     </div>
                     <Button
                         onClick={checkMyWallet}

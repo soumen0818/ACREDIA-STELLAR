@@ -25,12 +25,10 @@ export default function AdminSetupPage() {
                                 height={80}
                                 className="rounded-lg"
                             />
-                            <Shield className="absolute -bottom-2 -right-2 h-8 w-8 rounded-full bg-white p-1 text-red-600 shadow-lg" />
+                            <Shield className="absolute -bottom-2 -right-2 h-11 w-11 rounded-full bg-white p-1 text-red-600 shadow-lg" />
                         </div>
                     </div>
-                    <h1 className="text-3xl font-bold text-gray-900">
-                        Admin Setup Locked
-                    </h1>
+                    <h1 className="text-3xl font-bold text-gray-900">Admin Setup Locked</h1>
                     <p className="text-gray-600">
                         Admin accounts cannot be created from a public browser route.
                     </p>
@@ -44,7 +42,9 @@ export default function AdminSetupPage() {
                                 Public admin registration is disabled
                             </p>
                             <p className="text-xs text-red-700 mt-1">
-                                Acredia now requires administrators to be provisioned through a trusted backend/database setup path. New public signups are always treated as non-admin users until a trusted operator grants access.
+                                Acredia now requires administrators to be provisioned through a
+                                trusted backend/database setup path. New public signups are always
+                                treated as non-admin users until a trusted operator grants access.
                             </p>
                         </div>
                     </div>
@@ -54,9 +54,13 @@ export default function AdminSetupPage() {
                     <div className="flex items-start space-x-3 rounded-lg border border-gray-200 bg-white p-4">
                         <KeyRound className="h-5 w-5 text-gray-700 mt-0.5" />
                         <div>
-                            <h2 className="text-sm font-semibold text-gray-900">Trusted admin allowlist</h2>
+                            <h2 className="text-sm font-semibold text-gray-900">
+                                Trusted admin allowlist
+                            </h2>
                             <p className="text-xs text-gray-600 mt-1">
-                                Set <span className="font-mono">ADMIN_EMAIL_ALLOWLIST</span> on the server with the email addresses that are allowed to use admin API routes.
+                                Set <span className="font-mono">ADMIN_EMAIL_ALLOWLIST</span> on the
+                                server with the email addresses that are allowed to use admin API
+                                routes.
                             </p>
                         </div>
                     </div>
@@ -64,9 +68,14 @@ export default function AdminSetupPage() {
                     <div className="flex items-start space-x-3 rounded-lg border border-gray-200 bg-white p-4">
                         <Terminal className="h-5 w-5 text-gray-700 mt-0.5" />
                         <div>
-                            <h2 className="text-sm font-semibold text-gray-900">Provision from Supabase</h2>
+                            <h2 className="text-sm font-semibold text-gray-900">
+                                Provision from Supabase
+                            </h2>
                             <p className="text-xs text-gray-600 mt-1">
-                                Create the user through a trusted Supabase/admin process and update that user&apos;s profile role to <span className="font-mono">admin</span>. Never grant admin through client-submitted signup metadata.
+                                Create the user through a trusted Supabase/admin process and update
+                                that user&apos;s profile role to{' '}
+                                <span className="font-mono">admin</span>. Never grant admin through
+                                client-submitted signup metadata.
                             </p>
                         </div>
                     </div>
@@ -74,7 +83,10 @@ export default function AdminSetupPage() {
 
                 <div className="pt-4 border-t border-gray-200 space-y-2">
                     <Link href="/auth/admin-login">
-                        <Button variant="ghost" className="w-full text-gray-600 hover:text-gray-900">
+                        <Button
+                            variant="ghost"
+                            className="w-full text-gray-600 hover:text-gray-900"
+                        >
                             <ArrowLeft className="mr-2 h-4 w-4" />
                             Back to Admin Login
                         </Button>

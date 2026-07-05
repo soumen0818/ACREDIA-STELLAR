@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
@@ -9,34 +9,91 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Shield } from 'lucide-react';
-import { signIn } from '@/lib/supabase';
+import { resendVerificationEmail, safeGetSession, signIn } from '@/lib/supabase';
+import {
+    buildAuthCallbackUrl,
+    getErrorMessage,
+    isEmailConfirmationError,
+    isValidEmail,
+    sanitizeAuthRedirect,
+} from '@/lib/authFlow';
 
-export default function LoginPage() {
+function LoginForm() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const nextRedirect = sanitizeAuthRedirect(searchParams.get('next'));
+
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [resending, setResending] = useState(false);
     const [error, setError] = useState('');
+    const [message, setMessage] = useState('');
+    const [canResendVerification, setCanResendVerification] = useState(false);
+
+    useEffect(() => {
+        safeGetSession()
+            .then(({ data: { session } }) => {
+                if (session) {
+                    router.replace(nextRedirect);
+                }
+            })
+            .catch(() => {
+                // Login remains usable if session probing fails.
+            });
+    }, [nextRedirect, router]);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         setError('');
+        setMessage('');
+        setCanResendVerification(false);
 
         try {
             const { error } = await signIn(email, password);
 
             if (error) {
                 setError(error.message);
+                setCanResendVerification(isEmailConfirmationError(error.message));
                 return;
             }
 
-            // Redirect to dashboard (we'll determine role-based routing later)
-            router.push('/dashboard');
-        } catch (err: any) {
-            setError(err.message || 'An error occurred during login');
+            router.push(nextRedirect);
+        } catch (err: unknown) {
+            setError(getErrorMessage(err, 'An error occurred during login'));
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleResendVerification = async () => {
+        setError('');
+        setMessage('');
+
+        if (!isValidEmail(email)) {
+            setError('Enter the email address you used to create your account.');
+            return;
+        }
+
+        setResending(true);
+
+        try {
+            const { error } = await resendVerificationEmail(
+                email,
+                buildAuthCallbackUrl('/auth/login', nextRedirect)
+            );
+
+            if (error) {
+                setError(error.message);
+                return;
+            }
+
+            setMessage('Verification email sent. Check your inbox and follow the confirmation link.');
+        } catch (err: unknown) {
+            setError(getErrorMessage(err, 'Unable to resend verification email'));
+        } finally {
+            setResending(false);
         }
     };
 
@@ -69,29 +126,58 @@ export default function LoginPage() {
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
+                            autoComplete="email"
+                            aria-invalid={Boolean(error) && !isValidEmail(email)}
                             className="bg-gray-50 border-gray-300 text-gray-900 placeholder:text-gray-400"
                         />
                     </div>
 
                     <div>
-                        <Label htmlFor="password" className="text-gray-900">
-                            Password
-                        </Label>
+                        <div className="flex items-center justify-between gap-3">
+                            <Label htmlFor="password" className="text-gray-900">
+                                Password
+                            </Label>
+                            <Link
+                                href={`/auth/forgot-password?next=${encodeURIComponent(nextRedirect)}`}
+                                className="text-sm font-medium text-teal-600 hover:text-teal-700"
+                            >
+                                Forgot password?
+                            </Link>
+                        </div>
                         <Input
                             id="password"
                             type="password"
-                            placeholder="••••••••"
+                            placeholder="Password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             required
+                            autoComplete="current-password"
                             className="bg-gray-50 border-gray-300 text-gray-900 placeholder:text-gray-400"
                         />
                     </div>
 
                     {error && (
-                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded">
+                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded" role="alert">
                             {error}
                         </div>
+                    )}
+
+                    {message && (
+                        <div className="bg-teal-50 border border-teal-200 text-teal-700 px-4 py-2 rounded" role="status">
+                            {message}
+                        </div>
+                    )}
+
+                    {canResendVerification && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            disabled={resending}
+                            onClick={handleResendVerification}
+                            className="w-full border-teal-200 text-teal-700 hover:bg-teal-50"
+                        >
+                            {resending ? 'Sending verification email...' : 'Resend verification email'}
+                        </Button>
                     )}
 
                     <Button
@@ -107,8 +193,8 @@ export default function LoginPage() {
                     <p className="text-gray-600">
                         Don't have an account?{' '}
                         <Link
-                            href="/auth/register"
-                            className="text-blue-400 hover:text-blue-300 font-medium"
+                            href={`/auth/register?next=${encodeURIComponent(nextRedirect)}`}
+                            className="text-teal-600 hover:text-teal-700 font-medium"
                         >
                             Sign up
                         </Link>
@@ -128,12 +214,24 @@ export default function LoginPage() {
                 <div className="mt-4 text-center">
                     <Link
                         href="/"
-                        className="text-slate-400 hover:text-slate-300 text-sm"
+                        className="text-gray-500 hover:text-gray-700 text-sm"
                     >
-                        ← Back to home
+                        Back to home
                     </Link>
                 </div>
             </Card>
         </div>
+    );
+}
+
+export default function LoginPage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen bg-gradient-to-br from-gray-50 via-teal-50 to-cyan-50 flex items-center justify-center">
+                <div className="text-gray-700">Loading...</div>
+            </div>
+        }>
+            <LoginForm />
+        </Suspense>
     );
 }

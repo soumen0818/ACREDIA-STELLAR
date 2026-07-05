@@ -72,6 +72,33 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "Authorized"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "bool": true
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "Credential"
                   },
                   {
@@ -144,7 +171,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 6311999
       },
       {
         "entry": {
@@ -171,7 +198,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 6311999
       },
       {
         "entry": {
@@ -195,7 +222,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 6311999
       },
       {
         "entry": {
@@ -212,21 +239,6 @@
                     "wasm": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                   },
                   "storage": [
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "Authorized"
-                          },
-                          {
-                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "bool": true
-                      }
-                    },
                     {
                       "key": {
                         "vec": [
@@ -270,7 +282,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 6311999
       },
       {
         "entry": {
@@ -344,7 +356,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 6311999
       }
     ]
   },

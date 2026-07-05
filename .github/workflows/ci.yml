@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [ "main", "master" ]
 
+    
 permissions:
   contents: read
 
@@ -14,6 +15,84 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint-and-test:
+    name: Frontend Lint, Tests & Coverage
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run Vitest Unit Tests with Coverage
+        run: npm run test -- --coverage
+
+      - name: Enforce Minimum Coverage
+        run: |
+          node -e "const fs=require('fs'); const path='coverage/coverage-summary.json'; if(!fs.existsSync(path)){console.error('Coverage summary missing'); process.exit(1);} const summary=JSON.parse(fs.readFileSync(path,'utf8')); const lines=summary.total.lines.pct; const statements=summary.total.statements.pct; const branches=summary.total.branches.pct; const functions=summary.total.functions.pct; console.log('Coverage summary:', { lines, statements, branches, functions }); const threshold=55; if(lines < threshold || statements < threshold || branches < threshold || functions < threshold){ console.error('Coverage below minimum threshold of 55%'); process.exit(1);}"
+
+      - name: Upload Coverage Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+          if-no-files-found: warn
+
+  build:
+    name: Frontend Build
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Next.js Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder"
+          SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
+          NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT: "CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK"
+          NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT: "CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK"
+          NEXT_PUBLIC_CHAIN_ID: "testnet"
+          NEXT_PUBLIC_NETWORK_NAME: "testnet"
+          NEXT_PUBLIC_HORIZON_URL: "https://horizon-testnet.stellar.org"
+          NEXT_PUBLIC_SOROBAN_RPC_URL: "https://soroban-testnet.stellar.org"
+          NEXT_PUBLIC_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+          PINATA_JWT: "placeholder-pinata-jwt"
+          NEXT_PUBLIC_PINATA_GATEWAY: "https://gateway.pinata.cloud"
+          NEXT_PUBLIC_ENABLE_DEBUG_LOGS: "false"
+
   smart-contracts:
     name: Soroban Contract Checks
     runs-on: ubuntu-latest
@@ -46,52 +125,11 @@ jobs:
       - name: Check Formatting
         run: cargo fmt -- --check
 
+      - name: Compile to optimized WASM
+        run: cargo build --target wasm32v1-none --release
+
       - name: Run Contract Tests
         run: cargo test --lib
 
       - name: Run Clippy Linter
         run: cargo clippy --target wasm32v1-none
-
-      - name: Compile to optimized WASM
-        run: cargo build --target wasm32v1-none --release
-
-  frontend:
-    name: Frontend Tests & Build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./frontend
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Run Vitest Unit Tests
-        run: npm test
-
-      - name: Run Next.js Build
-        run: npm run build
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder"
-          SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
-          NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT: "CCGDFDLPELTOWG5H5OA4MBR5OZWDP4XJI3S3TQZVZ7XTVP77EKOFORYF"
-          NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT: "CCGDFDLPELTOWG5H5OA4MBR5OZWDP4XJI3S3TQZVZ7XTVP77EKOFORYF"
-          NEXT_PUBLIC_CHAIN_ID: "testnet"
-          NEXT_PUBLIC_NETWORK_NAME: "testnet"
-          NEXT_PUBLIC_HORIZON_URL: "https://horizon-testnet.stellar.org"
-          NEXT_PUBLIC_SOROBAN_RPC_URL: "https://soroban-testnet.stellar.org"
-          NEXT_PUBLIC_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
-          PINATA_JWT: "placeholder-pinata-jwt"
-          NEXT_PUBLIC_PINATA_GATEWAY: "https://gateway.pinata.cloud"
-          NEXT_PUBLIC_ENABLE_DEBUG_LOGS: "false"
