@@ -185,26 +185,13 @@ export const authHelpers = {
 // Database helpers
 export const dbHelpers = {
     // Institutions
-    async createInstitution(userId: string, name: string, email: string) {
-        const { data, error } = await supabase
-            .from('institutions')
-            .insert([{ auth_user_id: userId, name, email }])
-            .select()
-            .single();
-
-        if (!error && data?.id) {
-            await supabase.from('institution_users').insert([
-                {
-                    institution_id: data.id,
-                    auth_user_id: userId,
-                    role: 'owner',
-                    status: 'active',
-                },
-            ]);
-        }
-
-        return { data, error };
-    },
+    //
+    // There is no `createInstitution` here by design. It survived the Issue
+    // #239 cleanup unreferenced, but a browser-side insert into `institutions`
+    // (plus an `owner` membership row) is precisely the self-provisioning path
+    // that removing public signup was meant to close. Institutions are created
+    // only by an admin, through `POST /api/admin/institutions`, which records
+    // the provisioning admin and the POC link server-side.
 
     async getInstitution(userId: string) {
         const institutionId = await resolveInstitutionIdForUser(supabase, userId);
