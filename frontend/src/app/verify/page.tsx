@@ -124,6 +124,25 @@ function VerifyContent() {
                 detail={verificationDetail}
                 checkedAt={checkedAt}
             />
+
+            {/*
+              A credential can be issued to a wallet before its student has an
+              account (Issue #241), which would otherwise leave them holding a
+              valid credential with no way in. Offering the claim here is the
+              entry point for exactly that student (Issue #243).
+            */}
+            <Card className="mt-4 p-5 sm:p-6">
+                <h2 className="text-base font-semibold text-foreground">
+                    Is this your credential?
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                    If it was issued to your wallet and you do not have an Acredia account yet,
+                    you can claim one by proving you control that wallet.
+                </p>
+                <Button className="mt-4" asChild>
+                    <Link href="/claim">Claim your credentials</Link>
+                </Button>
+            </Card>
         </VerificationPageShell>
     );
 }

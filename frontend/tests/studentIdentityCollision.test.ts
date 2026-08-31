@@ -222,7 +222,7 @@ describe('Student Identity & Provisioning Security Tests', () => {
         expect(mockUpdate).toHaveBeenCalledWith({ auth_user_id: 'new-auth-id' });
     });
 
-    it('creates a new student record if student record does not exist by auth_user_id or email', async () => {
+    it('never creates a student record: self-registration was removed (Issue #239)', async () => {
         mockRequireAuthenticatedRequest.mockResolvedValue({
             ok: true,
             userId: 'brand-new-id',
@@ -284,14 +284,13 @@ describe('Student Identity & Provisioning Security Tests', () => {
         const res = await provisionPOST(req);
         const payload = await res.json();
 
-        expect(res.status).toBe(200);
-        expect(payload.success).toBe(true);
-        expect(payload.student.auth_user_id).toBe('brand-new-id');
-        expect(mockInsert).toHaveBeenCalledWith({
-            auth_user_id: 'brand-new-id',
-            name: 'Brand New',
-            email: 'brandnew@example.com'
-        });
+        // A student record is created by their institution (Issue #241) or by
+        // a wallet claim (Issue #243) — never by the account holder asking.
+        expect(res.status).toBe(404);
+        expect(payload.success).toBe(false);
+        expect(mockInsert).not.toHaveBeenCalled();
+        // The response points at the route that can actually help them.
+        expect(payload.claimUrl).toBe('/claim');
     });
 
     it('returns empty credentials list when student profile is missing', async () => {

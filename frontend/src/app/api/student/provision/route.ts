@@ -8,6 +8,14 @@ import { structuredLog, captureException } from '@/lib/debug';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Links a signed-in student account to its existing student record.
+ *
+ * Since Issue #239 removed self-registration this route only ever *links* —
+ * it adopts a record an institution provisioned (Issue #241) or a claim
+ * created (Issue #243), and returns 404 when there is nothing to adopt.
+ */
+
 const STUDENT_PROVISION_RATE_LIMIT = {
     windowSeconds: 60,
     maxRequests: 60,
@@ -122,27 +130,25 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: true, student: updatedStudent });
         }
 
-        // 3. No existing student profile found, create a new one
-        const userName = authUser.user.user_metadata?.name ?? userEmail.split('@')[0] ?? 'Student';
-        const { data: newStudent, error: createError } = await serviceClient
-            .from('students')
-            .insert({
-                auth_user_id: authCheck.userId,
-                name: userName,
-                email: userEmail
-            })
-            .select('id, email, auth_user_id, wallet_address')
-            .maybeSingle();
+        // 3. No student record exists for this account.
+        //
+        //    This route links an account to a record that already exists; it no
+        //    longer creates one. Self-registration was removed in Issue #239,
+        //    and a student record is created either by their institution
+        //    (Issue #241) or by a wallet-ownership claim (Issue #243). Creating
+        //    one here would reopen exactly the hole those issues closed.
+        structuredLog('INFO', 'No student record to link for account', requestId, {
+            userId: authCheck.userId,
+        });
 
-        if (createError || !newStudent) {
-            structuredLog('ERROR', 'Error creating student profile', requestId, { error: createError });
-            return NextResponse.json(
-                { success: false, error: 'Failed to create student profile' },
-                { status: 500 },
-            );
-        }
-
-        return NextResponse.json({ success: true, student: newStudent });
+        return NextResponse.json(
+            {
+                success: false,
+                error: 'No student record is linked to this account. Ask your institution to add you, or claim your credentials with the wallet they were issued to.',
+                claimUrl: '/claim',
+            },
+            { status: 404 },
+        );
     } catch (err) {
         captureException(err, { requestId, context: 'POST /api/student/provision' });
         return NextResponse.json(

@@ -7,6 +7,7 @@ import {
     Settings,
     ShieldCheck,
     Upload,
+    Users,
     Wallet,
     type LucideIcon,
 } from 'lucide-react';
@@ -88,6 +89,12 @@ const INSTITUTION_NAV: ConsoleNav = {
             href: '/dashboard/batch-import',
             icon: FileSpreadsheet,
             description: 'Issue from a CSV file',
+        },
+        {
+            label: 'Students',
+            href: '/dashboard/students',
+            icon: Users,
+            description: 'Manage your roster',
         },
         {
             label: 'Issued credentials',
