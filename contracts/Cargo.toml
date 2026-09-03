@@ -5,13 +5,13 @@ edition = "2021"
 publish = false
 
 [dependencies]
-soroban-sdk = "=26.0.1"
+soroban-sdk = "=27.0.6"
 
 [dev-dependencies]
 # Keep these aligned; newer derive_arbitrary emits try_size_hint APIs missing from arbitrary 1.3.x.
 arbitrary = { version = "=1.3.2", features = ["derive"] }
 derive_arbitrary = "=1.3.2"
-soroban-sdk = { version = "=26.0.1", features = ["testutils"] }
+soroban-sdk = { version = "=27.0.6", features = ["testutils"] }
 # Property/invariant testing for issuance & revocation (see mod proptest_invariants).
 proptest = "1"
 
