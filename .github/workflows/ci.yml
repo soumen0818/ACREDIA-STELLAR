@@ -165,7 +165,7 @@ jobs:
           rustup target add wasm32v1-none
 
       - name: Cache Cargo Dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/
