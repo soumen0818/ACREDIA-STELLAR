@@ -425,7 +425,19 @@ export async function GET(
                   studentMatch: credentialRecord.student_wallet_address
                       ? onChain.student.toLowerCase() === credentialRecord.student_wallet_address.toLowerCase()
                       : true,
-                  hashMatch: dbHash ? onChain.hash === dbHash : (safeIntegrity.status === 'verified' || safeIntegrity.status === 'match' || !dbHash),
+                  // `hashMatch` answers one narrow question: does the database's
+                  // cached hash agree with the chain? With no cached hash there
+                  // is nothing to disagree, so the check is not applicable and
+                  // must not fail — document integrity is reported separately
+                  // via `safeIntegrity`, and folding it in here would make an
+                  // IPFS gateway outage render valid credentials as unverified.
+                  //
+                  // The previous expression was
+                  //   dbHash ? … : (status === 'verified' || status === 'match' || !dbHash)
+                  // whose else-branch always evaluated to true via `!dbHash`,
+                  // while `status === 'verified'` was dead code ('verified' is
+                  // not in IntegrityStatus). Same behaviour, stated plainly.
+                  hashMatch: dbHash ? onChain.hash === dbHash : true,
                   uriMatch: expectedUri ? onChain.uri === expectedUri : true,
                   notRevoked: !onChainRevoked,
               }

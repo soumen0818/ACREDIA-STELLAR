@@ -38,9 +38,19 @@ function parsePinataCid(payload: unknown): string {
 }
 
 export function sanitizePinataFilename(name: string): string {
-    // Strip CRLF, non-printable control chars, quotes, and path separators to prevent CRLF injection & header manipulation
+    // Order matters. Leading traversal segments are removed FIRST, while the
+    // separators that delimit them are still present. Replacing separators
+    // first would turn "../../../etc/passwd.png" into ".._.._.._etc_passwd.png",
+    // and the later leading-dot strip only removes the first run — leaving
+    // "_.._.._etc_passwd.png" with the traversal intent still legible.
     const sanitized = name
+        // "../", "./", "..\", ".\" repeated any number of times.
+        .replace(/^(?:\.{1,2}[/\\])+/, '')
+        // Remaining separators collapse to "_", so no path structure survives.
+        // eslint-disable-next-line no-control-regex -- matching control characters is the entire point: they are what enables CRLF injection into the multipart headers sent to Pinata.
         .replace(/[\r\n\t\x00-\x1f\x7f-\x9f"/\\]/g, '_')
+        // Any dots still leading the name (e.g. a bare "..name") are dropped so
+        // the result can never be a relative-path token or a hidden file.
         .replace(/^\.+/, '')
         .trim();
 

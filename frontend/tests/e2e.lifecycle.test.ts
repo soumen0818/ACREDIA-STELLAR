@@ -339,6 +339,12 @@ describe('Academic Credential E2E Integration / Lifecycle', () => {
             error: null,
         });
 
+        // The database is only an index — a missing row alone no longer means
+        // "not found", because the route falls back to reading the chain
+        // directly (the resilience fix from ACREDIA-STELLAR#232). A genuine
+        // 404 therefore requires BOTH the index and the chain to have nothing.
+        mockGetCredential.mockResolvedValueOnce(null);
+
         const req = new NextRequest('http://localhost:3000/api/verify/999');
         const response = await GET(req, { params: Promise.resolve({ token: '999' }) });
         const payload = await response.json();
@@ -530,6 +536,10 @@ describe('Academic Credential E2E Integration / Lifecycle', () => {
                 lastLedger: null,
                 lastUpdated: null,
             },
+            // Surfaced so a deployment that never configured Upstash is visible
+            // in the admin console rather than silently degrading to
+            // per-instance limits. No UPSTASH_REDIS_* vars exist under test.
+            rateLimiterMode: 'in-memory-unconfigured',
         });
     });
 });

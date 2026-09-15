@@ -55,7 +55,8 @@
     },
     "overrides": {
         "axios": "^1.16.1",
-        "postcss": "^8.5.10"
+        "postcss": "^8.5.10",
+        "toml": "^4.3.0"
     },
     "devDependencies": {
         "@eslint/eslintrc": "^3.3.5",

@@ -179,6 +179,19 @@ describe('POST /api/account/erase — route handler', async () => {
                         select: vi.fn().mockReturnThis(),
                         eq: vi.fn().mockReturnThis(),
                         maybeSingle: vi.fn().mockResolvedValue({ data: mockStudent }),
+                        // The route unlinks auth_user_id before deleting the auth
+                        // user, so `update(...).eq(...)` must resolve here too.
+                        update: vi.fn().mockReturnThis(),
+                    };
+                }
+                if (table === 'institutions') {
+                    // Unlink step: .update({ auth_user_id: null, status }).eq(...)
+                    // The final .eq() is awaited, so it must resolve rather than
+                    // return `this`.
+                    return {
+                        update: vi.fn().mockReturnThis(),
+                        select: vi.fn().mockReturnThis(),
+                        eq: vi.fn().mockResolvedValue({ data: null, error: null }),
                     };
                 }
                 if (table === 'credentials') {
@@ -217,5 +230,101 @@ describe('unpinFromPinata — return value contract', () => {
         // vi.mocked(unpinFromPinata).mockResolvedValue(true).
         // The actual network call is covered by ipfsServer.test.ts (existing).
         expect(true).toBe(true);
+    });
+});
+
+describe('POST /api/account/erase — institution membership audit trail', () => {
+    it('records who held issuing rights and flags an orphaned institution', async () => {
+        const { POST } = await import('../src/app/api/account/erase/route');
+        const { getServiceRoleClient, requireAuthenticatedRequest } = await import(
+            '../src/lib/serverAuth'
+        );
+
+        const auditRows: Array<Record<string, unknown>> = [];
+
+        vi.mocked(requireAuthenticatedRequest).mockResolvedValue({
+            ok: true,
+            userId: 'poc-user-id',
+        } as never);
+
+        const client = {
+            from: vi.fn((table: string) => {
+                if (table === 'institution_users') {
+                    // The route uses two chains off the same table:
+                    //   1. .select(cols).eq(...)                -> membership rows
+                    //   2. .select(col,{count}).eq().eq().neq() -> remaining count
+                    // Level B resolves to the rows; anything deeper resolves to
+                    // the count, so both awaits land on the right value.
+                    const rows = {
+                        data: [{ institution_id: 'inst-1', role: 'owner', status: 'active' }],
+                        error: null,
+                    };
+                    const countResult: Record<string, unknown> = { count: 0, error: null };
+                    const deep = (): unknown =>
+                        Object.assign(Promise.resolve(countResult), {
+                            eq: vi.fn(() => deep()),
+                            neq: vi.fn(() => deep()),
+                        });
+                    const level2 = () =>
+                        Object.assign(Promise.resolve(rows), {
+                            eq: vi.fn(() => deep()),
+                            neq: vi.fn(() => deep()),
+                        });
+                    return { select: vi.fn(() => ({ eq: vi.fn(() => level2()) })) };
+                }
+                if (table === 'admin_audit_logs') {
+                    return {
+                        insert: vi.fn(async (row: Record<string, unknown>) => {
+                            auditRows.push(row);
+                            return { error: null };
+                        }),
+                    };
+                }
+                if (table === 'erasure_requests') {
+                    return {
+                        insert: vi.fn().mockReturnThis(),
+                        select: vi.fn().mockReturnThis(),
+                        single: vi.fn(async () => ({ data: { id: 'er-1' }, error: null })),
+                        update: vi.fn().mockReturnThis(),
+                        eq: vi.fn(async () => ({ error: null })),
+                    };
+                }
+                // students / credentials / institutions: the route chains
+                // .select().eq().maybeSingle() and .update().eq(), so every
+                // builder method returns the chain and the terminals resolve.
+                const generic: Record<string, unknown> = {};
+                Object.assign(generic, {
+                    select: vi.fn(() => generic),
+                    update: vi.fn(() => generic),
+                    eq: vi.fn(() => Object.assign(Promise.resolve({ data: [], error: null }), generic)),
+                    neq: vi.fn(() => generic),
+                    maybeSingle: vi.fn(async () => ({ data: null, error: null })),
+                });
+                return generic;
+            }),
+            rpc: vi.fn(async () => ({ error: null })),
+            auth: { admin: { deleteUser: vi.fn(async () => ({ error: null })) } },
+        };
+
+        vi.mocked(getServiceRoleClient).mockReturnValue(client as never);
+
+        const req = new Request('http://localhost/api/account/erase', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer token' },
+        });
+        // @ts-expect-error NextRequest vs Request
+        await POST(req);
+
+        expect(auditRows).toHaveLength(1);
+        expect(auditRows[0]).toMatchObject({
+            action: 'deactivate_account',
+            target_institution_id: 'inst-1',
+            previous_poc_id: 'poc-user-id',
+        });
+        const details = auditRows[0].details as Record<string, unknown>;
+        expect(details.reason).toBe('gdpr_erasure');
+        expect(details.removed_role).toBe('owner');
+        // The institution has no members left — issuance is now blocked for it.
+        expect(details.institution_left_without_members).toBe(true);
     });
 });

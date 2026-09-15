@@ -67,7 +67,12 @@ describe('verify route rate limiting', () => {
                 },
             });
 
-        for (let index = 0; index < 10; index += 1) {
+        // Matches VERIFY_RATE_LIMIT.maxRequests for the anonymous (per-IP) path.
+        // Raised from 10 to 60 so a university behind a single NAT egress
+        // address is not throttled; keep this in step with the route.
+        const ANONYMOUS_LIMIT = 60;
+
+        for (let index = 0; index < ANONYMOUS_LIMIT; index += 1) {
             const response = await GET(makeRequest() as any, {
                 params: Promise.resolve({ token: 'token-123' }),
             });

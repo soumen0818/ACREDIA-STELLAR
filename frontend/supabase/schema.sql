@@ -14,7 +14,7 @@
 --   • DROP POLICY / TRIGGER IF EXISTS before each CREATE
 -- Existing objects are skipped; missing ones are created. No data is dropped.
 --
--- Generated: 2026-08-28T09:13:16Z
+-- Generated: 2026-09-15T19:52:25Z
 -- ============================================================================
 
 
@@ -155,20 +155,6 @@ ALTER TABLE public.credentials
     ALTER COLUMN hash_algorithm SET DEFAULT 'sha256:canonical-json:v1',
     ALTER COLUMN metadata_schema_version SET NOT NULL,
     ALTER COLUMN hash_algorithm SET NOT NULL;
-
--- Database-level guard against deleting credentials (Issue #232)
-CREATE OR REPLACE FUNCTION public.prevent_credential_deletion()
-RETURNS TRIGGER AS $$
-BEGIN
-    RAISE EXCEPTION 'Deleting credentials is not allowed. They are immutable business records.';
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS block_credential_delete ON public.credentials;
-CREATE TRIGGER block_credential_delete
-    BEFORE DELETE ON public.credentials
-    FOR EACH ROW
-    EXECUTE FUNCTION public.prevent_credential_deletion();
 
 -- ---------------------------------------------------------------------
 -- Functions
@@ -1754,6 +1740,9 @@ ON CONFLICT (institution_id, auth_user_id) DO NOTHING;
 COMMIT;
 
 
+-- ============================================================================
+-- migration: 20260807000000_institution_provisioning.sql
+-- ============================================================================
 
 -- =====================================================================
 -- ACREDIA-STELLAR — ADMIN INSTITUTION PROVISIONING (IDEMPOTENT)
@@ -1822,6 +1811,11 @@ ALTER TABLE public.admin_audit_logs
     );
 
 COMMIT;
+
+
+-- ============================================================================
+-- migration: 20260808000000_institution_membership.sql
+-- ============================================================================
 
 -- =====================================================================
 -- ACREDIA-STELLAR — ONE LOGIN PER INSTITUTION -> MEMBERSHIP (IDEMPOTENT)
@@ -2122,6 +2116,11 @@ COMMENT ON COLUMN public.institutions.auth_user_id IS
 
 COMMIT;
 
+
+-- ============================================================================
+-- migration: 20260809000000_triage_self_signups.sql
+-- ============================================================================
+
 -- =====================================================================
 -- ACREDIA-STELLAR — TRIAGE SELF-SIGNUP ACCOUNTS (IDEMPOTENT)
 -- Issue #239: Remove public self-signup; move to closed provisioning
@@ -2253,6 +2252,11 @@ DROP FUNCTION IF EXISTS public.handle_new_student_user();
 DROP POLICY IF EXISTS "Students can insert own data" ON public.students;
 
 COMMIT;
+
+
+-- ============================================================================
+-- migration: 20260810000000_student_provisioning_and_claim.sql
+-- ============================================================================
 
 -- =====================================================================
 -- ACREDIA-STELLAR — STUDENT PROVISIONING & WALLET CLAIM (IDEMPOTENT)
@@ -2443,3 +2447,45 @@ ALTER TABLE public.admin_audit_logs
     );
 
 COMMIT;
+
+
+-- ============================================================================
+-- migration: 20260831000000_fix_account_deletion_cascade.sql
+-- ============================================================================
+
+-- Issue #232: Fix Account Deletion Cascades
+-- 
+-- 1. Drop the old FK constraints that cascaded deletes
+-- 2. Add new constraints that use SET NULL (auth -> profile) and RESTRICT (profile -> credentials)
+-- 3. Add a trigger to block DELETEs on the credentials table outright.
+
+-- Fix Institutions
+ALTER TABLE public.institutions DROP CONSTRAINT IF EXISTS institutions_auth_user_id_fkey;
+ALTER TABLE public.institutions ADD CONSTRAINT institutions_auth_user_id_fkey FOREIGN KEY (auth_user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+-- Fix Students
+ALTER TABLE public.students DROP CONSTRAINT IF EXISTS students_auth_user_id_fkey;
+ALTER TABLE public.students ADD CONSTRAINT students_auth_user_id_fkey FOREIGN KEY (auth_user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+-- Fix Credentials (student relation)
+ALTER TABLE public.credentials DROP CONSTRAINT IF EXISTS credentials_student_id_fkey;
+ALTER TABLE public.credentials ADD CONSTRAINT credentials_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE RESTRICT;
+
+-- Fix Credentials (institution relation)
+ALTER TABLE public.credentials DROP CONSTRAINT IF EXISTS credentials_institution_id_fkey;
+ALTER TABLE public.credentials ADD CONSTRAINT credentials_institution_id_fkey FOREIGN KEY (institution_id) REFERENCES public.institutions(id) ON DELETE RESTRICT;
+
+-- Database-level guard against deleting credentials
+CREATE OR REPLACE FUNCTION public.prevent_credential_deletion()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'Deleting credentials is not allowed. They are immutable business records.';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS block_credential_delete ON public.credentials;
+CREATE TRIGGER block_credential_delete
+    BEFORE DELETE ON public.credentials
+    FOR EACH ROW
+    EXECUTE FUNCTION public.prevent_credential_deletion();
+

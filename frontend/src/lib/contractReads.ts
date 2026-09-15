@@ -58,7 +58,7 @@ export interface OnChainCredential {
     revoked?: boolean;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- shared read helper kept for callers/tests; see contractReads audit note
+ 
 async function simulate(method: string, args: xdr.ScVal[]): Promise<unknown> {
     if (!CONTRACT_ID) {
         throw new ContractConfigurationError('Missing contract configuration: CONTRACT_ID not configured');

@@ -84,4 +84,39 @@ describe('runtime config environment validation', () => {
 
         errorSpy.mockRestore();
     });
+    // ── Mainnet safety ────────────────────────────────────────────────────────
+    it('refuses to boot on mainnet with the known testnet contract', async () => {
+        // Degrading past this would let the app issue and verify real
+        // credentials against a testnet contract while appearing healthy —
+        // the worst failure mode for a product whose value is trust.
+        vi.stubEnv('NODE_ENV', 'production');
+        vi.stubEnv('NEXT_PUBLIC_STELLAR_NETWORK', 'mainnet');
+        // A complete, otherwise-valid mainnet config, so the failure can only
+        // come from the testnet-contract guard and not from a missing value.
+        vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://example.supabase.co');
+        vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'sb_publishable_example');
+        vi.stubEnv(
+            'NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT',
+            'CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK',
+        );
+        vi.stubEnv(
+            'NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT',
+            'CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK',
+        );
+
+        await expect(import('../src/lib/runtimeConfig')).rejects.toThrow(
+            /Cannot use the known testnet contract/i,
+        );
+    });
+
+    it('still degrades gracefully for merely-missing configuration', async () => {
+        // The mainnet guard must not turn every config problem into a hard
+        // crash — a missing Supabase URL should still render a navigable app
+        // rather than a white screen.
+        vi.stubEnv('NODE_ENV', 'production');
+        vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', '');
+
+        const mod = await import('../src/lib/runtimeConfig');
+        expect(mod.runtimeConfig.supabase.url).toBe('');
+    });
 });

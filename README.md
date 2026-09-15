@@ -268,7 +268,31 @@ This single contract replaces two separate EVM contracts (CredentialNFT + Creden
 
 ### Stellar Mainnet (Deferred — testnet now, mainnet later)
 
-Acredia is **production-ready on Stellar testnet today**. Mainnet deployment is intentionally deferred — going live is a **configuration switch** (`NEXT_PUBLIC_STELLAR_NETWORK` + contract addresses) once the mainnet-readiness checklist (independent contract audit, key custody, keeper strategy — see the [roadmap backlog](ISSUE_DRAFTS.md)) is complete. Mainnet endpoints, for reference:
+Acredia is **production-ready on Stellar testnet today**. Mainnet is deliberately **not yet enabled**.
+
+The application is built so the move is a **configuration switch**
+(`NEXT_PUBLIC_STELLAR_NETWORK` + contract addresses) rather than a rewrite — but
+configuration is not the only gate. Four blockers remain, and they are
+governance and operational rather than code:
+
+| Blocker | Status |
+|---|---|
+| Independent smart-contract audit | ❌ Not started |
+| Contract owner key custody (multisig / HSM) | ❌ Not decided |
+| Credential TTL keeper (funded + monitored) | ⚠️ Partial |
+| Distributed rate limiting provisioned | ⚠️ Not provisioned |
+
+**Current readiness: 5 of 11 areas complete.** The full, honest breakdown —
+what is finished, what is not, and the exact cutover procedure — is in
+**[docs/mainnet-readiness.md](docs/mainnet-readiness.md)**.
+Operational runbooks (POC handover, recovery links, wallet changes) are in
+**[docs/support-procedures.md](docs/support-procedures.md)**.
+
+> **Safety rail:** a deployment configured for mainnet while still pointing at a
+> known testnet contract **will refuse to boot**. This is intentional. Unsafe
+> configuration fails loudly; merely-missing configuration degrades gracefully.
+
+Mainnet endpoints, for reference:
 
 **Network**: Stellar Public Network  
 **RPC Endpoint**: `https://soroban-mainnet.stellar.org`  
