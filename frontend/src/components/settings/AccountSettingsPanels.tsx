@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
 import { safeGetSession } from '@/lib/supabase';
 import { ApiKeysManager } from '@/app/dashboard/settings/ApiKeysManager';
+import { AccountInformationPanel } from '@/components/settings/AccountInformationPanel';
 
 /**
  * Account settings panels, shared by the member dashboard and the admin console.
@@ -72,41 +73,7 @@ export function AccountSettingsPanels() {
 
     return (
         <div className="mx-auto max-w-2xl space-y-8">
-            {/* Account info */}
-            <Card className="p-6">
-                <h2 className="text-lg font-semibold text-foreground">Account information</h2>
-                <dl className="mt-4 space-y-3 text-sm">
-                    <div className="flex items-center justify-between gap-4">
-                        <dt className="text-muted-foreground">Email</dt>
-                        <dd className="truncate font-medium text-foreground">
-                            {user?.email ?? '—'}
-                        </dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-4">
-                        <dt className="text-muted-foreground">User ID</dt>
-                        <dd className="truncate font-mono text-xs text-muted-foreground">
-                            {user?.id ?? '—'}
-                        </dd>
-                    </div>
-                </dl>
-                <div className="mt-5 flex flex-wrap gap-3 text-sm">
-                    <Link
-                        href="/legal/privacy"
-                        className="text-primary underline hover:text-primary/80"
-                    >
-                        Privacy Policy
-                    </Link>
-                    <Link
-                        href="/legal/terms"
-                        className="text-primary underline hover:text-primary/80"
-                    >
-                        Terms of Service
-                    </Link>
-                    <Link href="/legal/dpa" className="text-primary underline hover:text-primary/80">
-                        Data Processing Agreement
-                    </Link>
-                </div>
-            </Card>
+            <AccountInformationPanel />
 
             {/* API Keys (for institutions) */}
             {user?.user_metadata?.role === 'institution' && <ApiKeysManager />}
