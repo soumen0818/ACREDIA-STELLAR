@@ -27,28 +27,18 @@ async function runAxe(page: Page) {
     });
 }
 
-test('core pages pass WCAG 2.1 AA accessibility audit', async ({ page }) => {
-    // Unauthenticated pages
-    await page.goto('/');
-    let results = await runAxe(page);
-    expect(results.violations, `Home page violations: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
+/** Audits one route and reports violations against that route by name. */
+async function expectNoViolations(page: Page, path: string) {
+    await page.goto(path);
+    const results = await runAxe(page);
+    expect(
+        results.violations,
+        `${path} violations: ${JSON.stringify(results.violations, null, 2)}`,
+    ).toEqual([]);
+}
 
-    await page.goto('/about');
-    results = await runAxe(page);
-    expect(results.violations, `About page violations: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
-
-    await page.goto('/auth/login');
-    results = await runAxe(page);
-    expect(results.violations, `Login page violations: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
-
-    // Registration was removed (Issue #239); contact is where onboarding
-    // starts now, so that is the page worth auditing.
-    await page.goto('/contact');
-    results = await runAxe(page);
-    expect(results.violations, `Contact page violations: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
-
-    // Authenticated institution state
-    const institutionState = createE2eState({
+function institutionState() {
+    return createE2eState({
         role: 'institution',
         walletAddress: 'GAcrediaIssuerWallet0000000000000000000000000000001',
         authorizedIssuers: ['GAcrediaIssuerWallet0000000000000000000000000000001'],
@@ -73,34 +63,10 @@ test('core pages pass WCAG 2.1 AA accessibility audit', async ({ page }) => {
             },
         ],
     });
+}
 
-    await seedE2eState(page, institutionState);
-    await installE2eRoutes(page);
-
-    await page.goto('/dashboard');
-    results = await runAxe(page);
-    expect(results.violations, `Dashboard page violations: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
-
-    // The former institution tabs are real routes now, so each one is audited
-    // in its own right.
-    await page.goto('/dashboard/issue');
-    results = await runAxe(page);
-    expect(results.violations, `Issue credential page violations: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
-
-    await page.goto('/dashboard/issued');
-    results = await runAxe(page);
-    expect(results.violations, `Issued credentials page violations: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
-
-    await page.goto('/verify?token=1');
-    results = await runAxe(page);
-    expect(results.violations, `Verify page violations: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
-
-    await page.goto('/credentials/1');
-    results = await runAxe(page);
-    expect(results.violations, `Public Credential page violations: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
-
-    // Authenticated admin state
-    const adminState = createE2eState({
+function adminState() {
+    return createE2eState({
         role: 'admin',
         walletAddress: 'GAcrediaAdminWallet00000000000000000000000000000001',
         contractOwner: 'GAcrediaAdminWallet00000000000000000000000000000001',
@@ -110,24 +76,86 @@ test('core pages pass WCAG 2.1 AA accessibility audit', async ({ page }) => {
             access_token: 'e2e-admin-token',
         },
     });
+}
 
-    // Switching roles mid-test has to overwrite the stored state — re-seeding
-    // would be ignored and this audit would silently re-check /dashboard.
-    await applyE2eState(page, adminState);
+/**
+ * The WCAG audit is split by area rather than run as one long test.
+ *
+ * Auditing eleven routes in a single test took ~37s of a 45s budget on a fast
+ * developer machine, leaving almost no headroom — on CI's 2-core runner it
+ * exceeded the timeout and failed as "Test timeout of 45000ms exceeded", which
+ * reads like an accessibility failure but is purely a scheduling one.
+ *
+ * Splitting gives each group its own budget and, just as importantly, names the
+ * failing area instead of reporting a single opaque timeout. Raising the global
+ * timeout would have hidden the fragility rather than removed it.
+ */
+test.describe('WCAG 2.1 AA accessibility audit', () => {
+    test('public pages', async ({ page }) => {
+        await expectNoViolations(page, '/');
+        await expectNoViolations(page, '/about');
+        await expectNoViolations(page, '/auth/login');
+        // Registration was removed (Issue #239); contact is where onboarding
+        // starts now, so that is the page worth auditing.
+        await expectNoViolations(page, '/contact');
+    });
 
-    await page.goto('/admin');
-    // Guards the role switch above: as an institution this page would redirect
-    // to /dashboard and the audit below would pass without ever seeing /admin.
-    await expect(page.getByRole('navigation', { name: 'Admin navigation' })).toBeVisible();
-    results = await runAxe(page);
-    expect(results.violations, `Admin page violations: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
+    test('institution console', async ({ page }) => {
+        await seedE2eState(page, institutionState());
+        await installE2eRoutes(page);
 
-    // The wallet gate is a distinct visual treatment (warning-toned, centred),
-    // so it gets audited in its own right (ACREDIA-STELLAR#225).
-    await applyE2eState(page, { ...adminState, walletAddress: null });
+        await expectNoViolations(page, '/dashboard');
+        // The former institution tabs are real routes now, so each one is
+        // audited in its own right.
+        await expectNoViolations(page, '/dashboard/issue');
+        await expectNoViolations(page, '/dashboard/issued');
+    });
 
-    await page.goto('/admin');
-    await expect(page.getByRole('heading', { name: 'Wallet connection required' })).toBeVisible();
-    results = await runAxe(page);
-    expect(results.violations, `Admin wallet gate violations: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
+    test('public verification surfaces', async ({ page }) => {
+        await seedE2eState(page, institutionState());
+        await installE2eRoutes(page);
+
+        await expectNoViolations(page, '/verify?token=1');
+        await expectNoViolations(page, '/credentials/1');
+    });
+
+    test('admin console, including the wallet gate', async ({ page }) => {
+        await seedE2eState(page, institutionState());
+        await installE2eRoutes(page);
+
+        // `applyE2eState` writes to sessionStorage, which throws
+        // "Access is denied for this document" on the blank page a fresh
+        // context starts on. Navigate first so there is a real origin to
+        // write to — the original single-test version got this for free from
+        // the preceding audits.
+        await page.goto('/');
+
+        // Switching roles has to overwrite the stored state — re-seeding would
+        // be ignored and this audit would silently re-check /dashboard.
+        const admin = adminState();
+        await applyE2eState(page, admin);
+
+        await page.goto('/admin');
+        // Guards the role switch above: as an institution this page would
+        // redirect to /dashboard and the audit below would pass without ever
+        // seeing /admin.
+        await expect(page.getByRole('navigation', { name: 'Admin navigation' })).toBeVisible();
+        let results = await runAxe(page);
+        expect(
+            results.violations,
+            `/admin violations: ${JSON.stringify(results.violations, null, 2)}`,
+        ).toEqual([]);
+
+        // The wallet gate is a distinct visual treatment (warning-toned,
+        // centred), so it gets audited in its own right (ACREDIA-STELLAR#225).
+        await applyE2eState(page, { ...admin, walletAddress: null });
+
+        await page.goto('/admin');
+        await expect(page.getByRole('heading', { name: 'Wallet connection required' })).toBeVisible();
+        results = await runAxe(page);
+        expect(
+            results.violations,
+            `/admin wallet gate violations: ${JSON.stringify(results.violations, null, 2)}`,
+        ).toEqual([]);
+    });
 });
