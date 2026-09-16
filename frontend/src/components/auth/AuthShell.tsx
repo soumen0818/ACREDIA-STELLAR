@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { NetworkBadge } from '@/components/marketing/NetworkBadge';
 
 const highlights = [
     'Issue tamper-proof credentials in minutes',
@@ -66,13 +67,7 @@ export function AuthShell({ title, subtitle, children, footer, variant = 'defaul
                 </div>
 
                 {/* Bottom: network status */}
-                <div className="relative z-10 mt-4 inline-flex items-center gap-2 text-xs font-medium text-white/60">
-                    <span className="relative flex h-2 w-2">
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success/60" />
-                        <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
-                    </span>
-                    Live on Stellar Testnet
-                </div>
+                <NetworkBadge className="relative z-10 mt-4" tone="inverted" />
             </div>
 
             {/* Form panel */}

@@ -8,7 +8,6 @@ import {
     Building2,
     Check,
     Copy,
-    ExternalLink,
     FileText,
     History,
     KeyRound,

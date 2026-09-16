@@ -26,7 +26,7 @@ const STELLAR_ENDPOINTS = [
     'horizon-testnet.stellar.org',
     'soroban-testnet.stellar.org',
     'horizon.stellar.org',
-    'soroban-mainnet.stellar.org',
+    'mainnet.sorobanrpc.com',
 ];
 
 const IMAGE_DOMAINS = [

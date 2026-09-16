@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceRoleClient, requireAuthenticatedRequest } from '@/lib/serverAuth';
+import { getSiteUrl } from '@/lib/siteUrl';
 import { structuredLog } from '@/lib/debug';
 import { enforceRateLimit } from '@/lib/rateLimit';
 import { canWrite, resolveInstitutionForUser } from '@/lib/institutionMembership';
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: false, error: 'Student email not available' }, { status: 400 });
         }
 
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://acredia.io';
+        const appUrl = getSiteUrl();
         const credentialUrl = `${appUrl}/verify/${tokenId}`;
         const studentName = credential.metadata?.credentialData?.studentName || 'Student';
 

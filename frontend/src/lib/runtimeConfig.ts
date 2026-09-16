@@ -72,7 +72,11 @@ type ServerRuntimeConfig = {
 const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015';
 const MAINNET_PASSPHRASE = 'Public Global Stellar Network ; September 2015';
 
-const NETWORK_DEFAULTS: Record<Exclude<StellarNetworkKind, 'custom'>, StellarNetworkConfig> = {
+/**
+ * Exported for tests: a wrong endpoint default is invisible until the network is
+ * switched, at which point every contract read fails simultaneously.
+ */
+export const NETWORK_DEFAULTS: Record<Exclude<StellarNetworkKind, 'custom'>, StellarNetworkConfig> = {
     testnet: {
         kind: 'testnet',
         horizonUrl: 'https://horizon-testnet.stellar.org',
@@ -84,7 +88,11 @@ const NETWORK_DEFAULTS: Record<Exclude<StellarNetworkKind, 'custom'>, StellarNet
     mainnet: {
         kind: 'mainnet',
         horizonUrl: 'https://horizon.stellar.org',
-        sorobanRpcUrl: 'https://soroban-mainnet.stellar.org',
+        // `soroban-mainnet.stellar.org` does not resolve — it was never a real
+        // host. The SDF-operated public RPC is mainnet.sorobanrpc.com; verified
+        // healthy before this change. Getting this wrong would have failed every
+        // contract read on the day of the mainnet cutover.
+        sorobanRpcUrl: 'https://mainnet.sorobanrpc.com',
         networkPassphrase: MAINNET_PASSPHRASE,
         networkName: 'public',
         explorerBaseUrl: 'https://stellar.expert/explorer/public',
@@ -180,6 +188,30 @@ function looksLikePlaceholder(value: string): boolean {
 
 function configError(message: string): never {
     throw new Error(`[runtime-config] ${message}`);
+}
+
+/**
+ * A configuration error that must NEVER be degraded past.
+ *
+ * `initRuntimeConfig()` deliberately swallows ordinary config errors and boots
+ * in degraded mode, so a missing `NEXT_PUBLIC_*` variable shows a broken-but-
+ * navigable app instead of a white screen. That trade-off is wrong for errors
+ * where continuing is actively dangerous — above all, pointing at a testnet
+ * contract while the network is set to mainnet. Degrading there would let the
+ * app issue and verify against the wrong ledger while looking healthy, which is
+ * the worst possible failure for a product whose entire value is trust.
+ *
+ * Errors of this class are re-thrown, failing the boot loudly.
+ */
+export class UnsafeConfigError extends Error {
+    constructor(message: string) {
+        super(`[runtime-config] ${message}`);
+        this.name = 'UnsafeConfigError';
+    }
+}
+
+function unsafeConfigError(message: string): never {
+    throw new UnsafeConfigError(message);
 }
 
 function requireProductionValue(name: string, value: string | undefined, isProduction: boolean): string {
@@ -329,7 +361,13 @@ function readContractId(name: ContractName, envName: string, isProduction: boole
     // Fail fast if a known testnet contract is used on mainnet
     const KNOWN_TESTNET_CONTRACT = 'CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK';
     if (networkKind === 'mainnet' && value === KNOWN_TESTNET_CONTRACT) {
-        configError(`Cannot use the known testnet contract ${value} on mainnet for ${name}. Update your environment variables.`);
+        // Unsafe, not merely invalid: booting past this would issue and verify
+        // real credentials against a testnet contract while reporting success.
+        unsafeConfigError(
+            `Cannot use the known testnet contract ${value} on mainnet for ${name}. `
+                + 'Update NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT / '
+                + 'NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT to the deployed mainnet contract IDs.',
+        );
     }
 
     return value;
@@ -484,6 +522,13 @@ function initRuntimeConfig(): RuntimeConfig {
     try {
         return buildRuntimeConfig();
     } catch (error) {
+        // Never degrade past an unsafe configuration — see UnsafeConfigError.
+        // A mainnet deployment pointed at a testnet contract must fail the boot,
+        // not serve a confident-looking app backed by the wrong ledger.
+        if (error instanceof UnsafeConfigError) {
+            throw error;
+        }
+
         const message = error instanceof Error ? error.message : String(error);
         // Intentionally logged directly (not via debug.ts, whose logging is gated
         // off in production) so this misconfiguration is always visible.
@@ -518,3 +563,6 @@ export function assertValidStellarPublicKey(value: unknown, label = 'Wallet addr
 
     return value.trim();
 }
+
+/** Alias used by tests to assert endpoint correctness. */
+export const NETWORK_ENDPOINTS = NETWORK_DEFAULTS;

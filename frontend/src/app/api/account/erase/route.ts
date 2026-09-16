@@ -12,6 +12,63 @@ const ACCOUNT_ERASE_RATE_LIMIT = {
     prefix: 'account-erase',
 } as const;
 
+type ServiceClient = ReturnType<typeof getServiceRoleClient>;
+
+/**
+ * Writes an audit record for every institution membership this user holds,
+ * before the auth user is deleted and the rows cascade away.
+ *
+ * Deliberately best-effort: an erasure request is a legal obligation and must
+ * not fail because the audit write did. Failures are captured for follow-up.
+ */
+async function recordMembershipRemoval(
+    serviceClient: ServiceClient,
+    userId: string,
+    requestId: string,
+): Promise<void> {
+    try {
+        const { data: memberships } = await serviceClient
+            .from('institution_users')
+            .select('institution_id, role, status')
+            .eq('auth_user_id', userId);
+
+        if (!memberships?.length) {
+            return;
+        }
+
+        for (const membership of memberships) {
+            // Count the members that will remain once this one is gone, so a
+            // newly-orphaned institution is visible in the audit trail.
+            const { count: remainingActive } = await serviceClient
+                .from('institution_users')
+                .select('id', { count: 'exact', head: true })
+                .eq('institution_id', membership.institution_id)
+                .eq('status', 'active')
+                .neq('auth_user_id', userId);
+
+            await serviceClient.from('admin_audit_logs').insert({
+                action: 'deactivate_account',
+                target_institution_id: membership.institution_id,
+                previous_poc_id: userId,
+                details: {
+                    reason: 'gdpr_erasure',
+                    removed_role: membership.role,
+                    removed_status: membership.status,
+                    remaining_active_members: remainingActive ?? 0,
+                    // The signal an operator needs: this institution can no
+                    // longer issue until a new member is provisioned.
+                    institution_left_without_members: (remainingActive ?? 0) === 0,
+                },
+            });
+        }
+    } catch (error) {
+        captureException(error, {
+            requestId,
+            context: 'POST /api/account/erase - recordMembershipRemoval',
+        });
+    }
+}
+
 /**
  * POST /api/account/erase
  *
@@ -136,6 +193,18 @@ export async function POST(request: NextRequest) {
                 .update({ auth_user_id: null })
                 .eq('auth_user_id', userId),
         ]);
+
+        // `institution_users.auth_user_id` is ON DELETE CASCADE, so deleting the
+        // auth user below silently removes every membership row. That is safe
+        // for credentials, but it erases the record of who held issuing rights —
+        // which must remain auditable, because a credential issued in the past
+        // was signed under that authority. Capture it first.
+        //
+        // This also surfaces the continuity risk: if the erased user was the
+        // institution's only active member, nobody can issue for it any more and
+        // an admin has to re-provision a POC. That is recorded rather than left
+        // to be discovered when issuance fails.
+        await recordMembershipRemoval(serviceClient, userId, requestId);
 
         // 5. Delete the auth user — cascades to profiles via FK, but business records survive.
         const { error: deleteAuthError } = await serviceClient.auth.admin.deleteUser(userId);

@@ -5,7 +5,7 @@ import { Building2, GraduationCap, Mail, MessageSquare, ShieldCheck } from 'luci
 import { SiteNavbar } from '@/components/marketing/SiteNavbar';
 import { SiteFooter } from '@/components/marketing/SiteFooter';
 import { ContactForm } from '@/components/marketing/ContactForm';
-import { CONTACT_EMAIL, CONTACT_MAILTO, TWITTER_HANDLE, TWITTER_URL } from '@/lib/contact';
+import { CONTACT_EMAIL, CONTACT_MAILTO, TWITTER_HANDLE, TWITTER_URL, hasTwitter } from '@/lib/contact';
 
 export const metadata: Metadata = {
     title: 'Contact — Acredia',
@@ -98,24 +98,28 @@ export default function ContactPage() {
                                     </span>
                                 </a>
 
-                                <a
-                                    href={TWITTER_URL}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-4 rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary/30 hover:shadow-md"
-                                >
-                                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                                        <XMark className="h-4 w-4" />
-                                    </span>
-                                    <span className="min-w-0">
-                                        <span className="block text-sm font-semibold text-foreground">
-                                            Follow us on X
+                                {/* Rendered only when a real handle is configured —
+                                    see hasTwitter in @/lib/contact. */}
+                                {hasTwitter && (
+                                    <a
+                                        href={TWITTER_URL as string}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-4 rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary/30 hover:shadow-md"
+                                    >
+                                        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                                            <XMark className="h-4 w-4" />
                                         </span>
-                                        <span className="block truncate text-sm text-muted-foreground">
-                                            {TWITTER_HANDLE}
+                                        <span className="min-w-0">
+                                            <span className="block text-sm font-semibold text-foreground">
+                                                Follow us on X
+                                            </span>
+                                            <span className="block truncate text-sm text-muted-foreground">
+                                                {TWITTER_HANDLE}
+                                            </span>
                                         </span>
-                                    </span>
-                                </a>
+                                    </a>
+                                )}
                             </div>
 
                             <p className="mt-6 text-sm text-muted-foreground">

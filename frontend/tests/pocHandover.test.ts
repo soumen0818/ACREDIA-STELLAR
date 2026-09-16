@@ -12,7 +12,7 @@ type MockDbState = {
 
 const state: MockDbState = {
     institution: {
-        id: '11111111-1111-1111-1111-111111111111',
+        id: '11111111-1111-4111-a111-111111111111',
         name: 'Oxford University',
         email: 'old.poc@oxford.edu',
         auth_user_id: 'user-old-poc',
@@ -27,7 +27,7 @@ const state: MockDbState = {
     },
     institutionUsers: [
         {
-            institution_id: '11111111-1111-1111-1111-111111111111',
+            institution_id: '11111111-1111-4111-a111-111111111111',
             auth_user_id: 'user-old-poc',
             role: 'poc',
             is_active: true,
@@ -55,7 +55,10 @@ vi.mock('@supabase/supabase-js', () => ({
             auth: {
                 admin: {
                     getUserById: vi.fn(async () => ({
-                        data: { user: { email: state.authUserEmail } },
+                        // `requireAdminRequest` forwards this whole user object
+                        // into `resolveUserRole`, which looks up
+                        // profiles.id — so `id` must be present, not just email.
+                        data: { user: { id: 'admin-user-id', email: state.authUserEmail } },
                         error: null,
                     })),
                     createUser: vi.fn(async ({ email, user_metadata }: { email: string; user_metadata?: { name?: string } }) => {
@@ -75,7 +78,7 @@ vi.mock('@supabase/supabase-js', () => ({
                         data: { users: [] },
                         error: null,
                     })),
-                    generateLink: vi.fn(async ({ type, email }: { type: string; email: string }) => ({
+                    generateLink: vi.fn(async ({ type, email: _email }: { type: string; email: string }) => ({
                         data: {
                             properties: {
                                 action_link: `https://example.supabase.co/auth/v1/verify?token=mock-${type}-token&type=${type}&redirect_to=http://localhost:3000/auth/reset-password`,
@@ -169,7 +172,7 @@ describe('POST /api/admin/institutions/[id]/poc-handover', () => {
         process.env.ADMIN_EMAIL_ALLOWLIST = 'admin@example.com';
 
         state.institution = {
-            id: '11111111-1111-1111-1111-111111111111',
+            id: '11111111-1111-4111-a111-111111111111',
             name: 'Oxford University',
             email: 'old.poc@oxford.edu',
             auth_user_id: 'user-old-poc',
@@ -184,7 +187,7 @@ describe('POST /api/admin/institutions/[id]/poc-handover', () => {
         };
         state.institutionUsers = [
             {
-                institution_id: '11111111-1111-1111-1111-111111111111',
+                institution_id: '11111111-1111-4111-a111-111111111111',
                 auth_user_id: 'user-old-poc',
                 role: 'poc',
                 is_active: true,
@@ -199,7 +202,7 @@ describe('POST /api/admin/institutions/[id]/poc-handover', () => {
         );
 
         const request = new NextRequest(
-            'http://localhost:3000/api/admin/institutions/11111111-1111-1111-1111-111111111111/poc-handover',
+            'http://localhost:3000/api/admin/institutions/11111111-1111-4111-a111-111111111111/poc-handover',
             {
                 method: 'POST',
                 headers: new Headers({
@@ -217,7 +220,7 @@ describe('POST /api/admin/institutions/[id]/poc-handover', () => {
         );
 
         const response = await POST(request, {
-            params: Promise.resolve({ id: '11111111-1111-1111-1111-111111111111' }),
+            params: Promise.resolve({ id: '11111111-1111-4111-a111-111111111111' }),
         });
 
         const json = await response.json();
@@ -248,7 +251,7 @@ describe('POST /api/admin/institutions/[id]/poc-handover', () => {
         );
 
         const request = new NextRequest(
-            'http://localhost:3000/api/admin/institutions/11111111-1111-1111-1111-111111111111/poc-handover',
+            'http://localhost:3000/api/admin/institutions/11111111-1111-4111-a111-111111111111/poc-handover',
             {
                 method: 'POST',
                 headers: new Headers({
@@ -263,7 +266,7 @@ describe('POST /api/admin/institutions/[id]/poc-handover', () => {
         );
 
         const response = await POST(request, {
-            params: Promise.resolve({ id: '11111111-1111-1111-1111-111111111111' }),
+            params: Promise.resolve({ id: '11111111-1111-4111-a111-111111111111' }),
         });
 
         expect(response.status).toBe(400);

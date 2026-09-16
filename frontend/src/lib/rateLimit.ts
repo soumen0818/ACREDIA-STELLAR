@@ -237,6 +237,7 @@ function initRateLimitStore(): RateLimitStore {
     if (process.env.NODE_ENV === 'production') {
         // Emit once per cold start. This will appear in Vercel Function logs
         // and any observability pipeline, making the misconfiguration visible.
+        // eslint-disable-next-line no-console -- deliberate: this misconfiguration must be visible in Vercel Function logs at cold start, which is the only place it surfaces.
         console.warn(
             '[rate-limit] WARNING: Distributed rate limiting is NOT configured. ' +
             'UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are missing. ' +

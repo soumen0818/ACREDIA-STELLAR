@@ -120,3 +120,6 @@ See the [roadmap backlog](../ISSUE_DRAFTS.md) for planned hardening: encrypting 
 Network selection and endpoints are driven by environment variables and validated at boot (`frontend/src/lib/runtimeConfig.ts`). Key public config: `NEXT_PUBLIC_STELLAR_NETWORK`, contract addresses, Supabase URL/anon key, Pinata gateway. Server-only: `SUPABASE_SERVICE_ROLE_KEY`, `PINATA_JWT`, `VERIFICATION_LOG_HASH_SECRET`, `ADMIN_EMAIL_ALLOWLIST`. See the README's **Environment Setup** for the full list.
 
 **Testnet now / mainnet later:** switching networks is a config change (network + contract addresses); misconfiguration is rejected at build/boot.
+
+See **[mainnet-readiness.md](mainnet-readiness.md)** for the current readiness
+status, the remaining blockers, and the cutover procedure.

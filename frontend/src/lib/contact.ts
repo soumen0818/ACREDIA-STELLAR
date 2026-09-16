@@ -12,11 +12,21 @@ export const CONTACT_EMAIL = 'acredia.stellar@gmail.com';
 export const CONTACT_MAILTO = `mailto:${CONTACT_EMAIL}`;
 
 /**
- * X / Twitter handle.
+ * X / Twitter handle — **unset until a real account exists**.
  *
- * TODO: replace with the real Acredia handle — this is a placeholder and the
- * link will 404 until it is updated. Change it here and every surface
- * (contact page, footer) picks it up.
+ * This was previously hardcoded to a placeholder handle, which rendered a
+ * "Follow us on X" card on the public contact page pointing at an account that
+ * does not exist. A dead social link on a product whose entire proposition is
+ * trustworthiness is worse than no link at all, so the surface is now opt-in:
+ * set the handle here (or via `NEXT_PUBLIC_TWITTER_HANDLE`) and every place
+ * that reads `hasTwitter` starts rendering it.
  */
-export const TWITTER_HANDLE = '@AcrediaStellar';
-export const TWITTER_URL = `https://x.com/${TWITTER_HANDLE.replace('@', '')}`;
+export const TWITTER_HANDLE: string | null =
+    process.env.NEXT_PUBLIC_TWITTER_HANDLE?.trim() || null;
+
+export const TWITTER_URL: string | null = TWITTER_HANDLE
+    ? `https://x.com/${TWITTER_HANDLE.replace(/^@/, '')}`
+    : null;
+
+/** True only when a real handle is configured; gates the social links. */
+export const hasTwitter = Boolean(TWITTER_HANDLE && TWITTER_URL);

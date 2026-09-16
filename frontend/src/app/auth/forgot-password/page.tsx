@@ -62,15 +62,30 @@ function ForgotPasswordForm() {
             title="Reset your password"
             subtitle="Enter your account email and we’ll send a secure reset link."
             footer={
-                <p className="text-center text-sm text-muted-foreground">
-                    Remembered it?{' '}
-                    <Link
-                        href={`/auth/login?next=${encodeURIComponent(nextRedirect)}`}
-                        className="font-semibold text-primary hover:underline"
-                    >
-                        Back to sign in
-                    </Link>
-                </p>
+                <div className="space-y-3 text-center text-sm text-muted-foreground">
+                    <p>
+                        Remembered it?{' '}
+                        <Link
+                            href={`/auth/login?next=${encodeURIComponent(nextRedirect)}`}
+                            className="font-semibold text-primary hover:underline"
+                        >
+                            Back to sign in
+                        </Link>
+                    </p>
+                    {/*
+                      Acredia accounts are provisioned, not self-registered, so a
+                      user who never receives the mail has no other way in.
+                      Naming the fallback here prevents a silent dead end when
+                      delivery is delayed, filtered, or rate-limited.
+                    */}
+                    <p className="text-xs">
+                        Didn&apos;t receive it? Check your spam folder, then{' '}
+                        <Link href="/contact" className="font-medium text-primary hover:underline">
+                            contact your administrator
+                        </Link>{' '}
+                        — they can issue a direct reset link.
+                    </p>
+                </div>
             }
         >
             <form onSubmit={handleSubmit} className="space-y-5">

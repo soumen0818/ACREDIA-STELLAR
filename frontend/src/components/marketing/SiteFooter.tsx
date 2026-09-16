@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { ShieldCheck } from 'lucide-react';
+import { NetworkBadge } from '@/components/marketing/NetworkBadge';
 
 const footerNav: { heading: string; links: { label: string; href: string; external?: boolean }[] }[] = [
     {
@@ -61,13 +62,7 @@ export function SiteFooter() {
                             Tamper-proof academic credentials on the Stellar network — issued by
                             institutions, owned by students, verifiable by anyone in seconds.
                         </p>
-                        <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                            <span className="relative flex h-2 w-2">
-                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success/60" />
-                                <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
-                            </span>
-                            Live on Stellar Testnet
-                        </div>
+                        <NetworkBadge className="mt-5" />
                     </div>
 
                     {footerNav.map((column) => (
