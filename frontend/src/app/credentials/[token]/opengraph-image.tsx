@@ -1,5 +1,55 @@
 import { ImageResponse } from 'next/og';
-import { getServiceRoleClient } from '@/lib/serverAuth';
+
+/**
+ * Credential data for the social preview card.
+ *
+ * Fetched with plain `fetch` against PostgREST rather than the Supabase SDK.
+ * This runs on the Edge runtime, which has a 1 MB bundle limit, and importing
+ * `getServiceRoleClient` pulled in the whole SDK — postgrest-js (1.4 MB) and
+ * realtime-js (952 KB) — taking the function to 1.23 MB and failing the
+ * deployment. One read-only SELECT does not need any of that.
+ */
+interface OgCredential {
+    metadata: Record<string, unknown> | null;
+    revoked: boolean | null;
+    issued_at: string | null;
+    institution: { name?: string } | { name?: string }[] | null;
+}
+
+async function fetchCredential(tokenId: string): Promise<OgCredential | null> {
+    const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!baseUrl || !serviceKey) {
+        return null;
+    }
+
+    const select =
+        'token_id,metadata,revoked,issued_at,' +
+        'institution:institutions!credentials_institution_id_fkey(name)';
+    const url =
+        `${baseUrl}/rest/v1/credentials` +
+        `?select=${encodeURIComponent(select)}` +
+        `&token_id=eq.${encodeURIComponent(tokenId)}&limit=1`;
+
+    const response = await fetch(url, {
+        headers: {
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+            // Return a single object instead of a one-element array.
+            Accept: 'application/vnd.pgrst.object+json',
+        },
+        // Social crawlers re-request these; a short cache keeps the card fresh
+        // without hammering the database on every scrape.
+        next: { revalidate: 60 },
+    });
+
+    if (!response.ok) {
+        return null;
+    }
+
+    return (await response.json()) as OgCredential;
+}
 
 export const runtime = 'edge';
 export const alt = 'Verified Academic Credential';
@@ -24,22 +74,7 @@ export default async function Image({
     let issueDate = '';
 
     try {
-        const supabase = getServiceRoleClient();
-        const { data: credential } = await supabase
-            .from('credentials')
-            .select(
-                `
-                token_id,
-                metadata,
-                revoked,
-                issued_at,
-                institution:institutions!credentials_institution_id_fkey (
-                    name
-                )
-            `,
-            )
-            .eq('token_id', cleanToken)
-            .maybeSingle();
+        const credential = await fetchCredential(cleanToken);
 
         if (credential) {
             const rawMeta = (credential.metadata as Record<string, unknown> | null) ?? {};
@@ -155,7 +190,7 @@ export default async function Image({
                             letterSpacing: '0.04em',
                         }}
                     >
-                        <span>{isRevoked ? '✕ REVOKED' : '✓ VERIFIED ON-CHAIN'}</span>
+                        <span>{isRevoked ? 'REVOKED' : 'VERIFIED ON-CHAIN'}</span>
                     </div>
                 </div>
 
@@ -177,7 +212,7 @@ export default async function Image({
                             textTransform: 'uppercase',
                         }}
                     >
-                        Academic Credential #{cleanToken}
+                        {`Academic Credential #${cleanToken}`}
                     </div>
 
                     <div
