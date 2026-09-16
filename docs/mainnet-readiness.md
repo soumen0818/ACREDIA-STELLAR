@@ -9,7 +9,7 @@ finished, what is not, and what must be true before the switch is thrown.
 > feature-complete and hardened on testnet. The outstanding items below are
 > mostly governance and operational, not code.
 
-**Last reviewed:** 2026-08-16
+**Last reviewed:** 2026-09-16
 
 ---
 
@@ -21,7 +21,7 @@ finished, what is not, and what must be true before the switch is thrown.
 | Database schema, RLS, data integrity | ✅ Ready | No |
 | Security posture (audit findings) | ✅ Ready | No |
 | Dependency supply chain | ✅ 0 vulnerabilities | No |
-| Automated test coverage | ✅ 511 unit + 9 E2E | No |
+| Automated test coverage | ✅ 515 unit + 9 E2E | No |
 | **Independent smart-contract audit** | ❌ Not started | **YES** |
 | **Key custody for the contract owner** | ❌ Not decided | **YES** |
 | **Credential TTL / keeper strategy** | ⚠️ Partial | **YES** |
@@ -50,8 +50,13 @@ Verified behaviours:
   amber "Live on Stellar Testnet" badge; mainnet shows a neutral one. Previously
   two components hardcoded the string "Live on Stellar Testnet" and would have
   lied to users after cutover.
+- **Mainnet RPC endpoint verified reachable.** The mainnet default shipped as
+  `soroban-mainnet.stellar.org`, a host that **does not exist** — every contract
+  read would have failed on cutover day. It is now `mainnet.sorobanrpc.com`,
+  confirmed healthy through the Stellar SDK, and a regression test asserts both
+  network profiles point at reachable hosts.
 - **CSP already permits mainnet endpoints** (`horizon.stellar.org`,
-  `soroban-mainnet.stellar.org`), so the switch will not be blocked by
+  `mainnet.sorobanrpc.com`), so the switch will not be blocked by
   Content-Security-Policy.
 - **Explorer links follow the network** — mainnet correctly maps to
   stellar.expert's `public` path.

@@ -120,3 +120,32 @@ describe('runtime config environment validation', () => {
         expect(mod.runtimeConfig.supabase.url).toBe('');
     });
 });
+
+describe('network endpoint defaults', () => {
+    // A wrong default here is invisible until cutover day, when every contract
+    // read fails at once. `soroban-mainnet.stellar.org` shipped as the mainnet
+    // default and does not resolve — it was never a real host.
+    it('uses reachable, correctly-named Soroban RPC hosts', async () => {
+        const { NETWORK_ENDPOINTS } = await import('../src/lib/runtimeConfig');
+
+        expect(NETWORK_ENDPOINTS.mainnet.sorobanRpcUrl).toBe('https://mainnet.sorobanrpc.com');
+        expect(NETWORK_ENDPOINTS.testnet.sorobanRpcUrl).toBe(
+            'https://soroban-testnet.stellar.org',
+        );
+
+        // The host that never existed must not come back.
+        for (const profile of Object.values(NETWORK_ENDPOINTS)) {
+            expect(profile.sorobanRpcUrl).not.toContain('soroban-mainnet.stellar.org');
+        }
+    });
+
+    it('keeps mainnet on the public network passphrase and explorer path', async () => {
+        const { NETWORK_ENDPOINTS } = await import('../src/lib/runtimeConfig');
+        expect(NETWORK_ENDPOINTS.mainnet.networkPassphrase).toBe(
+            'Public Global Stellar Network ; September 2015',
+        );
+        // stellar.expert uses "public", not "mainnet", in its explorer paths.
+        expect(NETWORK_ENDPOINTS.mainnet.networkName).toBe('public');
+        expect(NETWORK_ENDPOINTS.mainnet.explorerBaseUrl).toContain('/explorer/public');
+    });
+});

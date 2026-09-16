@@ -295,7 +295,7 @@ Operational runbooks (POC handover, recovery links, wallet changes) are in
 Mainnet endpoints, for reference:
 
 **Network**: Stellar Public Network  
-**RPC Endpoint**: `https://soroban-mainnet.stellar.org`  
+**RPC Endpoint**: `https://mainnet.sorobanrpc.com`  
 **Horizon API**: `https://horizon.stellar.org`  
 **Block Explorer**: [Stellar Expert](https://stellar.expert/explorer/public)
 
@@ -795,7 +795,7 @@ Acredia requires custom SMTP to avoid the strict ~3/hour send cap on Supabase's 
 5. **For Mainnet Deployment** (Production):
    - Network: `Stellar Public Network`
    - Horizon API: `https://horizon.stellar.org`
-   - Soroban RPC: `https://soroban-mainnet.stellar.org`
+   - Soroban RPC: `https://mainnet.sorobanrpc.com`
    - Network Passphrase: `Public Global Stellar Network ; September 2015`
    - Purchase XLM from exchange or use peer-to-peer transfers
 

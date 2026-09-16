@@ -1,7 +1,8 @@
+import { getSiteUrl } from '@/lib/siteUrl';
 import { createUnsubscribeToken } from './notificationUnsubscribe';
 
 export function getBaseTemplate(title: string, preheader: string, content: string, userId: string) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://acredia.io';
+    const appUrl = getSiteUrl();
     // Signed, expiring, user-scoped token (ACREDIA-STELLAR#235) — a bare
     // userId in the link can no longer mutate anyone's notification settings.
     const unsubscribeToken = createUnsubscribeToken(userId);
@@ -68,7 +69,7 @@ export function buildCredentialRevokedEmail(studentName: string, institutionName
 }
 
 export function buildInstitutionVerifiedEmail(institutionName: string, userId: string) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://acredia.io';
+    const appUrl = getSiteUrl();
     const content = `
         <p class="text">Hi there,</p>
         <p class="text">Great news! <strong>${institutionName}</strong> has been successfully verified by the Acredia administrators.</p>

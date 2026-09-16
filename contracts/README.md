@@ -203,7 +203,7 @@ soroban contract deploy \
 Update `frontend/.env`:
 ```env
 NEXT_PUBLIC_HORIZON_URL=https://horizon.stellar.org
-NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-mainnet.stellar.org
+NEXT_PUBLIC_SOROBAN_RPC_URL=https://mainnet.sorobanrpc.com
 ```
 
 ## Contract Operations

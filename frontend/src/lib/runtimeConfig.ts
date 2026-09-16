@@ -72,7 +72,11 @@ type ServerRuntimeConfig = {
 const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015';
 const MAINNET_PASSPHRASE = 'Public Global Stellar Network ; September 2015';
 
-const NETWORK_DEFAULTS: Record<Exclude<StellarNetworkKind, 'custom'>, StellarNetworkConfig> = {
+/**
+ * Exported for tests: a wrong endpoint default is invisible until the network is
+ * switched, at which point every contract read fails simultaneously.
+ */
+export const NETWORK_DEFAULTS: Record<Exclude<StellarNetworkKind, 'custom'>, StellarNetworkConfig> = {
     testnet: {
         kind: 'testnet',
         horizonUrl: 'https://horizon-testnet.stellar.org',
@@ -84,7 +88,11 @@ const NETWORK_DEFAULTS: Record<Exclude<StellarNetworkKind, 'custom'>, StellarNet
     mainnet: {
         kind: 'mainnet',
         horizonUrl: 'https://horizon.stellar.org',
-        sorobanRpcUrl: 'https://soroban-mainnet.stellar.org',
+        // `soroban-mainnet.stellar.org` does not resolve — it was never a real
+        // host. The SDF-operated public RPC is mainnet.sorobanrpc.com; verified
+        // healthy before this change. Getting this wrong would have failed every
+        // contract read on the day of the mainnet cutover.
+        sorobanRpcUrl: 'https://mainnet.sorobanrpc.com',
         networkPassphrase: MAINNET_PASSPHRASE,
         networkName: 'public',
         explorerBaseUrl: 'https://stellar.expert/explorer/public',
@@ -555,3 +563,6 @@ export function assertValidStellarPublicKey(value: unknown, label = 'Wallet addr
 
     return value.trim();
 }
+
+/** Alias used by tests to assert endpoint correctness. */
+export const NETWORK_ENDPOINTS = NETWORK_DEFAULTS;

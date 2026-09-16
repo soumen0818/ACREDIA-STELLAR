@@ -1,5 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { Metadata } from 'next';
+import { getSiteUrl } from '@/lib/siteUrl';
 
 export const metadata: Metadata = {
     title: 'API Documentation | Acredia',
@@ -7,6 +8,12 @@ export const metadata: Metadata = {
 };
 
 export default function ApiDocsPage() {
+    // Derived, never hardcoded: the embed snippet previously pointed at
+    // `acredia-stellar.vercel.app`, which 404s — the live deployment is on a
+    // different hostname. Handing developers a dead script URL is worse than
+    // giving none, so it now follows NEXT_PUBLIC_SITE_URL like every other link.
+    const siteUrl = getSiteUrl();
+
     return (
         <div className="container mx-auto max-w-4xl py-12 px-4">
             <div className="space-y-6">
@@ -93,7 +100,7 @@ export default function ApiDocsPage() {
                                 <div>
                                     <p className="text-sm text-foreground font-semibold mb-2">1. Add the widget script to your page</p>
                                     <pre className="bg-[#1e1e1e] text-[#d4d4d4] p-3 rounded-md overflow-x-auto text-xs font-mono border">
-{`<script src="https://acredia-stellar.vercel.app/widget.js" async defer></script>`}
+{`<script src="${siteUrl}/widget.js" async defer></script>`}
                                     </pre>
                                 </div>
                                 

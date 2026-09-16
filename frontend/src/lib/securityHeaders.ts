@@ -59,7 +59,7 @@ export function buildCspDirectives(nonce: string, isProduction: boolean): Record
             "'self' "
             + '*.supabase.co '
             + 'https://horizon-testnet.stellar.org https://soroban-testnet.stellar.org '
-            + 'https://horizon.stellar.org https://soroban-mainnet.stellar.org '
+            + 'https://horizon.stellar.org https://mainnet.sorobanrpc.com '
             + 'https://gateway.pinata.cloud https://ipfs.io https://api.pinata.cloud',
         'frame-ancestors': "'none'",
         'form-action': "'self'",
