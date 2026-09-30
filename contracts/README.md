@@ -35,7 +35,10 @@ Single unified contract combining credential issuance, registry, and verificatio
 - `is_revoked(token_id)` - Check revocation status
 - `total_credentials()` - Get total credentials issued
 - `bump_credential(token_id)` - Extend TTL of a credential (permissionless)
-- `upgrade(new_wasm_hash)` - Upgrade contract WASM code (Owner only)
+- `propose_upgrade(new_wasm_hash)` - Propose a WASM upgrade, starting the timelock (Owner only)
+- `upgrade(new_wasm_hash)` - Execute a proposed upgrade after the timelock elapses (Owner only)
+- `cancel_upgrade()` - Abandon a pending upgrade proposal (Owner only)
+- `get_pending_upgrade()` - Read the pending upgrade proposal, if any
 - `get_storage_version()` - Read the current storage schema version
 - `migrate()` - Run schema and data migrations (Owner only)
 
@@ -352,11 +355,20 @@ View deployed contracts on Stellar Expert:
 This contract features an owner-gated upgradeability and data migration path to allow resolving bugs or updating contract logic without redeploying a new contract address (which would break existing QR codes/verification links).
 
 ### Who Can Upgrade?
-Only the contract `Owner` can perform upgrades. The `upgrade` function uses `owner.require_auth()` to prevent unauthorized code updates.
+Only the contract `Owner` can propose, cancel, or execute an upgrade. Every step calls `owner.require_auth()` to prevent unauthorized code updates.
 
-### Upgrade Governance & Security
-- **Current Model**: Single-signature authorization. The contract owner account must sign the transaction to execute the upgrade.
-- **Recommendations for Production**: It is highly recommended that the `Owner` address is set to a multi-signature account (e.g., using Stellar's native multi-sig capabilities or a smart contract multisig wallet) or governed by a timelock contract to prevent immediate or malicious upgrades.
+### Upgrade Policy (on-chain timelock)
+
+Upgrades are **timelocked and announced on-chain**. An upgrade cannot take effect the moment the owner decides to run it; it must first be proposed, and then it can only be executed after a fixed delay has elapsed. This gives credential holders and third-party verifiers a public, fixed window to inspect exactly which code is about to run before it can replace the live contract.
+
+- **Two-step flow**: `propose_upgrade(new_wasm_hash)` records the target WASM hash and emits an `upg_prop` event; `upgrade(new_wasm_hash)` executes it. `upgrade` succeeds only when a matching proposal exists, the supplied hash equals the proposed hash, and the timelock has elapsed — otherwise it fails with `UpgradeNotProposed`, `UpgradeHashMismatch`, or `UpgradeTimelockActive` and changes nothing.
+- **Timelock window**: `UPGRADE_TIMELOCK_LEDGERS = 120_960` ledgers (~7 days at 5 s/ledger) between proposal and earliest execution.
+- **Hash commitment**: the proposal commits to a specific WASM hash. The executing call must present the same hash, so the code that ships is exactly the code that was announced — a proposal cannot be swapped for different code at execution time.
+- **Announcement & transparency**: the pending proposal (target hash + earliest-execution ledger) is emitted as `upg_prop` and is readable on-chain at any time via `get_pending_upgrade`.
+- **Cancellation**: `cancel_upgrade` (owner-gated, emits `upg_cncl`) abandons a pending proposal, e.g. if a mistake or a better fix is found before the window elapses.
+- **Recommendations for Production**: on top of this timelock, it is recommended that the `Owner` address is a multi-signature account (e.g. Stellar's native multi-sig or a smart-contract multisig wallet) so that proposing and executing an upgrade also requires a threshold of signers.
+
+Rationale and the choice of window are recorded in [docs/decisions/0005-upgrade-timelock.md](../docs/decisions/0005-upgrade-timelock.md).
 
 ### Upgrade Procedure
 To upgrade the contract WASM:
@@ -369,7 +381,21 @@ To upgrade the contract WASM:
    ```
    Note down the new WASM hash returned (different from the contract deployment contract ID).
 
-2. **Invoke Upgrade**:
+2. **Propose the Upgrade** (starts the timelock and publishes the announcement):
+   ```bash
+   soroban contract invoke \
+     --id <CONTRACT_ID> \
+     --source admin \
+     --network testnet \
+     -- \
+     propose_upgrade \
+     --new_wasm_hash "<NEW_WASM_HASH>"
+   ```
+   Anyone can read the pending proposal (target hash and earliest-execution ledger) with `get_pending_upgrade`.
+
+3. **Wait for the timelock** (~7 days / 120,960 ledgers) to elapse.
+
+4. **Execute the Upgrade** (only succeeds after the window, and only for the proposed hash):
    ```bash
    soroban contract invoke \
      --id <CONTRACT_ID> \
@@ -379,8 +405,9 @@ To upgrade the contract WASM:
      upgrade \
      --new_wasm_hash "<NEW_WASM_HASH>"
    ```
+   To abandon a proposal before executing it, call `cancel_upgrade`.
 
-3. **Schema / State Migration** (If applicable):
+5. **Schema / State Migration** (If applicable):
    If the new WASM version introduces changes to the storage structures, run the migration function:
    ```bash
    soroban contract invoke \
@@ -472,11 +499,13 @@ event payload.
 | `cred_rev_owner` | `admin_revoke_credential` | `(token_id)` topic, revoking owner as data |
 | `paused` | `pause` | none |
 | `unpaused` | `unpause` | none |
+| `upg_prop` | `propose_upgrade` | `(proposed WASM hash, earliest-execution ledger)` data |
+| `upg_cncl` | `cancel_upgrade` | none |
 | `upgraded` | `upgrade` | the new WASM hash |
 | `migrated` | `migrate` | `(previous_version)` topic, new version as data |
 
-`bump_credential`, all read-only getters (`get_owner`, `verify_credential`, `is_revoked`, …), and
-`get_pending_owner` do not emit events — they don't change state.
+`bump_credential`, all read-only getters (`get_owner`, `verify_credential`, `is_revoked`,
+`get_pending_upgrade`, …), and `get_pending_owner` do not emit events — they don't change state.
 
 ## Error Taxonomy
 

@@ -46,7 +46,7 @@ const MAX_BATCH_SIZE: u32 = 20;
 const MAX_ISSUER_NAME_LEN: u32 = 64;
 const MAX_ISSUER_PROFILE_URI_LEN: u32 = 256;
 
-const MAX_IPFS_URI_LEN: u32 = 256;
+const UPGRADE_TIMELOCK_LEDGERS: u32 = 120_960;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -65,7 +65,9 @@ pub enum ContractError {
     BatchTooLarge = 11,
     EmptyBatch = 12,
     ProfileTooLarge = 13,
-    IpfsUriTooLarge = 14,
+    UpgradeNotProposed = 14,
+    UpgradeHashMismatch = 15,
+    UpgradeTimelockActive = 16,
 }
 
 #[contracttype]
@@ -81,6 +83,7 @@ pub enum DataKey {
     StorageVersion,
     Paused,
     IssuerProfile(Address),
+    PendingUpgrade,
 }
 
 #[contracttype]
@@ -134,6 +137,13 @@ pub struct IssuerProfile {
     pub name: String,
     pub profile_uri: String,
     pub updated_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingUpgrade {
+    pub wasm_hash: BytesN<32>,
+    pub ready_ledger: u32,
 }
 
 #[contract]
@@ -845,14 +855,76 @@ impl AcrediaCredential {
         contract_is_paused(&env)
     }
 
-    /// Upgrade the contract to a new WebAssembly code using a WASM hash.
-    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+    pub fn propose_upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), ContractError> {
         let owner = read_owner(&env);
         owner.require_auth();
+
+        let ready_ledger = env
+            .ledger()
+            .sequence()
+            .saturating_add(UPGRADE_TIMELOCK_LEDGERS);
+
+        let pending = PendingUpgrade {
+            wasm_hash: new_wasm_hash.clone(),
+            ready_ledger,
+        };
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingUpgrade, &pending);
+
+        env.events()
+            .publish((symbol_short!("upg_prop"),), (new_wasm_hash, ready_ledger));
+
+        extend_instance_ttl(&env);
+        Ok(())
+    }
+
+    pub fn get_pending_upgrade(env: Env) -> Option<PendingUpgrade> {
+        extend_instance_ttl(&env);
+        env.storage().instance().get(&DataKey::PendingUpgrade)
+    }
+
+    pub fn cancel_upgrade(env: Env) -> Result<(), ContractError> {
+        let owner = read_owner(&env);
+        owner.require_auth();
+
+        if !env.storage().instance().has(&DataKey::PendingUpgrade) {
+            return Err(ContractError::UpgradeNotProposed);
+        }
+
+        env.storage().instance().remove(&DataKey::PendingUpgrade);
+        env.events().publish((symbol_short!("upg_cncl"),), ());
+
+        extend_instance_ttl(&env);
+        Ok(())
+    }
+
+    /// Upgrade the contract to a new WebAssembly code using a WASM hash.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), ContractError> {
+        let owner = read_owner(&env);
+        owner.require_auth();
+
+        let pending: PendingUpgrade = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingUpgrade)
+            .ok_or(ContractError::UpgradeNotProposed)?;
+
+        if pending.wasm_hash != new_wasm_hash {
+            return Err(ContractError::UpgradeHashMismatch);
+        }
+
+        if env.ledger().sequence() < pending.ready_ledger {
+            return Err(ContractError::UpgradeTimelockActive);
+        }
+
+        env.storage().instance().remove(&DataKey::PendingUpgrade);
+
         env.events()
             .publish((symbol_short!("upgraded"),), new_wasm_hash.clone());
         env.deployer().update_current_contract_wasm(new_wasm_hash);
         extend_instance_ttl(&env);
+        Ok(())
     }
 
     /// Get the current storage version.
@@ -2354,6 +2426,7 @@ mod tests {
 
     #[test]
     fn test_upgrade_owner_gated() {
+        use soroban_sdk::testutils::Ledger;
         let (env, contract, owner, _, _) = setup();
         let client = AcrediaCredentialClient::new(&env, &contract);
 
@@ -2362,6 +2435,10 @@ mod tests {
             .deployer()
             .upload_contract_wasm(soroban_sdk::Bytes::from_slice(&env, wasm_bytes));
 
+        client.propose_upgrade(&new_wasm_hash);
+        let now = env.ledger().sequence();
+        env.ledger()
+            .set_sequence_number(now + UPGRADE_TIMELOCK_LEDGERS);
         client.upgrade(&new_wasm_hash);
 
         let auths = env.auths();
@@ -2376,6 +2453,99 @@ mod tests {
                 (new_wasm_hash,).into_val(&env),
             ))
         );
+    }
+
+    #[test]
+    fn test_propose_upgrade_emits_event() {
+        let (env, contract, _, _, _) = setup();
+        let hash = dummy_hash(&env, 94);
+        env.as_contract(&contract, || {
+            AcrediaCredential::propose_upgrade(env.clone(), hash).unwrap();
+        });
+
+        assert_eq!(
+            last_event_topics(&env),
+            vec![&env, symbol_short!("upg_prop").into_val(&env)]
+        );
+    }
+
+    #[test]
+    fn test_propose_upgrade_records_pending() {
+        let (env, contract, _, _, _) = setup();
+        let hash = dummy_hash(&env, 95);
+        let now = env.ledger().sequence();
+        env.as_contract(&contract, || {
+            AcrediaCredential::propose_upgrade(env.clone(), hash.clone()).unwrap();
+            let pending = AcrediaCredential::get_pending_upgrade(env.clone()).unwrap();
+            assert_eq!(pending.wasm_hash, hash);
+            assert_eq!(pending.ready_ledger, now + UPGRADE_TIMELOCK_LEDGERS);
+        });
+    }
+
+    #[test]
+    fn test_upgrade_without_proposal_rejected() {
+        let (env, contract, _, _, _) = setup();
+        env.as_contract(&contract, || {
+            let result = AcrediaCredential::upgrade(env.clone(), dummy_hash(&env, 93));
+            assert_eq!(result, Err(ContractError::UpgradeNotProposed));
+        });
+    }
+
+    #[test]
+    fn test_upgrade_before_timelock_rejected() {
+        let (env, contract, _, _, _) = setup();
+        let hash = dummy_hash(&env, 90);
+        env.as_contract(&contract, || {
+            AcrediaCredential::propose_upgrade(env.clone(), hash.clone()).unwrap();
+        });
+        env.as_contract(&contract, || {
+            let result = AcrediaCredential::upgrade(env.clone(), hash);
+            assert_eq!(result, Err(ContractError::UpgradeTimelockActive));
+        });
+    }
+
+    #[test]
+    fn test_upgrade_hash_mismatch_rejected() {
+        use soroban_sdk::testutils::Ledger;
+        let (env, contract, _, _, _) = setup();
+        let proposed = dummy_hash(&env, 91);
+        let other = dummy_hash(&env, 92);
+        env.as_contract(&contract, || {
+            AcrediaCredential::propose_upgrade(env.clone(), proposed).unwrap();
+        });
+        let now = env.ledger().sequence();
+        env.ledger()
+            .set_sequence_number(now + UPGRADE_TIMELOCK_LEDGERS);
+        env.as_contract(&contract, || {
+            let result = AcrediaCredential::upgrade(env.clone(), other);
+            assert_eq!(result, Err(ContractError::UpgradeHashMismatch));
+        });
+    }
+
+    #[test]
+    fn test_cancel_upgrade_clears_pending() {
+        let (env, contract, _, _, _) = setup();
+        let hash = dummy_hash(&env, 96);
+        env.as_contract(&contract, || {
+            AcrediaCredential::propose_upgrade(env.clone(), hash.clone()).unwrap();
+        });
+        env.as_contract(&contract, || {
+            AcrediaCredential::cancel_upgrade(env.clone()).unwrap();
+            assert!(AcrediaCredential::get_pending_upgrade(env.clone()).is_none());
+        });
+        env.as_contract(&contract, || {
+            let result = AcrediaCredential::upgrade(env.clone(), hash);
+            assert_eq!(result, Err(ContractError::UpgradeNotProposed));
+        });
+    }
+
+    #[test]
+    fn test_cancel_upgrade_without_proposal_rejected() {
+        let (env, contract, _, _, _) = setup();
+        env.as_contract(&contract, || {
+            let result = AcrediaCredential::cancel_upgrade(env.clone());
+            assert_eq!(result, Err(ContractError::UpgradeNotProposed));
+        });
     }
 
     #[test]
@@ -2561,6 +2731,7 @@ mod tests {
 
     #[test]
     fn test_upgrade_event() {
+        use soroban_sdk::testutils::Ledger;
         let (env, contract, _, _, _) = setup();
         let client = AcrediaCredentialClient::new(&env, &contract);
         let wasm_bytes = include_bytes!("../target/wasm32v1-none/release/acredia_stellar.wasm");
@@ -2568,6 +2739,10 @@ mod tests {
             .deployer()
             .upload_contract_wasm(soroban_sdk::Bytes::from_slice(&env, wasm_bytes));
 
+        client.propose_upgrade(&new_wasm_hash);
+        let now = env.ledger().sequence();
+        env.ledger()
+            .set_sequence_number(now + UPGRADE_TIMELOCK_LEDGERS);
         client.upgrade(&new_wasm_hash);
 
         assert_eq!(

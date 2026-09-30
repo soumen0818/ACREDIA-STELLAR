@@ -87,6 +87,22 @@ export default function ApiDocsPage() {
                         </Card>
                     </section>
 
+                    <section id="upgrade-policy">
+                        <h2 className="text-2xl font-semibold border-b pb-2 mb-6">Contract Upgrade Policy</h2>
+                        <p className="text-muted-foreground mb-4">
+                            The on-chain credential contract is upgradeable so that bugs can be fixed without changing the contract address (which would break existing QR codes and verification links). To keep that power transparent to everyone who relies on a credential, upgrades are governed by an on-chain timelock — they cannot take effect the moment an operator decides to run them.
+                        </p>
+                        <Card className="p-6">
+                            <ul className="space-y-3 text-sm text-muted-foreground list-disc list-inside">
+                                <li><span className="text-foreground font-medium">Announced in advance.</span> Every upgrade must first be proposed on-chain, which emits a public <code className="bg-muted px-1 py-0.5 rounded">upg_prop</code> event and is readable by anyone via the contract&apos;s <code className="bg-muted px-1 py-0.5 rounded">get_pending_upgrade</code> method.</li>
+                                <li><span className="text-foreground font-medium">Fixed waiting period.</span> A proposed upgrade can only be executed after a timelock of ~7 days (120,960 ledgers) has elapsed, giving credential holders and verifiers a window to inspect the proposed code before it goes live.</li>
+                                <li><span className="text-foreground font-medium">Code-hash commitment.</span> A proposal commits to a specific WASM code hash, and execution must present that same hash — so the code that ships is exactly the code that was announced.</li>
+                                <li><span className="text-foreground font-medium">Owner-gated and cancellable.</span> Only the contract owner can propose, cancel, or execute an upgrade, and a pending proposal can be withdrawn (<code className="bg-muted px-1 py-0.5 rounded">cancel_upgrade</code>) before the window elapses.</li>
+                            </ul>
+                            <p className="text-xs text-muted-foreground mt-4 italic">The emergency pause circuit-breaker is separate and immediate: it can halt state changes during an incident without waiting on the upgrade timelock, while never allowing code to be replaced without the announced waiting period.</p>
+                        </Card>
+                    </section>
+
                     <section id="embeddable-widget">
                         <h2 className="text-2xl font-semibold border-b pb-2 mb-6">Embeddable Widget</h2>
                         <p className="text-muted-foreground mb-4">

@@ -76,6 +76,26 @@ changed" or "the contract just came into existence." Fixed by adding `init`, `up
 (topic + new WASM hash), and `migrated` (topics: `migrated`, previous version; data: new version)
 events. Covered by `test_initialize_event`, `test_upgrade_event`, `test_migrate_event`.
 
+**Follow-up hardening (#290) — `upgrade()` timelock and announcement path**: emitting an
+`upgraded` event tells observers the code *has already* changed, which is too late to react to.
+`upgrade()` is now split into a two-step, owner-gated propose/execute flow. `propose_upgrade`
+records the target WASM hash together with a `ready_ledger = current_ledger +
+UPGRADE_TIMELOCK_LEDGERS` (120 960 ledgers, ~7 days at 5 s/ledger) and emits `upg_prop` (the
+public announcement, readable on-chain via `get_pending_upgrade`). `upgrade` then succeeds only
+when a proposal exists, the supplied hash matches the proposed one, and the current ledger has
+reached `ready_ledger`; otherwise it returns `UpgradeNotProposed`, `UpgradeHashMismatch`, or
+`UpgradeTimelockActive` and mutates nothing. `cancel_upgrade` (owner-gated, emits `upg_cncl`)
+abandons a pending proposal. This gives credential holders and verifiers a fixed, observable
+window to inspect the proposed code before it can take effect, rather than learning of a code
+change only after the fact. Rationale and the chosen window are documented in
+[docs/decisions/0005-upgrade-timelock.md](../docs/decisions/0005-upgrade-timelock.md); the public
+policy is stated in [README.md](./README.md) and the public API docs. Covered by
+`test_propose_upgrade_emits_event`, `test_propose_upgrade_records_pending`,
+`test_upgrade_without_proposal_rejected`, `test_upgrade_before_timelock_rejected`,
+`test_upgrade_hash_mismatch_rejected`, `test_cancel_upgrade_clears_pending`,
+`test_cancel_upgrade_without_proposal_rejected`, and the updated happy-path `test_upgrade_event` /
+`test_upgrade_owner_gated` (which now propose and advance past the timelock before executing).
+
 ### F-5 (Medium) — No owner override for `revoke_credential`
 
 `revoke_credential` checks `credential.issuer == issuer` and nothing else — only the exact
@@ -232,4 +252,4 @@ All added to `contracts/src/lib.rs`:
   number of successful issuances; every issued credential stays retrievable by ID and by hash with
   state matching the model.
 
-Run with `cargo test --lib` from `contracts/`. Total: 46 tests, all passing.
+Run with `cargo test --lib` from `contracts/`. Total: 51 tests, all passing.
