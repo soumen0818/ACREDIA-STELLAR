@@ -341,7 +341,9 @@ All deployments, metadata hashes, and transaction executions can be publicly ver
 ## 👛 Supported wallets
 
 Acredia connects through [Stellar Wallets Kit](https://github.com/Creit-Tech/Stellar-Wallets-Kit),
-so any of the wallets below can issue, verify, and claim credentials. A
+with nine registered wallets. The table describes SDK capabilities; real-wallet
+acceptance evidence is still pending in [the test matrix](frontend/tests/TEST_STRATEGY.md#per-wallet-verification-matrix).
+Verification is public and requires no wallet. A
 credential platform promises lifelong access; requiring one specific browser
 extension would have put a ceiling on who that promise applies to
 (ACREDIA-STELLAR#272).
@@ -355,7 +357,7 @@ extension would have put a ceiling on who that promise applies to
 | [Klever](https://klever.io/) | ✅ | ✅ |
 | [OneKey](https://onekey.so/) | ✅ | ✅ |
 | [Bitget Wallet](https://web3.bitget.com/) | ✅ | ✅ |
-| [HOT Wallet](https://hot-labs.org/) | ✅ | ✅ |
+| [HOT Wallet](https://hot-labs.org/) | ❌ disabled in this release | ❌ disabled |
 | [Albedo](https://albedo.link/) | ✅ | ❌ not supported by the wallet |
 | [Rabet](https://rabet.io/) | ✅ | ❌ not supported by the wallet |
 
@@ -363,8 +365,13 @@ extension would have put a ceiling on who that promise applies to
 works by signing a short message to prove control of that wallet. Albedo and
 Rabet do not implement message signing, so Acredia detects that on connect and
 says so up front instead of letting you fill in the form and fail at the last
-step. Everything else — connecting, issuing, revoking, verifying — works with
-all ten.
+step. The nine registered SDK modules expose transaction signing; the
+per-wallet live acceptance matrix remains pending.
+
+HOT Wallet is excluded from the chooser: the installed Kit module reports
+mainnet unconditionally and requires browser `global`/`Buffer` polyfills. Its
+signing calls do not forward the requested network passphrase. Re-enable it only
+after network, runtime and real signing checks pass. Old HOT selections are cleared.
 
 ### Connecting on a phone
 
@@ -373,7 +380,7 @@ and no account needed. **Connecting a wallet** is where the device matters, and
 we would rather state the limit than let a student discover it at the last step
 (ACREDIA-STELLAR#4).
 
-Eight of the ten wallets above are desktop browser extensions, so they cannot be
+Seven of the nine registered wallets above are desktop browser extensions, so they cannot be
 reached from a mobile browser at all. Measured in emulated mobile Chromium
 (iPhone 12, Pixel 5, 360px Android), the wallets that *report* themselves
 available on a phone are xBull, Albedo and HOT Wallet — and of those only Albedo
@@ -849,7 +856,7 @@ Acredia requires custom SMTP to avoid the strict ~3/hour send cap on Supabase's 
 
 ### Wallet Setup for Stellar Network
 
-1. **Install a Stellar wallet** — any of the ten in
+1. **Install a Stellar wallet** — any of the registered wallets in
    [Supported wallets](#supported-wallets) works. Common choices:
    - [Freighter](https://www.freighter.app/) — browser extension
    - [xBull](https://xbull.app/) — browser extension and web

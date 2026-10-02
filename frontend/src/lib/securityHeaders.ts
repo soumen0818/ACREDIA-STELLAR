@@ -46,21 +46,29 @@ export function buildCspDirectives(nonce: string, isProduction: boolean): Record
     return {
         'default-src': "'self'",
         'script-src':
-            `'self' 'nonce-${nonce}' 'strict-dynamic'`
-            + (isProduction ? '' : " 'unsafe-eval'"),
+            `'self' 'nonce-${nonce}' 'strict-dynamic'` + (isProduction ? '' : " 'unsafe-eval'"),
         'style-src': "'self' 'unsafe-inline'",
         'img-src':
-            "'self' data: blob: "
-            + 'tse1.mm.bing.net tse3.mm.bing.net tse4.mm.bing.net '
-            + 'www.scholarshipregion.com '
-            + 'gateway.pinata.cloud ipfs.io *.ipfs.dweb.link res.cloudinary.com',
+            "'self' data: blob: " +
+            'tse1.mm.bing.net tse3.mm.bing.net tse4.mm.bing.net ' +
+            'www.scholarshipregion.com ' +
+            'gateway.pinata.cloud ipfs.io *.ipfs.dweb.link res.cloudinary.com ' +
+            'https://stellar.creit.tech https://explorer-api.walletconnect.com ' +
+            'https://walletconnect.org https://walletconnect.com https://uni.onekey-asset.com',
         'media-src': "'self' gateway.pinata.cloud ipfs.io *.ipfs.dweb.link res.cloudinary.com",
         'connect-src':
-            "'self' "
-            + '*.supabase.co '
-            + 'https://horizon-testnet.stellar.org https://soroban-testnet.stellar.org '
-            + 'https://horizon.stellar.org https://mainnet.sorobanrpc.com '
-            + 'https://gateway.pinata.cloud https://ipfs.io https://api.pinata.cloud',
+            "'self' " +
+            '*.supabase.co ' +
+            'https://horizon-testnet.stellar.org https://soroban-testnet.stellar.org ' +
+            'https://horizon.stellar.org https://mainnet.sorobanrpc.com ' +
+            'https://gateway.pinata.cloud https://ipfs.io https://api.pinata.cloud ' +
+            'https://relay.walletconnect.com wss://relay.walletconnect.com ' +
+            'https://relay.walletconnect.org wss://relay.walletconnect.org ' +
+            'https://pulse.walletconnect.com https://explorer-api.walletconnect.com ' +
+            'https://verify.walletconnect.com https://verify.walletconnect.org',
+        // Albedo embeds its intent UI; WalletConnect verifies app origins.
+        'frame-src':
+            "'self' https://albedo.link https://verify.walletconnect.com https://verify.walletconnect.org",
         'frame-ancestors': "'none'",
         'form-action': "'self'",
         'base-uri': "'self'",

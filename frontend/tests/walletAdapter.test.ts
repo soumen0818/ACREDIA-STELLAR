@@ -24,7 +24,7 @@ function createKitMock() {
         getAddress: vi.fn(async () => ({ address: 'GADDRESS' })),
         // If any test provokes this, the silent-restore guarantee is broken:
         // fetchAddress is the call that can raise a wallet popup.
-        fetchAddress: vi.fn(async () => ({ address: 'GADDRESS' })),
+        fetchAddress: vi.fn(async () => ({ address: 'GSIGNER' })),
         authModal: vi.fn(async () => ({ address: 'GADDRESS' })),
         signTransaction: vi.fn(async () => ({ signedTxXdr: 'SIGNED_XDR' })),
         signMessage: vi.fn(async () => ({ signedMessage: 'c2lnbmF0dXJl' })),
@@ -40,6 +40,7 @@ function createKitMock() {
 type KitMock = ReturnType<typeof createKitMock>;
 
 let kitMock: KitMock;
+let walletConnectFails = false;
 
 /** Every wallet module the adapter registers, stubbed. */
 function stubWalletModules() {
@@ -100,7 +101,9 @@ function installMocks(
     vi.doMock(`${KIT_PATH}/modules/wallet-connect`, () => ({
         WalletConnectModule: class {
             productId = 'wallet_connect';
-            constructor(public params: unknown) {}
+            constructor(public params: unknown) {
+                if (walletConnectFails) throw new Error('bundle unavailable');
+            }
         },
         WalletConnectTargetChain: { PUBLIC: 'stellar:pubnet', TESTNET: 'stellar:testnet' },
     }));
@@ -115,6 +118,7 @@ function registeredModuleIds(): string[] {
 beforeEach(() => {
     vi.resetModules();
     kitMock = createKitMock();
+    walletConnectFails = false;
     installMocks();
 
     // jsdom is not configured for this suite (environment: 'node'), so stand
@@ -145,11 +149,14 @@ async function loadAdapter() {
 
 /** Makes `isMobileBrowser()` report a phone for the current test. */
 function pretendMobile() {
-    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7)', maxTouchPoints: 5 });
+    vi.stubGlobal('navigator', {
+        userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7)',
+        maxTouchPoints: 5,
+    });
 }
 
 describe('module registration by device', () => {
-    it('registers every wallet on desktop', async () => {
+    it('registers supported wallets on desktop', async () => {
         const { stellarKitAdapter } = await loadAdapter();
         await stellarKitAdapter.connect();
 
@@ -157,6 +164,16 @@ describe('module registration by device', () => {
         expect(ids).toContain('freighter');
         expect(ids).toContain('albedo');
         expect(ids).toContain('bitget');
+    });
+
+    it('does not register HOT Wallet and clears an obsolete stored selection', async () => {
+        window.localStorage.setItem('acredia.wallet.selectedId', 'hot-wallet');
+        const { stellarKitAdapter } = await loadAdapter();
+        await stellarKitAdapter.connect();
+        expect(registeredModuleIds()).not.toContain('hotwallet');
+        expect(kitMock.init).toHaveBeenCalledWith(
+            expect.objectContaining({ selectedWalletId: undefined }),
+        );
     });
 
     it('shows install links on desktop but not on mobile', async () => {
@@ -259,9 +276,7 @@ describe('WalletConnect registration', () => {
     it('degrades to no WalletConnect when the module fails to load', async () => {
         vi.resetModules();
         installMocks(TESTNET_PASSPHRASE, { walletConnectProjectId: 'wc-project-id' });
-        vi.doMock(`${KIT_PATH}/modules/wallet-connect`, () => {
-            throw new Error('bundle unavailable');
-        });
+        walletConnectFails = true;
 
         const { stellarKitAdapter } = await import('../src/lib/wallet/adapter');
 
@@ -340,7 +355,10 @@ describe('connect', () => {
     it('reports a dismissed modal as a user rejection, not a failure', async () => {
         const { stellarKitAdapter } = await loadAdapter();
         const { WalletUserRejectedError } = await import('../src/lib/wallet/types');
-        kitMock.authModal.mockRejectedValueOnce({ code: -4, message: 'Modal closed by the user' });
+        kitMock.authModal.mockRejectedValueOnce({
+            code: -4,
+            message: 'The user closed the modal.',
+        });
 
         await expect(stellarKitAdapter.connect()).rejects.toBeInstanceOf(WalletUserRejectedError);
     });
@@ -360,6 +378,14 @@ describe('restore', () => {
         expect(kitMock.authModal).not.toHaveBeenCalled();
     });
 
+    it('clears a disabled HOT selection without loading the kit', async () => {
+        window.localStorage.setItem('acredia.wallet.selectedId', 'hot-wallet');
+        const { stellarKitAdapter } = await loadAdapter();
+        expect(await stellarKitAdapter.restore()).toBeNull();
+        expect(window.localStorage.getItem('acredia.wallet.selectedId')).toBeNull();
+        expect(kitMock.init).not.toHaveBeenCalled();
+    });
+
     it('does not even load the kit when no wallet was remembered', async () => {
         const { stellarKitAdapter } = await loadAdapter();
 
@@ -367,7 +393,7 @@ describe('restore', () => {
         expect(kitMock.init).not.toHaveBeenCalled();
     });
 
-    it('stays disconnected when the wallet is locked or uninstalled', async () => {
+    it('stays disconnected when the cached session is missing', async () => {
         const { stellarKitAdapter } = await loadAdapter();
         window.localStorage.setItem('acredia.wallet.selectedId', 'freighter');
         kitMock.getAddress.mockRejectedValueOnce(new Error('Wallet is locked'));
@@ -391,6 +417,45 @@ describe('restore', () => {
 });
 
 describe('signTransaction', () => {
+    it.each(['freighter', 'xbull', 'hana'])(
+        'refreshes the selected %s account before signing',
+        async (id) => {
+            const { stellarKitAdapter } = await loadAdapter();
+            kitMock.selectedModule = { productId: id };
+            await stellarKitAdapter.signTransaction('RAW_XDR', {
+                networkPassphrase: TESTNET_PASSPHRASE,
+                address: 'GSIGNER',
+            });
+            expect(kitMock.fetchAddress).toHaveBeenCalledOnce();
+            expect(kitMock.fetchAddress.mock.invocationCallOrder[0]).toBeLessThan(
+                kitMock.signTransaction.mock.invocationCallOrder[0],
+            );
+        },
+    );
+
+    it('rejects a changed account before requesting a transaction signature', async () => {
+        const { stellarKitAdapter } = await loadAdapter();
+        kitMock.fetchAddress.mockResolvedValueOnce({ address: 'GOTHER' });
+        await expect(
+            stellarKitAdapter.signTransaction('RAW_XDR', {
+                networkPassphrase: TESTNET_PASSPHRASE,
+                address: 'GSIGNER',
+            }),
+        ).rejects.toThrow(/account changed/i);
+        expect(kitMock.signTransaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects revoked permission before requesting a signature', async () => {
+        const { stellarKitAdapter } = await loadAdapter();
+        kitMock.fetchAddress.mockRejectedValueOnce(new Error('Permission revoked'));
+        await expect(
+            stellarKitAdapter.signTransaction('RAW_XDR', {
+                networkPassphrase: TESTNET_PASSPHRASE,
+                address: 'GSIGNER',
+            }),
+        ).rejects.toThrow(/Permission revoked/);
+        expect(kitMock.signTransaction).not.toHaveBeenCalled();
+    });
     it('returns the signed XDR string every wallet is normalised to', async () => {
         const { stellarKitAdapter } = await loadAdapter();
 
@@ -489,18 +554,13 @@ describe('network selection', () => {
         );
     });
 
-    it('falls back to testnet for an unrecognised passphrase', async () => {
+    it('rejects an unrecognised passphrase before initializing the kit', async () => {
         vi.resetModules();
         installMocks('Some Private Chain ; 2026');
 
         const { stellarKitAdapter } = await import('../src/lib/wallet/adapter');
-        await stellarKitAdapter.connect();
-
-        // Failing safe: a testnet signature is worthless on mainnet, never
-        // the reverse.
-        expect(kitMock.init).toHaveBeenCalledWith(
-            expect.objectContaining({ network: 'Test SDF Network ; September 2015' }),
-        );
+        await expect(stellarKitAdapter.connect()).rejects.toThrow(/network is not supported/i);
+        expect(kitMock.init).not.toHaveBeenCalled();
     });
 });
 

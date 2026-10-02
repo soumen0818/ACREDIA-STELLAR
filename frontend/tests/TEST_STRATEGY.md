@@ -108,7 +108,7 @@ setup fails rather than proceeding.
 
 ## 👛 Wallet testing
 
-Acredia supports ten wallets through Stellar Wallets Kit
+Acredia registers nine wallets through Stellar Wallets Kit
 (ACREDIA-STELLAR#272). The automated suites cover the adapter's logic; the
 per-wallet matrix below cannot be automated and has to be walked by a human.
 
@@ -118,6 +118,7 @@ per-wallet matrix below cannot be automated and has to be walked by a human.
 | --- | --- |
 | [contractsInvoke.test.ts](./contractsInvoke.test.ts) | The full build → simulate → sign → submit → confirm sequence in `invokeContractMethod`, driven by a **keypair signer with no browser**. Verifies the submitted transaction really is signed by that keypair, not just that submit was called. Previously impossible (ACREDIA-STELLAR#3). |
 | [stellarSigner.test.ts](./stellarSigner.test.ts) | The signer implementations: signatures verify against the public key, follow the passphrase they are told, and round-trip through the real server-side verifier. |
+| [ledgerGateway.test.ts](./ledgerGateway.test.ts) | All six operations use one boundary; real signers reach real execution, fake writes fail without state, unauthorized calls reject, token ids remain sequential. |
 | [e2eLedger.test.ts](./e2eLedger.test.ts) | The single E2E seam that replaced six inline `getE2eState()` forks, plus assertions that `contracts.ts` imports no wallet SDK and never calls `getE2eState`. |
 | [walletPlatform.test.ts](./walletPlatform.test.ts) | Mobile device detection (including iPadOS's desktop UA) and which wallets a phone can actually reach — the judgements the mobile fix rests on (ACREDIA-STELLAR#4). |
 | [walletAdapter.test.ts](./walletAdapter.test.ts) | Connect / restore / disconnect, capability gating, response normalisation, network selection, single-init under concurrency. Kit fully mocked. |
@@ -130,9 +131,9 @@ per-wallet matrix below cannot be automated and has to be walked by a human.
 
 Two things, both by nature:
 
-1. **Real wallet extensions.** The browser suite seeds E2E state, which
-   short-circuits wallet connection before the kit loads. Nothing in CI ever
-   talks to a real wallet.
+1. **Real wallet extensions.** Credential lifecycle specs seed E2E state.
+   `walletModal.spec.ts` loads the real Kit modal without E2E state, but no
+   extension is installed and no wallet approval is given.
 2. **The response-shape differences that motivated the adapter.** The whole
    reason `contracts.ts` used to carry defensive XDR normalisation is that
    wallets differ in what they return. Mocks return what we told them to, so
@@ -155,7 +156,7 @@ PR that adds or upgrades a wallet.
 | Klever | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | OneKey | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | Bitget | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| HOT Wallet | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| HOT Wallet | **disabled** | n/a | n/a | n/a | n/a | n/a |
 | Albedo | ☐ | ☐ | ☐ | ☐ | ☐ | **n/a** — no message signing |
 | Rabet | ☐ | ☐ | ☐ | ☐ | ☐ | **n/a** — no message signing |
 
@@ -163,15 +164,16 @@ For Albedo and Rabet, the `/claim` check is inverted: confirm the page **refuses
 early** with a named explanation, rather than letting the form be filled and
 failing at signing.
 
-### Status as of the multi-wallet migration
+### Verification status — 2026-10-02
 
 Verified in this environment, with evidence:
 
-- ☑ The kit loads in a real browser and reports all ten wallets with
+- ☑ The kit loads in a real browser and reports the registered wallets with
   availability resolved (`xBull — available`, `Freighter — not installed`, …).
 - ☑ The modal opens, is keyboard-reachable, closes on `Escape`, and scores
   **0 axe violations across all rules** (down from 1 critical).
-- ☑ Full Playwright suite (12 specs, issue → verify → revoke) green.
+- ☑ Existing Playwright suite (12 specs, issue → verify → revoke) green.
+- ☑ Three real-modal/CSP browser checks pass, including the 360px viewport.
 - ☑ Adapter, boundary, a11y and normalisation suites green.
 
 **Not verified — needs a human with the extensions installed:** every cell in
@@ -179,20 +181,16 @@ the matrix above. No browser wallet extension was installed in the migration
 environment, so no real signature was ever produced. The adapter's handling of
 each wallet's response is reasoned from the kit's module sources, not observed.
 
-### Known upstream issue: Escape does not close the modal
+### Keyboard modal behavior
 
-Pressing `Escape` leaves the kit's modal on screen. Confirmed to be the kit's own
-behaviour, not ours — it reproduces with Acredia's a11y attributes stripped off
-the dialog before the key press, and the kit's `components/app.js` registers no
-`keydown` handler. The close button works.
+Acredia repairs the upstream missing Escape handler by activating the Kit's own
+labelled close button. It also focuses the dialog, wraps Tab/Shift+Tab and
+restores focus after dismissal. `playwright/walletModal.spec.ts` exercises the
+actual installed Kit markup and axe; it does not seed a fake wallet.
 
-Left as-is deliberately: a key handler of ours would have to guess at the kit's
-internal close path, and axe does not treat it as a WCAG failure. Worth an
-upstream issue against
-[Stellar-Wallets-Kit](https://github.com/Creit-Tech/Stellar-Wallets-Kit). If it
-becomes ours to fix, the close button is reachable at
-`button[aria-label="Close wallet selection"]` — the label Acredia adds in
-`src/lib/wallet/modalA11y.ts`.
+The CSP probe in that spec uses the production policy with intercepted external
+responses to distinguish an allowed transport from a browser CSP rejection.
+Real WalletConnect and Albedo signing still require the manual matrix.
 
 ### Mobile (ACREDIA-STELLAR#4)
 
@@ -240,3 +238,17 @@ See [Adding a wallet](../../docs/architecture.md#adding-a-wallet) in the
 architecture doc — in particular step 3: check the kit's module source for
 `signMessage` before assuming it works, because every module *declares* it and
 two of them throw.
+
+
+### Evidence required before closing issues 2 and 3
+
+Record at least three real-wallet issue-and-verify cycles, including Freighter.
+For each record: date, deployed revision, wallet/version, browser/OS, network,
+issuer address, authorization/issue/batch/revoke transaction hashes, token ids,
+public verification URL/results before and after revocation, and claim result
+(or the documented capability rejection). Check reload without a popup, changed
+account, revoked permissions and cancellation. Inspect console CSP violations.
+Do not check a matrix cell based only on an adapter mock or fake-ledger test.
+
+WalletConnect additionally needs a configured Reown project and a real wallet
+app. No live-wallet transaction evidence has been produced in this environment.

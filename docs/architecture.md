@@ -35,7 +35,7 @@ graph TD
 |---|---|---|
 | **Frontend** | Next.js 16 (App Router), React 19, Tailwind v4 | Marketing site, dashboards, verification UI; also hosts server API routes. |
 | **Auth** | Supabase Auth | Email/password sessions, JWTs; role is resolved server-side (never from client metadata alone). |
-| **Wallet** | Stellar Wallets Kit (`@creit.tech/stellar-wallets-kit`) | Connects any of ten Stellar wallets and signs `issue_credential` / `revoke_credential` transactions. See [§7 Wallet integration](#7-wallet-integration). |
+| **Wallet** | Stellar Wallets Kit (`@creit.tech/stellar-wallets-kit`) | Connects any of nine registered Stellar wallets and signs `issue_credential` / `revoke_credential` transactions. See [§7 Wallet integration](#7-wallet-integration). |
 | **Smart contract** | Rust + Soroban SDK (`AcrediaCredential`) | On-chain source of truth: issuance, issuer authorization, revocation, TTL/persistence, events. |
 | **Ledger / RPC** | Stellar (testnet), Soroban RPC, Horizon | Transaction settlement and contract reads. |
 | **Storage** | IPFS via Pinata | Stores the credential document + metadata (public today; encryption is on the roadmap). |
@@ -130,7 +130,7 @@ status, the remaining blockers, and the cutover procedure.
 
 Acredia connects through [Stellar Wallets Kit](https://github.com/Creit-Tech/Stellar-Wallets-Kit)
 (MIT, listed in the [official Stellar wallet-integration docs](https://developers.stellar.org/docs/build/apps/wallet-integration)),
-which covers Freighter, xBull, Albedo, Rabet, Lobstr, Hana, HOT, Klever, OneKey
+which covers Freighter, xBull, Albedo, Rabet, Lobstr, Hana, Klever, OneKey
 and Bitget. The supported-wallet matrix, including which wallets can complete
 the `/claim` flow, is in the [README](../README.md#-supported-wallets).
 
@@ -170,15 +170,16 @@ Four implementations, in `src/lib/stellarSigner.ts` unless noted:
   `getE2eState()` early return that re-implemented the logic it was bypassing —
   authorization checks in three places, token-id sequencing in two. Two
   implementations of the same rules, only one of them real. They now collapse
-  into `src/lib/e2eLedger.ts`: the writing functions check `isE2eSigner(signer)`,
-  and authorization is decided in exactly one function.
+  into `src/lib/ledgerGateway.ts`: one execution boundary chooses the real
+  implementation or fake ledger for all six operations. `contracts.ts` has no
+  fake-signer branches. Test state and fake authorization live in `e2eLedger.ts`.
 - **Server-side signing was impossible** without editing the module.
 
 Read-only functions (`getContractOwner`, `isAuthorizedIssuer`) deliberately keep
 taking a plain address. They only simulate, and one caller is a server API route
 with no wallet at all — a signer there would be a dependency nothing could
-satisfy. Their E2E branches route through `e2eLedgerReads` instead, which returns
-`null` (not `false`) when E2E is off so callers fall through to the real ledger.
+satisfy. They use the same ledger gateway as writes. A fake read result of `false` is
+preserved; only `null` means that the real implementation should run.
 
 `contracts.ts` now imports no wallet SDK and never calls `getE2eState`; both are
 asserted in
@@ -223,7 +224,7 @@ That is enforced twice, because a convention alone is what failed the first time
 ### Capability gaps are explicit
 
 Not every wallet implements every operation, and the kit's types do not
-distinguish them: all ten declare `signMessage`, but **Albedo and Rabet reject
+distinguish them: registered modules declare `signMessage`, but **Albedo and Rabet reject
 it at runtime**. `/claim` proves wallet ownership *by* signing a message, so a
 student on one of those wallets would connect successfully and dead-end at the
 final step.
@@ -251,18 +252,19 @@ The kit's network comes solely from `activeNetwork` (`src/lib/stellar.ts`), neve
 a literal. A kit pinned to testnet while the app runs on mainnet would sign
 against the wrong ledger, and the resulting "network mismatch" is the kind of
 error users blame on their wallet rather than on us. An unrecognised passphrase
-falls back to testnet, which fails safe: a testnet signature is worthless on
-mainnet, never the reverse.
+is rejected before initializing the Kit rather than silently changing networks.
 
 ### Silent restore never prompts
 
-The chosen wallet *id* is persisted to `localStorage` — never an address, never
-a key — and restored on load. `WalletAdapter.restore()` must never open a wallet
+Acredia persists the chosen wallet id; the Kit separately caches the connected
+address in its own storage. Restore displays a cached session. `WalletAdapter.restore()` must never open a wallet
 popup: it runs without a user gesture, so a prompt there is hostile, is commonly
 blocked by the browser, and for hardware wallets can leave a device waiting on
-input nobody asked for. The adapter reads the already-granted permission
-(`getAddress`) rather than requesting one (`fetchAddress`/`authModal`), and
-`tests/walletAdapter.test.ts` asserts the prompting calls are never reached.
+input nobody asked for. The adapter reads the cached address (`getAddress`); it does not establish
+that current wallet permissions remain valid. During explicit transaction or
+message signing, `fetchAddress` refreshes permissions and the selected account.
+An account change rejects the operation before signature approval. Restore
+never calls `fetchAddress` or `authModal`; tests enforce both paths.
 
 ### Modal accessibility
 
@@ -270,7 +272,7 @@ The kit's selection modal is themed from the app's CSS custom properties
 (`src/lib/wallet/theme.ts`) rather than shipped with its default blue-and-grey
 look — it is the screen users meet *before* deciding to trust us with a wallet.
 
-Two upstream a11y gaps are repaired in `src/lib/wallet/modalA11y.ts`, neither of
+Upstream a11y gaps are repaired in `src/lib/wallet/modalA11y.ts`, neither of
 them configurable (the kit's internal `Button` takes no label prop):
 
 1. The header's icon-only help/back/close buttons carry no accessible name — a
@@ -282,7 +284,9 @@ them configurable (the kit's internal `Button` takes no label prop):
 Measured with axe-core against the real modal in Chromium, before and after:
 **1 critical violation → 0 violations across all axe rules**. Both repairs check
 for the *absence* of the attribute, so each becomes a no-op once the kit fixes
-it upstream.
+it upstream. Acredia also wraps keyboard focus within the dialog, closes through
+the Kit's own close button on Escape and restores focus to the initiating
+control after the auth promise re-enables it.
 
 ### Adding a wallet
 
@@ -296,3 +300,16 @@ it upstream.
 4. Run the per-wallet manual matrix in
    [`frontend/tests/TEST_STRATEGY.md`](../frontend/tests/TEST_STRATEGY.md#per-wallet-verification-matrix):
    signing must be re-verified per wallet, because response shapes differ.
+
+
+### Wallet transport policy
+
+The CSP explicitly permits WalletConnect HTTPS/WSS relay origins, scoped
+verification frames, Albedo frames and Kit wallet icons. It retains
+`frame-ancestors 'none'`, nonce-based script execution and no unrestricted
+connection/frame wildcard. `walletModal.spec.ts` runs the actual Kit modal,
+checks keyboard focus wrapping, Escape dismissal, focus restoration and axe,
+and checks HTTP/frame requests under the production CSP using intercepted
+transport responses. It does not prove a live relay session or wallet signature.
+HOT Wallet is disabled until its network and browser runtime limitations are
+resolved; see the README capability table.

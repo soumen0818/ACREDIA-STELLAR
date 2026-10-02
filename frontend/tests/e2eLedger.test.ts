@@ -206,7 +206,8 @@ describe('contracts.ts decoupling', () => {
         // Six `getE2eState()` early returns became zero: the signer decides.
         expect(source).not.toMatch(/getE2eState/);
         expect(source).not.toMatch(/updateE2eState/);
-        expect(source).toMatch(/from '\.\/e2eLedger'/);
+        expect(source).toMatch(/from '\.\/ledgerGateway'/);
+        expect(source).not.toMatch(/isE2eSigner|e2eLedgerReads|e2eLedgerWrites/);
     });
 
     it('takes signers on every writing function', () => {

@@ -2,7 +2,7 @@
  * The one module allowed to import a concrete wallet library.
  *
  * Implements {@link WalletAdapter} over Stellar Wallets Kit, which gives
- * Acredia Freighter, xBull, Albedo, Rabet, Lobstr, Hana, HOT, Klever, OneKey
+ * Acredia Freighter, xBull, Albedo, Rabet, Lobstr, Hana, Klever, OneKey
  * and Bitget through a single API instead of the Freighter-only lock-in that
  * was an adoption ceiling for a product whose whole promise is universal,
  * lifelong access (ACREDIA-STELLAR#272).
@@ -42,9 +42,9 @@ import {
 /**
  * Where the user's wallet choice is remembered between visits.
  *
- * Only the wallet *id* is stored — never an address, never a key. Restoring
- * a connection still has to ask the wallet, which is what keeps the
- * silent-restore path honest.
+ * Acredia stores only the wallet id. The Kit also caches an address in its
+ * own storage. Silent restore displays that cached session; signing explicitly
+ * revalidates the selected account with the wallet before requesting a signature.
  */
 const SELECTED_WALLET_STORAGE_KEY = 'acredia.wallet.selectedId';
 
@@ -91,14 +91,14 @@ const NETWORK_PASSPHRASES = {
  * testnet while the app runs on mainnet would sign against the wrong ledger,
  * and the resulting "network mismatch" is the kind of error users blame on
  * their wallet rather than on us. Custom deployments map by passphrase so a
- * standalone/futurenet target still lands on the right value; anything
- * unrecognised falls back to testnet, which fails safe (a testnet signature is
- * worthless on mainnet, never the reverse).
+ * standalone/futurenet target still lands on the right value; an unrecognised passphrase is rejected before the Kit is initialized.
  */
 function kitNetwork(): string {
     const passphrase = activeNetwork.networkPassphrase;
     const known = Object.values(NETWORK_PASSPHRASES) as readonly string[];
-    return known.includes(passphrase) ? passphrase : NETWORK_PASSPHRASES.TESTNET;
+    if (!known.includes(passphrase))
+        throw new Error('The configured Stellar network is not supported by the wallet adapter.');
+    return passphrase;
 }
 
 function readStoredWalletId(): string | null {
@@ -156,9 +156,8 @@ async function loadWalletConnectModule() {
     if (!projectId) return null;
 
     try {
-        const { WalletConnectModule, WalletConnectTargetChain } = await import(
-            '@creit.tech/stellar-wallets-kit/modules/wallet-connect'
-        );
+        const { WalletConnectModule, WalletConnectTargetChain } =
+            await import('@creit.tech/stellar-wallets-kit/modules/wallet-connect');
 
         // The module defaults `allowedChains` to PUBLIC. Leaving that alone on
         // a testnet deployment would ask the wallet to approve a mainnet
@@ -199,7 +198,6 @@ async function loadKit(): Promise<Kit> {
         { RabetModule },
         { LobstrModule },
         { HanaModule },
-        { HotWalletModule },
         { KleverModule },
         { OneKeyModule },
         { BitgetModule },
@@ -213,7 +211,6 @@ async function loadKit(): Promise<Kit> {
         import('@creit.tech/stellar-wallets-kit/modules/rabet'),
         import('@creit.tech/stellar-wallets-kit/modules/lobstr'),
         import('@creit.tech/stellar-wallets-kit/modules/hana'),
-        import('@creit.tech/stellar-wallets-kit/modules/hotwallet'),
         import('@creit.tech/stellar-wallets-kit/modules/klever'),
         import('@creit.tech/stellar-wallets-kit/modules/onekey'),
         import('@creit.tech/stellar-wallets-kit/modules/bitget'),
@@ -237,24 +234,24 @@ async function loadKit(): Promise<Kit> {
               new RabetModule(),
               new LobstrModule(),
               new HanaModule(),
-              new HotWalletModule(),
               new KleverModule(),
               new OneKeyModule(),
               new BitgetModule(),
           ];
 
+    const modules = [
+        ...(walletConnect ? [walletConnect] : []),
+        new AlbedoModule(),
+        ...extensionModules,
+    ];
+    const storedId = readStoredWalletId();
+    const selectedId = modules.some((module) => module.productId === storedId) ? storedId : null;
+    if (storedId && !selectedId) storeWalletId(null);
+
     StellarWalletsKit.init({
         network: kitNetwork() as Parameters<typeof StellarWalletsKit.init>[0]['network'],
-        selectedWalletId: readStoredWalletId() ?? undefined,
-        modules: [
-            // First in the list so it is the top option on a phone, where it is
-            // the only one that can work.
-            ...(walletConnect ? [walletConnect] : []),
-            // Web-based, so it loads on any device. It cannot sign messages,
-            // which `/claim` gates on separately.
-            new AlbedoModule(),
-            ...extensionModules,
-        ],
+        selectedWalletId: selectedId ?? undefined,
+        modules,
         authModal: {
             // On desktop, an unavailable wallet is shown with an install link so
             // "my wallet isn't listed" has an answer where the question occurs.
@@ -286,7 +283,9 @@ function isUserRejection(error: unknown): boolean {
               ? String((error as { message: unknown }).message)
               : String(error);
 
-    return /cancel|reject|denied|dismiss|closed by the user|user declined/i.test(message);
+    return /cancel|reject|denied|dismiss|closed by the user|user closed|user declined/i.test(
+        message,
+    );
 }
 
 /** The kit's capability rejections carry code -3. */
@@ -319,13 +318,19 @@ function selectedWalletId(activeKit: Kit): string {
     }
 }
 
+/** Refresh permissions/account only during an explicit signing action. */
+async function validateSigningAccount(activeKit: Kit, expectedAddress: string): Promise<void> {
+    const { address } = await activeKit.fetchAddress();
+    if (address !== expectedAddress) {
+        throw new Error('Your wallet account changed. Reconnect your wallet before signing.');
+    }
+}
+
 export const stellarKitAdapter: WalletAdapter = {
     async connect(): Promise<ConnectedWallet> {
+        ensureModalA11y();
         const activeKit = await kit();
         activeKit.setTheme(buildWalletModalTheme());
-        // The kit's own header buttons ship without accessible names; this
-        // supplies them as the modal mounts. See ./modalA11y.ts.
-        ensureModalA11y();
 
         try {
             const { address } = await activeKit.authModal();
@@ -351,15 +356,17 @@ export const stellarKitAdapter: WalletAdapter = {
         // Nothing remembered means nothing to restore — and, importantly, no
         // reason to load the kit at all on a first visit.
         if (!walletId) return null;
+        if (walletId === WALLET_IDS.HOT_WALLET) {
+            storeWalletId(null);
+            return null;
+        }
 
         try {
             const activeKit = await kit();
             activeKit.setWallet(walletId);
 
-            // `getAddress` reads the kit's memory and, for extension wallets,
-            // the permission the user already granted. It must not be
-            // `fetchAddress`: that reaches into the wallet and can raise a
-            // popup, which on page load has no user gesture behind it.
+            // The Kit reads its cached address only. This avoids unprompted
+            // wallet popups; permission/account changes are checked at signing.
             const { address } = await activeKit.getAddress();
             if (!address) return null;
 
@@ -370,9 +377,7 @@ export const stellarKitAdapter: WalletAdapter = {
                 capabilities: capabilitiesFor(walletId),
             };
         } catch {
-            // Wallet locked, uninstalled since, or permission revoked. Staying
-            // disconnected is correct; prompting here is exactly what this
-            // path must never do.
+            // Invalid wallet id or missing cached session. Never prompt here.
             return null;
         }
     },
@@ -394,6 +399,7 @@ export const stellarKitAdapter: WalletAdapter = {
         const activeKit = await kit();
 
         try {
+            await validateSigningAccount(activeKit, options.address);
             const { signedTxXdr } = await activeKit.signTransaction(xdr, {
                 networkPassphrase: options.networkPassphrase,
                 address: options.address,
@@ -424,6 +430,7 @@ export const stellarKitAdapter: WalletAdapter = {
         }
 
         try {
+            await validateSigningAccount(activeKit, options.address);
             const { signedMessage } = await activeKit.signMessage(message, {
                 networkPassphrase: options.networkPassphrase,
                 address: options.address,

@@ -1,27 +1,7 @@
 import { getE2eState, updateE2eState, type E2eState } from './e2e';
 import type { StellarSigner } from './stellarSigner';
 
-/**
- * The single E2E seam for on-chain work (ACREDIA-STELLAR#3).
- *
- * `contracts.ts` used to carry six separate `getE2eState()` early returns —
- * one inside every exported function. Each re-implemented the business logic it
- * was bypassing (authorization checks, token-id sequencing), purely so the
- * browser suite never reached a wallet. That is two copies of the rules, and
- * only one of them was the real one.
- *
- * Everything E2E-specific now lives here, behind two seams:
- *
- *  - {@link createE2eSigner} — a signer for the four *writing* functions. The
- *    fake signs nothing and submits nothing; it records what it was asked to do
- *    and returns the hash the suite expects.
- *  - {@link e2eLedgerReads} — the two *read-only* functions
- *    (`getContractOwner`, `isAuthorizedIssuer`) never sign, so a signer is the
- *    wrong tool. They ask this instead.
- *
- * Authorization is decided in exactly one place ({@link isAuthorizedInE2eState})
- * rather than three, so the fake ledger can no longer disagree with itself.
- */
+/** Fake ledger state and signer used exclusively by ledgerGateway.ts. */
 
 /** Marks a signer as the E2E fake, so `contracts.ts` can take the fake path. */
 const E2E_SIGNER = Symbol.for('acredia.e2e.signer');
@@ -61,7 +41,7 @@ export function isAuthorizedInE2eState(state: E2eState, issuerAddress: string): 
  * A signer that stands in for a wallet under Playwright.
  *
  * `signTransaction` throws rather than returning a plausible XDR: nothing
- * should ever reach it. `contracts.ts` checks {@link isE2eSigner} before
+ * should ever reach it. `ledgerGateway.ts` checks {@link isE2eSigner} before
  * building a transaction, so arriving here means a code path lost its fake and
  * would otherwise have silently talked to a real ledger with an unsigned
  * transaction.
@@ -73,7 +53,7 @@ export function createE2eSigner(address: string): E2eSigner {
         async signTransaction(): Promise<string> {
             throw new Error(
                 'The E2E signer was asked to sign a real transaction. A contract function ' +
-                    'reached the ledger path while E2E state was enabled — check its isE2eSigner guard.',
+                    'reached the ledger path while E2E state was enabled — check the ledger gateway.',
             );
         },
         async signMessage(message: string): Promise<string> {
@@ -114,6 +94,10 @@ export const e2eLedgerReads = {
  */
 export const e2eLedgerWrites = {
     authorizeIssuer(adminAddress: string, issuerAddress: string): string {
+        const state = requireEnabledState();
+        if (state.contractOwner && state.contractOwner !== adminAddress) {
+            throw new Error('Only the contract owner can authorize issuers.');
+        }
         updateE2eState((state) => {
             state.contractOwner = state.contractOwner || adminAddress;
             state.authorizedIssuers ??= [];
@@ -167,6 +151,7 @@ export const e2eLedgerWrites = {
     },
 
     revokeCredential(tokenId: string): string {
+        requireEnabledState();
         return `e2e-revoke-${tokenId}`;
     },
 };

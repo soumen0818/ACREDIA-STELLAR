@@ -52,6 +52,7 @@ export const WALLET_IDS = {
 const NO_MESSAGE_SIGNING: ReadonlySet<string> = new Set([
     WALLET_IDS.ALBEDO,
     WALLET_IDS.RABET,
+    WALLET_IDS.HOT_WALLET,
 ]);
 
 /**
@@ -65,7 +66,7 @@ const NO_MESSAGE_SIGNING: ReadonlySet<string> = new Set([
  */
 export function capabilitiesFor(walletId: string): WalletCapabilities {
     return {
-        signTransaction: true,
+        signTransaction: walletId !== WALLET_IDS.HOT_WALLET,
         signMessage: !NO_MESSAGE_SIGNING.has(walletId),
     };
 }

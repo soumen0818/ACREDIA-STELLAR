@@ -194,8 +194,28 @@ function markUpDialog(root: ParentNode): void {
  * Safe to call more than once — the second call is a no-op.
  */
 let observer: MutationObserver | null = null;
+let keyboardHandler: ((event: KeyboardEvent) => void) | null = null;
+let previousFocus: HTMLElement | null = null;
+let activeDialog: HTMLElement | null = null;
+
+function dialogControls(dialog: HTMLElement): HTMLElement[] {
+    return Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), a[href], input:not([disabled]), [tabindex="0"]',
+        ),
+    ).filter((element) => element.getClientRects().length > 0);
+}
 
 export function ensureModalA11y(): void {
+    // Capture the initiating control before async loading disables it or moves focus.
+    if (
+        typeof document !== 'undefined' &&
+        typeof HTMLElement !== 'undefined' &&
+        document.activeElement instanceof HTMLElement &&
+        !activeDialog
+    ) {
+        previousFocus = document.activeElement;
+    }
     if (observer) return;
 
     // Every dependency is checked rather than inferred from one of them: this
@@ -221,8 +241,51 @@ export function ensureModalA11y(): void {
         labelModalIconButtons(document.body);
         markUpDialog(document.body);
         enlargeTouchTargets(document.body);
+        const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
+        if (dialog && !activeDialog) {
+            previousFocus ??=
+                document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            activeDialog = dialog;
+            dialogControls(dialog)[0]?.focus();
+        } else if (!dialog && activeDialog) {
+            activeDialog = null;
+            const trigger = previousFocus;
+            previousFocus = null;
+            // The auth promise re-enables Connect after the modal unmounts.
+            requestAnimationFrame(() => {
+                if (trigger?.isConnected) trigger.focus();
+            });
+        }
     };
 
+    keyboardHandler = (event) => {
+        if (!activeDialog?.isConnected) return;
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            activeDialog
+                .querySelector<HTMLButtonElement>('button[aria-label="Close wallet selection"]')
+                ?.click();
+        } else if (event.key === 'Tab') {
+            const controls = dialogControls(activeDialog);
+            const first = controls[0];
+            const last = controls.at(-1);
+            if (!first || !last) return;
+            if (
+                event.shiftKey &&
+                (document.activeElement === first || !activeDialog.contains(document.activeElement))
+            ) {
+                event.preventDefault();
+                last.focus();
+            } else if (
+                !event.shiftKey &&
+                (document.activeElement === last || !activeDialog.contains(document.activeElement))
+            ) {
+                event.preventDefault();
+                first.focus();
+            }
+        }
+    };
+    document.addEventListener('keydown', keyboardHandler);
     observer = new MutationObserver(sweep);
     observer.observe(document.body, { childList: true, subtree: true });
     sweep();
@@ -232,4 +295,9 @@ export function ensureModalA11y(): void {
 export function __resetModalA11yForTests(): void {
     observer?.disconnect();
     observer = null;
+    if (keyboardHandler && typeof document !== 'undefined')
+        document.removeEventListener('keydown', keyboardHandler);
+    keyboardHandler = null;
+    activeDialog = null;
+    previousFocus = null;
 }

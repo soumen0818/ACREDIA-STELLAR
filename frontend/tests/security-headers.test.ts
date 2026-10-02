@@ -15,6 +15,7 @@ const REQUIRED_DIRECTIVES = [
     'img-src',
     'media-src',
     'connect-src',
+    'frame-src',
     'frame-ancestors',
     'form-action',
     'base-uri',
@@ -39,11 +40,7 @@ const IMAGE_DOMAINS = [
     'res.cloudinary.com',
 ];
 
-const IPFS_DOMAINS = [
-    'gateway.pinata.cloud',
-    'ipfs.io',
-    '*.ipfs.dweb.link',
-];
+const IPFS_DOMAINS = ['gateway.pinata.cloud', 'ipfs.io', '*.ipfs.dweb.link'];
 
 describe('CSP directives', () => {
     it('includes all required directives', () => {
@@ -57,13 +54,19 @@ describe('CSP directives', () => {
         const directives = buildCspDirectives(NONCE, true);
         const known = new Set(REQUIRED_DIRECTIVES);
         for (const key of Object.keys(directives)) {
-            expect(known.has(key as typeof REQUIRED_DIRECTIVES[number])).toBe(true);
+            expect(known.has(key as (typeof REQUIRED_DIRECTIVES)[number])).toBe(true);
         }
     });
 
     it('uses single-quoted keywords correctly', () => {
         for (const value of Object.values(buildCspDirectives(NONCE, false))) {
-            for (const keyword of ['self', 'none', 'unsafe-inline', 'unsafe-eval', 'strict-dynamic']) {
+            for (const keyword of [
+                'self',
+                'none',
+                'unsafe-inline',
+                'unsafe-eval',
+                'strict-dynamic',
+            ]) {
                 if (value.includes(keyword)) {
                     expect(value).toContain(`'${keyword}'`);
                 }
@@ -279,9 +282,7 @@ describe('buildSecurityHeaders', () => {
 
     it('sets HSTS with secure values in production', () => {
         const groups = buildSecurityHeaders(true);
-        const hsts = groups[0].headers.find(
-            (h) => h.key === 'Strict-Transport-Security',
-        );
+        const hsts = groups[0].headers.find((h) => h.key === 'Strict-Transport-Security');
         expect(hsts).toBeDefined();
         expect(hsts!.value).toMatch(/max-age=\d+/);
         expect(hsts!.value).toContain('includeSubDomains');
@@ -295,9 +296,7 @@ describe('buildSecurityHeaders', () => {
 
     it('has X-Content-Type-Options set to nosniff', () => {
         const groups = buildSecurityHeaders(false);
-        const header = groups[0].headers.find(
-            (h) => h.key === 'X-Content-Type-Options',
-        );
+        const header = groups[0].headers.find((h) => h.key === 'X-Content-Type-Options');
         expect(header?.value).toBe('nosniff');
     });
 
@@ -311,5 +310,24 @@ describe('buildSecurityHeaders', () => {
         const groups = buildSecurityHeaders(false);
         expect(groups).toHaveLength(1);
         expect(groups[0].source).toBe('/(.*)');
+    });
+});
+
+describe('wallet transport CSP', () => {
+    it('allows the relay over HTTPS and WSS and scoped verification frames', () => {
+        const policy = buildCspDirectives(NONCE, true);
+        for (const origin of [
+            'https://relay.walletconnect.com',
+            'wss://relay.walletconnect.com',
+            'wss://relay.walletconnect.org',
+        ]) {
+            expect(policy['connect-src'].split(' ')).toContain(origin);
+        }
+        for (const origin of ['https://albedo.link', 'https://verify.walletconnect.com']) {
+            expect(policy['frame-src'].split(' ')).toContain(origin);
+        }
+        expect(policy['frame-src']).not.toContain('*');
+        expect(policy['connect-src'].split(' ')).not.toContain('*');
+        expect(policy['frame-ancestors']).toBe("'none'");
     });
 });
