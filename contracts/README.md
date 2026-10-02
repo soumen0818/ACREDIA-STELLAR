@@ -149,7 +149,15 @@ soroban contract invoke \
 
 Initialization is one-time only. Any later call to `initialize` will fail and cannot overwrite the owner or reset token sequencing.
 
-`initialize` requires the proposed owner's signature (`owner.require_auth()`), so it cannot be front-run into setting an address you don't control. It **cannot**, on its own, stop someone from front-running the deploy transaction and calling `initialize` with their own address before you do — for that, submit the deploy and `initialize` calls together as a single atomic operation from your trusted deploying account, and treat any `init` event from an unexpected address as a compromised deployment requiring a redeploy before issuing any credentials. See [MAINNET_CHECKLIST.md](./MAINNET_CHECKLIST.md) §2 and [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) F-1.
+`initialize` requires the proposed owner's signature (`owner.require_auth()`),
+but an attacker could still initialize a freshly deployed instance to their
+**own** address first. Soroban transactions allow only one operation, so the
+current separate deploy and initialize calls cannot form one atomic transaction.
+For a disposable testnet instance, initialize immediately and verify
+`get_owner` before use; discard any instance with an unexpected owner. Before
+mainnet, add and audit an owner-setting `__constructor` so deployment and
+initialization occur atomically. See [MAINNET_CHECKLIST.md](./MAINNET_CHECKLIST.md)
+§2 and [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) F-1.
 
 ### Step 4b: Transfer Ownership Safely (Optional)
 
@@ -371,19 +379,41 @@ Upgrades are **timelocked and announced on-chain**. An upgrade cannot take effec
 Rationale and the choice of window are recorded in [docs/decisions/0005-upgrade-timelock.md](../docs/decisions/0005-upgrade-timelock.md).
 
 ### Upgrade Procedure
-To upgrade the contract WASM:
-1. **Upload New WASM Code**:
+To update an **existing** contract ID, first confirm the currently deployed
+interface and owner. Local source files do not change code already on the
+ledger. A newly deployed instance must be initialized; an in-place upgrade
+keeps the existing address and storage. Use a disposable testnet contract for
+the first full rehearsal.
+
+The commands below apply **only after the currently deployed contract already
+exposes** `propose_upgrade` and `get_pending_upgrade`. Inspect it first:
+
+```bash
+stellar contract info interface --network testnet --contract-id <CONTRACT_ID>
+```
+
+If those functions are absent, the deployed contract is an older version. Its
+old `upgrade` entrypoint controls the transition to this timelocked version;
+the new timelock cannot govern code that has not been installed yet. Review
+that on-chain interface, storage compatibility and owner authorization before
+any upgrade, and record the one-time bootstrap transition. A fresh isolated
+testnet deployment is the safer route for testing this checkout.
+
+1. **Build and upload the new WASM without creating another contract instance**:
    ```bash
-   soroban contract deploy \
-     --wasm target/wasm32v1-none/release/acredia_stellar_new.wasm \
+   cd contracts
+   cargo build --target wasm32v1-none --release
+   stellar contract upload \
+     --wasm target/wasm32v1-none/release/acredia_stellar.wasm \
      --source admin \
      --network testnet
    ```
-   Note down the new WASM hash returned (different from the contract deployment contract ID).
+   Record the returned WASM hash. `stellar contract deploy --wasm ...`
+   creates a **new contract ID**; it is not an in-place upgrade.
 
 2. **Propose the Upgrade** (starts the timelock and publishes the announcement):
    ```bash
-   soroban contract invoke \
+   stellar contract invoke \
      --id <CONTRACT_ID> \
      --source admin \
      --network testnet \
@@ -397,7 +427,7 @@ To upgrade the contract WASM:
 
 4. **Execute the Upgrade** (only succeeds after the window, and only for the proposed hash):
    ```bash
-   soroban contract invoke \
+   stellar contract invoke \
      --id <CONTRACT_ID> \
      --source admin \
      --network testnet \
@@ -410,7 +440,7 @@ To upgrade the contract WASM:
 5. **Schema / State Migration** (If applicable):
    If the new WASM version introduces changes to the storage structures, run the migration function:
    ```bash
-   soroban contract invoke \
+   stellar contract invoke \
      --id <CONTRACT_ID> \
      --source admin \
      --network testnet \
@@ -453,7 +483,7 @@ Anyone (no authorization required) can call `bump_credential(token_id)` to exten
 - **Third-party verifiers** to ensure a credential they rely on stays accessible.
 
 ```bash
-soroban contract invoke \
+   stellar contract invoke \
   --id <CONTRACT_ID> \
   --network testnet \
   -- \

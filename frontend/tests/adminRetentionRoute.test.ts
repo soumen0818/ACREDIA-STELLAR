@@ -4,13 +4,11 @@ import { resetRateLimitStore } from '@/lib/rateLimit';
 
 /* ── Hoisted mocks ───────────────────────────────────────────────────────────── */
 
-const { mockRequireAdminRequest, mockGetServiceRoleClient, mockStructuredLog } = vi.hoisted(
-    () => ({
-        mockRequireAdminRequest: vi.fn(),
-        mockGetServiceRoleClient: vi.fn(),
-        mockStructuredLog: vi.fn(),
-    }),
-);
+const { mockRequireAdminRequest, mockGetServiceRoleClient, mockStructuredLog } = vi.hoisted(() => ({
+    mockRequireAdminRequest: vi.fn(),
+    mockGetServiceRoleClient: vi.fn(),
+    mockStructuredLog: vi.fn(),
+}));
 
 vi.mock('../src/lib/serverAuth', () => ({
     requireAdminRequest: mockRequireAdminRequest,
@@ -22,12 +20,8 @@ vi.mock('../src/lib/debug', () => ({
     captureException: vi.fn(),
 }));
 
-import {
-    GET,
-    STALE_AFTER_HOURS,
-    hoursSince,
-    isRetentionStale,
-} from '../src/app/api/admin/retention/route';
+import { GET } from '../src/app/api/admin/retention/route';
+import { STALE_AFTER_HOURS, hoursSince, isRetentionStale } from '../src/lib/retentionHealth';
 
 let ipCounter = 0;
 function retentionRequest(): NextRequest {
@@ -75,8 +69,7 @@ describe('retention staleness', () => {
     });
 
     it('tolerates a single missed night but not two', () => {
-        const hoursAgo = (hours: number) =>
-            new Date(now - hours * 3_600_000).toISOString();
+        const hoursAgo = (hours: number) => new Date(now - hours * 3_600_000).toISOString();
 
         expect(isRetentionStale(hoursAgo(25), now)).toBe(false);
         expect(isRetentionStale(hoursAgo(STALE_AFTER_HOURS - 1), now)).toBe(false);

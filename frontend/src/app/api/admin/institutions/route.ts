@@ -40,7 +40,7 @@ export type OnboardingState = 'invited' | 'invite_expired' | 'active' | 'wallet_
  * transaction hash — an institution is only "authorized" once the contract
  * owner has actually signed for it.
  */
-export function deriveOnboardingState(institution: {
+function deriveOnboardingState(institution: {
     authorization_tx_hash?: string | null;
     invite_accepted_at?: string | null;
     invite_expires_at?: string | null;

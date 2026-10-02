@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceRoleClient, requireAdminRequest } from '@/lib/serverAuth';
 import { enforceRateLimit } from '@/lib/rateLimit';
 import { captureException, structuredLog } from '@/lib/debug';
+import { STALE_AFTER_HOURS, hoursSince, isRetentionStale } from '@/lib/retentionHealth';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,14 +12,13 @@ const ADMIN_RETENTION_RATE_LIMIT = {
     prefix: 'admin-retention',
 } as const;
 
-/**
- * A purge is expected nightly. Two missed nights is unambiguous: a single
- * skipped run, a clock skew, or a slow deploy window will not trip it.
- */
-export const STALE_AFTER_HOURS = 48;
-
 interface RetentionStatus {
-    verificationLogs: { total: number; overdue: number; oldest: string | null; retentionDays: number };
+    verificationLogs: {
+        total: number;
+        overdue: number;
+        oldest: string | null;
+        retentionDays: number;
+    };
     contactMessages: {
         total: number;
         overdue: number;
@@ -32,27 +32,6 @@ interface RetentionStatus {
         detail: Record<string, number> | null;
     } | null;
     lastFailure: { finishedAt: string | null; error: string | null } | null;
-}
-
-export function hoursSince(timestamp: string | null | undefined, now = Date.now()): number | null {
-    if (!timestamp) return null;
-    const parsed = new Date(timestamp).getTime();
-    if (Number.isNaN(parsed)) return null;
-    return (now - parsed) / 3_600_000;
-}
-
-/**
- * Whether the retention job needs attention.
- *
- * A deployment that has never run the purge is stale too — "no run recorded"
- * is exactly the state issue #227 was about, so it must not read as healthy.
- */
-export function isRetentionStale(
-    lastSuccessAt: string | null | undefined,
-    now = Date.now(),
-): boolean {
-    const age = hoursSince(lastSuccessAt, now);
-    return age === null || age > STALE_AFTER_HOURS;
 }
 
 /**

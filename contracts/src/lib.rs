@@ -45,6 +45,9 @@ const MAX_BATCH_SIZE: u32 = 20;
 // rather than an open-ended storage/TTL liability.
 const MAX_ISSUER_NAME_LEN: u32 = 64;
 const MAX_ISSUER_PROFILE_URI_LEN: u32 = 256;
+// Metadata URI bound (bytes, not Unicode code points). Existing error codes
+// 1–16 remain stable for deployed clients; the new error is appended.
+const MAX_IPFS_URI_LEN: u32 = 256;
 
 const UPGRADE_TIMELOCK_LEDGERS: u32 = 120_960;
 
@@ -68,6 +71,7 @@ pub enum ContractError {
     UpgradeNotProposed = 14,
     UpgradeHashMismatch = 15,
     UpgradeTimelockActive = 16,
+    IpfsUriTooLarge = 17,
 }
 
 #[contracttype]
@@ -1827,10 +1831,7 @@ mod tests {
             AcrediaCredential::revoke_issuer(env.clone(), stranger);
         });
 
-        assert_eq!(
-            last_event_topics(&env),
-            vec![&env, symbol_short!("init").into_val(&env)]
-        );
+        assert!(env.events().all().events().is_empty());
     }
 
     #[test]
@@ -2076,7 +2077,7 @@ mod tests {
                 dummy_hash(&env, 1),
                 uri,
             );
-            assert_eq!(result, Err(ContractError::UriTooLarge));
+            assert_eq!(result, Err(ContractError::IpfsUriTooLarge));
 
             // A typed error, not a panic — and nothing was written: the
             // rejected credential's hash must stay free for a later, valid
@@ -2143,7 +2144,7 @@ mod tests {
             let bad = results.get(0).unwrap();
             assert!(!bad.success);
             assert_eq!(bad.token_id, 0);
-            assert_eq!(bad.error_code, ContractError::UriTooLarge as u32);
+            assert_eq!(bad.error_code, ContractError::IpfsUriTooLarge as u32);
 
             for i in 1..3u32 {
                 let row = results.get(i).unwrap();

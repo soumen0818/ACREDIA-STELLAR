@@ -230,11 +230,16 @@ Acredia uses a single unified Soroban smart contract, `AcrediaCredential`, writt
 
 ### ✅ AcrediaCredential Contract — Live on Testnet
 
-> **Contract ID**: `CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK`  
+> **Contract ID**: `CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH`
 > **Network**: Stellar Testnet  
 > **Owner / Deployer**: `GAMI3XDDII72W23RADNPPAZ2GYEZ2MTYXLETOU36R4ISXMQ7IURFEKFP`  
-> **Deployed**: 2026-06-27 (Redeployed)
-> **Explorer**: [View on Stellar Expert ↗](https://stellar.expert/explorer/testnet/contract/CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK)
+> **Deployed**: 2026-10-02 (fresh testnet instance)
+> **Explorer**: [View on Stellar Expert ↗](https://stellar.expert/explorer/testnet/contract/CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH)
+
+This instance was initialized with the owner above and currently has no
+credentials or authorized issuers. See the [deployment record](docs/deployments/2026-10-02-testnet.md)
+for its WASM hash and transaction evidence. Hosted frontend settings have not
+been changed to this ID.
 
 This single contract replaces two separate EVM contracts (CredentialNFT + CredentialRegistry) with one unified Soroban contract written in Rust. Additionally, it features upgraded Next.js boundary protection to bypass `@stellar/stellar-sdk` object coercions on the browser.
 
@@ -245,7 +250,7 @@ This single contract replaces two separate EVM contracts (CredentialNFT + Creden
 - Authorization system — only admin-approved institutions can issue credentials
 - Immutable on-chain credential storage with IPFS metadata links
 - Credential lookup by token ID or SHA-256 hash
-- Revocation mechanism with issuer-only control
+- Issuer revocation plus a distinct, auditable owner override for compromised issuer incidents
 - Timestamp-based issuance records via `env.ledger().timestamp()`
 
 **Contract Functions**:
@@ -312,7 +317,7 @@ Mainnet endpoints, for reference:
 
 All deployments, metadata hashes, and transaction executions can be publicly verified directly on the Stellar ledger explorer:
 
-1. **Main Contract Viewer**: [AcrediaCredential Testnet Explorer ↗](https://stellar.expert/explorer/testnet/contract/CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK)
+1. **Main Contract Viewer**: [AcrediaCredential Testnet Explorer ↗](https://stellar.expert/explorer/testnet/contract/CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH)
 2. **Deployer Account Ledger**: [Stellar Account Overview ↗](https://stellar.expert/explorer/testnet/account/GAMI3XDDII72W23RADNPPAZ2GYEZ2MTYXLETOU36R4ISXMQ7IURFEKFP)
 3. **Soroban RPC Instance**: `https://soroban-testnet.stellar.org`
 
@@ -641,10 +646,10 @@ Copy-Item .env.local.example .env.local
 Edit `frontend\.env.local` and replace placeholder values:
 
 ```env
-# Smart Contract Addresses — Stellar Testnet (deployed 2026-06-27)
+# Smart Contract Addresses — Stellar Testnet (fresh instance, 2026-10-02)
 # Single unified AcrediaCredential contract (replaces separate NFT + Registry)
-NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT=CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK
-NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT=CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK
+NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT=CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH
+NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT=CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH
 
 # Stellar Network Configuration
 NEXT_PUBLIC_STELLAR_NETWORK=testnet
@@ -706,7 +711,7 @@ Supabase CLI instead, `npx supabase db push` applies the same migrations.
 
 ### Smart Contract Deployment
 
-The public testnet contract is already listed in `frontend/.env.local.example`. Skip this section unless you changed `contracts/src/lib.rs`, need an isolated test deployment, or are preparing a production deployment.
+The fresh testnet contract is listed in `frontend/.env.local.example` and recorded in [the deployment note](docs/deployments/2026-10-02-testnet.md). Skip this section unless you changed `contracts/src/lib.rs`, need an isolated test deployment, or are preparing a production deployment.
 
 6. **Set Up Stellar Identity**
 
@@ -734,11 +739,11 @@ stellar contract deploy \
   --wasm target/wasm32v1-none/release/acredia_stellar.wasm \
   --source deployer \
   --network testnet
-# => Returns: CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK
+# => Returns: <NEW_CONTRACT_ID>
 
 # Step 3: Initialize the contract with your admin address
 stellar contract invoke \
-  --id CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK \
+  --id <NEW_CONTRACT_ID> \
   --source deployer \
   --network testnet \
   -- initialize \
@@ -746,16 +751,25 @@ stellar contract invoke \
 
 # Step 4: Authorize an institution to issue credentials
 stellar contract invoke \
-  --id CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK \
+  --id <NEW_CONTRACT_ID> \
   --source deployer \
   --network testnet \
   -- authorize_issuer \
   --issuer <INSTITUTION_STELLAR_ADDRESS>
 ```
 
-**For Mainnet deployment**, replace `--network testnet` with `--network public` and use a funded mainnet account.
+**For Mainnet deployment**, this testnet example is insufficient: first add
+and audit an owner-setting constructor, complete the [mainnet
+checklist](contracts/MAINNET_CHECKLIST.md), and deploy the audited WASM with
+the approved custody account. Do not simply change the network flag.
 
-> **📝 Note**: The contract is already deployed to testnet. You only need to re-deploy if you modify the contract code.
+> **📝 Note**: The listed testnet contract is an existing deployment; changes
+> to `contracts/src/lib.rs` do not update it. To test this checkout's contract
+> behavior on-chain, deploy a fresh isolated testnet instance or upgrade the
+> existing instance through its currently deployed upgrade interface. An
+> in-place upgrade preserves the contract ID; a fresh deployment requires
+> updating all app and indexer contract-ID settings. See the
+> [upgrade procedure](contracts/README.md#upgrade-procedure).
 
 ### Running the Application
 

@@ -19,13 +19,13 @@ as a starting point, not as a clean bill of health:
 
 | ID | Severity | Finding | State |
 |----|----------|---------|-------|
-| F-1 | Medium | `initialize()` had no authorization check | **Fixed** |
+| F-1 | Medium | `initialize()` auth fixed; deploy-time owner race remains | **Partial — constructor required before mainnet** |
 | F-2 | Low | `upgrade()` emitted no event | **Fixed** |
 | F-3 | Low | `migrate()` emitted no event | **Fixed** |
 | F-4 | Info | `initialize()` emitted no event | **Fixed** |
-| F-5 | Medium | No owner override for `revoke_credential` | **Accepted** (governance decision) |
-| F-6 | Low | `revoke_issuer` no-op still emits `iss_rev` | **Accepted** (behavioral, tracked) |
-| F-7 | Info | No length cap on `ipfs_uri` | **Fixed** (`MAX_IPFS_URI_LEN`, `UriTooLarge`) |
+| F-5 | Medium | No owner override for `revoke_credential` | **Fixed** (`admin_revoke_credential`, distinct event) |
+| F-6 | Low | `revoke_issuer` no-op still emits `iss_rev` | **Fixed** (event only on change) |
+| F-7 | Info | No length cap on `ipfs_uri` | **Fixed** (`MAX_IPFS_URI_LEN`, `IpfsUriTooLarge = 17`) |
 | F-8 | Info | `read_owner()` uses `.unwrap()` | **Accepted** (safe, invariant upheld) |
 
 ---

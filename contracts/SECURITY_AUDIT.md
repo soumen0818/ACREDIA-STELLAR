@@ -29,13 +29,13 @@
 
 | ID | Severity | Title | Status |
 |----|----------|-------|--------|
-| F-1 | Medium | `initialize()` had no authorization check | **Fixed** |
+| F-1 | Medium | `initialize()` auth fixed; deploy-time owner race remains | **Partial — constructor required before mainnet** |
 | F-2 | Low | `upgrade()` emitted no event | **Fixed** |
 | F-3 | Low | `migrate()` emitted no event | **Fixed** |
 | F-4 | Info | `initialize()` emitted no event | **Fixed** |
-| F-5 | Medium | No owner override for `revoke_credential` | **Accepted / tracked** |
+| F-5 | Medium | No owner override for `revoke_credential` | **Fixed** — distinct owner override |
 | F-6 | Low | `revoke_issuer` on a never-authorized address is a silent no-op that still emits `iss_rev` | **Fixed** |
-| F-7 | Info | No length cap on `ipfs_uri` | **Accepted / tracked** |
+| F-7 | Info | No length cap on `ipfs_uri` | **Fixed** — 256-byte cap, error 17 |
 | F-8 | Info | `read_owner()` uses `.unwrap()`, relying on an invariant rather than a typed error | **Accepted (safe today)** |
 | F-9 | Info | Dependency hygiene (`cargo audit`) | **Informational** |
 | F-10 | Info | Re-entrancy | **Reviewed, not applicable** |
@@ -59,11 +59,13 @@ they pass as `owner`.
 **Residual risk (not fully closed by this fix)**: an attacker who front-runs the legitimate
 deploy transaction can still call `initialize(their_own_address)` and become the owner
 themselves, since they can always sign for their own address. The contract alone cannot prevent
-this without changing to an atomic constructor-at-deploy pattern (out of scope for this pass —
-see the note in `MAINNET_CHECKLIST.md`). **Operational mitigation, required at mainnet**: submit
-the deploy and `initialize` calls as a single atomic transaction (or in immediate succession
-from the same trusted operator flow), and treat any `init` event observed from an address you
-did not submit as a compromised deployment requiring redeploy before any credentials are issued.
+this without changing to an atomic constructor-at-deploy pattern (out of scope
+for this pass — see `MAINNET_CHECKLIST.md`). Soroban permits only one contract
+operation per transaction, so separate deploy and `initialize` calls **cannot**
+be bundled atomically. Immediate initialization and owner verification limit
+testnet risk but do not close the race. **Before mainnet**, add and audit an
+owner-setting `__constructor` that runs during deployment. Treat any unexpected
+`init` event as a compromised deployment and discard that instance.
 
 **Test coverage**: `test_initialize_requires_owner_auth`.
 

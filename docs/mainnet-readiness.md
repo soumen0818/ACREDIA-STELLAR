@@ -19,17 +19,17 @@ finished, what is not, and what must be true before the switch is thrown.
 |---|---|---|
 | Application code & network switch | ✅ Ready | No |
 | Database schema, RLS, data integrity | ✅ Ready | No |
-| Security posture (audit findings) | ✅ Ready | No |
+| Security posture (audit findings) | ⚠️ Deploy-time owner constructor pending | **YES** |
 | Dependency supply chain | ✅ 0 vulnerabilities | No |
-| Automated test coverage | ✅ 515 unit + 9 E2E | No |
+| Automated test coverage | ✅ 666 frontend unit/integration; 87 contract tests | No |
 | **Independent smart-contract audit** | ❌ Not started | **YES** |
-| **Key custody for the contract owner** | ❌ Not decided | **YES** |
+| **Key custody for the contract owner** | ⚠️ 2-of-3 policy decided; hardware setup and rehearsal pending | **YES** |
 | **Credential TTL / keeper strategy** | ⚠️ Partial | **YES** |
 | **Distributed rate limiting configured** | ⚠️ Guard enforced — Upstash provisioning required | **YES** |
 | Institution business continuity | ⚠️ Single POC | Strongly advised |
 | Incident response & on-call | ❌ Not defined | Strongly advised |
 
-**Overall: 5 of 11 areas complete; 4 hard blockers remain.**
+**Overall: 4 of 11 areas complete; 5 hard blockers remain.**
 
 ---
 
@@ -152,25 +152,22 @@ start to finish, with the commands recorded. See §4 of
 [docs/owner-key-custody.md](./owner-key-custody.md) for the step-by-step
 procedure.
 
-### 3.3 Credential TTL / keeper strategy — **keeper implemented, rehearsal pending**
+### 3.3 Credential TTL / keeper strategy — **code verified; deployment and rehearsal pending**
 
-A scheduled TTL keeper is now implemented and registered:
+The daily 02:00 UTC keeper now enumerates chain token IDs, including revoked
+credentials, in rotating pages of 50. It reads each entry's TTL, bumps entries
+near expiry, submits sequentially with the configured network/signer, retries
+failed IDs, reconciles the database count, and records outcomes/cursor in
+`cron_run_log`. It reports failed/partial states and exposes the latest run in
+`/api/admin/stats`. The 300-second function and page size require a live capacity
+measurement; a run is marked unhealthy above 4,500 credentials.
 
-- **`/api/cron/ttl-keeper`** runs daily at 02:00 UTC (see `vercel.json`).
-  It enumerates all non-revoked credentials from the Supabase index and calls
-  `bump_credential` on-chain for any entry approaching expiry.
-- The keeper reports its last run status in `/api/admin/stats` →
-  `stats.ttlKeeper`.
-- Alert conditions: missed run (>25 h since last run), low keeper fee balance
-  (<5 XLM), bump failures.
-
-**Remaining gates before mainnet**:
-1. Provision the funded keeper account (`TTL_KEEPER_ACCOUNT_PUBLIC` /
-   `TTL_KEEPER_ACCOUNT_SECRET`) and configure the env vars in Vercel.
-2. Rehearse the expiry-and-restore procedure on testnet — see
-   [docs/ops/ttl-keeper-runbook.md](./ops/ttl-keeper-runbook.md).
-3. Confirm the admin dashboard shows `ttlKeeper.lastRunStatus: succeeded`
-   after the first scheduled run.
+**Remaining gates before mainnet:** apply the keeper SQL migration; provision and
+fund the keeper account and cron secret; measure fees, duration and TTL margin;
+configure an independent missed-run/failure/low-balance alert; and record a
+real testnet sweep plus archived-entry restore rehearsal. See the
+[keeper runbook](./ops/ttl-keeper-runbook.md). A timestamp in the admin console
+is observability, not an independently configured alert.
 
 ### 3.4 Distributed rate limiting — **guard enforced, provisioning required**
 
@@ -186,16 +183,16 @@ A scheduled TTL keeper is now implemented and registered:
   (`RATE_LIMIT_ALLOW_IN_MEMORY_ON_MAINNET=true`) exists for operators who
   explicitly accept the risk.
 - **Health-check endpoint**: `GET /api/admin/rate-limit-health` (admin-only)
-  reports the current mode, whether it has degraded from `distributed` to
-  `in-memory-fallback` (Redis went away silently), and whether action is
-  required. Returns HTTP 503 on mainnet when not healthy.
+  probes Redis live, reports the current process mode separately, and returns
+  HTTP 503 on mainnet when Redis is unavailable.
 
 **To clear this blocker:**
-1. Provision Upstash Redis (free tier is sufficient for rate limiting).
+1. Provision Upstash Redis and size it for measured traffic.
 2. Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` in Vercel →
    Production environment.
 3. Redeploy. Confirm `/api/admin/stats` → `rateLimiterMode` = `distributed`.
-4. Confirm `/api/admin/rate-limit-health` → `healthy: true`.
+4. Confirm `/api/admin/rate-limit-health` → `healthy: true` on the deployed instances;
+   test outage/recovery and configure an external alert.
 
 ---
 

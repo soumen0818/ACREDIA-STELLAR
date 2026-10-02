@@ -1,167 +1,34 @@
-# Credential TTL Keeper — Operations Runbook
+# Credential TTL keeper — operations runbook
 
-**Issue**: [#281 — No funded, monitored TTL keeper](https://github.com/soumen0818/ACREDIA-STELLAR/issues/281)
-**Last reviewed**: 2026-09-29
+**Issue:** [#281](https://github.com/soumen0818/ACREDIA-STELLAR/issues/281)
+**Reviewed:** 2026-10-02
 
----
+## What the scheduled job does
 
-## Overview
+`/api/cron/ttl-keeper` is scheduled daily at 02:00 UTC in `frontend/vercel.json`. It reads `total_credentials` from the contract, rotates through up to 50 sequential token IDs per run, and includes revoked credentials so their historical revocation remains verifiable. It reads each credential's persistent-storage TTL and submits `bump_credential` only when 3,110,400 ledgers or fewer remain. Transactions use one funded signer and run sequentially. A failed token is retried in the next run (up to ten retries before the next page). The job checks the database credential count against the chain total, persists its cursor and outcome in `cron_run_log`, and rejects overlapping runs with a database lease.
 
-Soroban persistent storage entries expire unless their TTL is extended.
-`bump_credential` is permissionless and cheap when the TTL is already healthy
-(only an extension is issued when the remaining TTL is below
-`PERSISTENT_THRESHOLD`, approximately 6 months).
+The page size covers at most about 4,500 credentials in a 90-day rotation, leaving a buffer against the contract's approximately six-month extension threshold. Above that count, `capacityExceeded` marks the run unhealthy; increase throughput and prove the new duration/fee budget before relying on it. `indexGap` means the database count differs from chain total. It does not repair the index.
 
-The TTL keeper cron (`/api/cron/ttl-keeper`) runs daily at **02:00 UTC**
-(scheduled in `vercel.json`). It:
+## Required deployment setup
 
-1. Reads all active (non-revoked) credential token IDs from the Supabase index.
-2. Calls `bump_credential` on-chain for each, using the funded keeper account.
-3. Records a structured run summary in `cron_run_log`.
-4. Checks the keeper fee account balance and alerts if low.
+1. Apply `frontend/supabase/migrations/20261002000000_ttl_keeper_run_log.sql` and confirm the existing revocation-source migration is applied.
+2. In the production server environment set `TTL_KEEPER_ACCOUNT_PUBLIC`, `TTL_KEEPER_ACCOUNT_SECRET`, and `CRON_SECRET`. The public key must match the secret and the account must be funded on the configured Stellar network. Keep the secret in the deployment secret store.
+3. Confirm canonical `NEXT_PUBLIC_STELLAR_NETWORK`, contract ID, RPC, and Horizon settings point to the intended network. Invoke the cron with its bearer secret and inspect the response and `cron_run_log` row. A successful empty-chain run is not proof of credential coverage.
+4. Fund against measured transaction fees and actual credential count. The current low-balance threshold is 5 XLM; it is an alert threshold, not a fee estimate.
+5. Configure an **independent** monitor to check for a missing run after 25 hours, HTTP 5xx/timeout, `partial` or `failed` rows, low balance, `indexGap`, `capacityExceeded`, `bumpFailed`, and a low `minRemainingTtlLedgers`. The app records these states and emits capture/structured logs, but no external paging service is provisioned by this repository.
 
-The keeper's last run status is visible at `/api/admin/stats`
-→ `stats.ttlKeeper`.
+The latest keeper status is visible to admins at `/api/admin/stats` → `stats.ttlKeeper`. A failed run recorded in `cron_run_log` should be investigated before the next daily cycle. If the function times out, the six-minute lease expires; the next run may retry the same page. The contract operation is safe to repeat, but monitor duplicate fee spend.
 
----
+## Responding to a partial or failed run
 
-## Required configuration
+- `bumpFailed > 0`: inspect `failedTokenIds`, RPC transaction outcomes, and the on-chain entry. The next run retries up to ten IDs. Manually bump urgent entries before expiry.
+- `indexGap`: compare contract `total_credentials` with indexed credential rows. Repair/replay the indexer; the keeper still enumerates chain token IDs, so the gap does not exclude an entry from its sweep.
+- `lowBalance`: top up the configured signer on the correct network and rerun the job. Record the transaction hash and post-run balance.
+- `capacityExceeded`: expand the per-run throughput or run frequency after measuring RPC latency, 300-second function duration, fees, and minimum TTL margin.
+- Missed run: check deployment cron configuration, cron secret, function logs, lease, RPC/Horizon availability, and database migration status. Manually invoke once the fault is fixed, then confirm a new successful row.
 
-| Environment variable | Description |
-|---|---|
-| `TTL_KEEPER_ACCOUNT_PUBLIC` | Stellar public key of the funded keeper account |
-| `TTL_KEEPER_ACCOUNT_SECRET` | Stellar secret key of the keeper account (server-only) |
-| `CRON_SECRET` | Shared secret authorizing cron invocations |
+## Archived credential recovery rehearsal
 
-Set these in Vercel → Project → Settings → Environment Variables (Production).
+Rehearse on testnet with an expendable credential before launch. Record its contract ID, token ID, storage-key XDR, ledger numbers, transaction hashes, fees, and verification result. The key is Soroban `DataKey::Credential(u64)` encoded as an XDR `ScVal` vector of symbol `Credential` and the u64 token ID. For an archived entry use the installed Stellar CLI's `contract restore --id <CONTRACT_ID> --key-xdr <BASE64_SCVAL_KEY> --source-account <FUNDED_ACCOUNT> --network testnet`; `--key` accepts symbols only, so this tuple key needs `--key-xdr`. Then call `verify_credential` and `bump_credential` and confirm the restored entry's TTL. Follow the CLI's current `stellar contract restore --help` for signing and flags. Do not infer expiry solely from a failed verify call; inspect the entry's archival state first.
 
-**Keeper account funding**: the keeper account must hold enough XLM to cover
-daily Soroban transaction fees. Each `bump_credential` call costs
-approximately 0.00001 XLM (100 stroops) when the TTL is healthy and is a
-no-op extend. Budget conservatively: 1 XLM covers ~100,000 no-op bumps.
-Alert threshold is configured at **5 XLM** minimum balance.
-
----
-
-## Monitoring
-
-### Alert: missed run
-
-The keeper runs at 02:00 UTC. If `stats.ttlKeeper.lastRunAt` is more than
-25 hours old, the run was missed. Check:
-
-1. Vercel → Deployments → Functions logs for `/api/cron/ttl-keeper`.
-2. Whether `CRON_SECRET` is set correctly.
-3. Whether the function timed out (Vercel Hobby: 60 s; Pro: 300 s).
-
-### Alert: low keeper balance
-
-`stats.ttlKeeper.lastRunSummary.lowBalance === true` means the keeper account
-XLM balance is below `KEEPER_MIN_BALANCE_XLM` (5 XLM). Top up immediately.
-The keeper will continue running on the next cycle but will eventually fail
-if the balance reaches zero.
-
-### Alert: bump failures
-
-`stats.ttlKeeper.lastRunSummary.bumpFailed > 0` means some credentials failed
-to bump. Check `lastRunSummary.failedTokenIds` for the affected token IDs and
-investigate the on-chain state.
-
----
-
-## Worst-case recovery: credential has already expired
-
-> **Background**: A Soroban persistent entry that reaches TTL = 0 is archived
-> (removed from the live state). It can be **restored** using
-> `stellar contract restore` if the archive proof is available. This procedure
-> must be rehearsed on testnet before mainnet launch.
-
-### Step 1 — Confirm the credential is expired
-
-```bash
-# Attempt to verify the credential on-chain.
-stellar contract invoke \
-  --network testnet \
-  --id <CONTRACT_ID> \
-  -- verify_credential \
-  --token_id <TOKEN_ID>
-# If it returns NotFound or similar, the entry may be expired/archived.
-```
-
-### Step 2 — Restore the archived entry
-
-```bash
-# Identify the storage key for the credential entry.
-# The key is DataKey::Credential(token_id) in the contract's persistent storage.
-stellar contract restore \
-  --network testnet \
-  --source <funded-account> \
-  --id <CONTRACT_ID> \
-  --key <STORAGE_KEY_XDR>
-```
-
-> **Note**: `stellar contract restore` requires the XDR encoding of the
-> storage key. The key type is `DataKey::Credential(u64)` — derive its XDR
-> from the contract's key schema or from the Stellar Lab contract explorer.
-
-### Step 3 — Verify restoration
-
-```bash
-stellar contract invoke \
-  --network testnet \
-  --id <CONTRACT_ID> \
-  -- verify_credential \
-  --token_id <TOKEN_ID>
-# Should return the credential data.
-```
-
-### Step 4 — Bump to reset TTL
-
-```bash
-stellar contract invoke \
-  --network testnet \
-  --id <CONTRACT_ID> \
-  -- bump_credential \
-  --token_id <TOKEN_ID>
-# Extends TTL by PERSISTENT_BUMP_AMOUNT (~1 year).
-```
-
-### Step 5 — Confirm in Supabase
-
-Verify the credential row in Supabase still exists and `revoked = false`.
-The keeper's next run will maintain the TTL going forward.
-
----
-
-## Rehearsal checklist (testnet)
-
-Before mainnet launch, rehearse this entire procedure on testnet:
-
-- [ ] Deploy contract to testnet, issue one credential.
-- [ ] Advance ledger past `PERSISTENT_BUMP_AMOUNT` (or use testnet time skip).
-- [ ] Confirm credential is archived (verify returns NotFound).
-- [ ] Restore using `stellar contract restore`.
-- [ ] Confirm verify returns credential data post-restore.
-- [ ] Run TTL keeper cron manually — confirm bump extends TTL.
-- [ ] Record the exact commands used, with timestamps, in the team's incident log.
-
----
-
-## Reconciliation
-
-The keeper reads the Supabase index, not the chain directly. An index gap
-(credential on-chain but not in Supabase) would cause that credential to be
-missed. Mitigation:
-
-- `verify_credential` already falls back to reading the chain when the index
-  has no row, so verification remains correct even if the index is incomplete.
-- A future improvement: the keeper should cross-check by reading
-  `total_credentials` from the chain and comparing against the Supabase count.
-  A mismatch triggers an alert.
-
----
-
-## docs/mainnet-readiness.md §3.3
-
-See [mainnet-readiness.md](../mainnet-readiness.md) §3.3 for the current status
-of this blocker.
+A revoked credential must still verify as revoked after restoration. Keep its off-chain row and `revocation_source`. A real expiry/restore exercise and independent missed-run alert evidence are outstanding launch gates.

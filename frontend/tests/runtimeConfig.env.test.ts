@@ -85,7 +85,10 @@ describe('runtime config environment validation', () => {
         errorSpy.mockRestore();
     });
     // ── Mainnet safety ────────────────────────────────────────────────────────
-    it('refuses to boot on mainnet with the known testnet contract', async () => {
+    it.each([
+        'CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK',
+        'CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH',
+    ])('refuses to boot on mainnet with known testnet contract %s', async (contractId) => {
         // Degrading past this would let the app issue and verify real
         // credentials against a testnet contract while appearing healthy —
         // the worst failure mode for a product whose value is trust.
@@ -95,14 +98,8 @@ describe('runtime config environment validation', () => {
         // come from the testnet-contract guard and not from a missing value.
         vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://example.supabase.co');
         vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'sb_publishable_example');
-        vi.stubEnv(
-            'NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT',
-            'CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK',
-        );
-        vi.stubEnv(
-            'NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT',
-            'CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK',
-        );
+        vi.stubEnv('NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT', contractId);
+        vi.stubEnv('NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT', contractId);
 
         await expect(import('../src/lib/runtimeConfig')).rejects.toThrow(
             /Cannot use the known testnet contract/i,

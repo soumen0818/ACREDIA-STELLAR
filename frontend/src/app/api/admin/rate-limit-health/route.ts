@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getRateLimiterMode, isRateLimiterHealthy } from '@/lib/rateLimit';
+import { getRateLimiterMode, probeRateLimiterHealth } from '@/lib/rateLimit';
 import { requireAdminRequest } from '@/lib/serverAuth';
 
 export const dynamic = 'force-dynamic';
@@ -30,8 +30,10 @@ export async function GET(request: NextRequest) {
         );
     }
 
-    const mode = getRateLimiterMode();
-    const healthy = isRateLimiterHealthy();
+    const healthy = await probeRateLimiterHealth();
+    const configured = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+    const mode = healthy ? 'distributed' : configured ? 'in-memory-fallback' : 'in-memory-unconfigured';
+    const instanceMode = getRateLimiterMode();
     const isMainnet = (process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? '').toLowerCase() === 'mainnet';
 
     const status = healthy ? 200 : (isMainnet ? 503 : 200);
@@ -42,6 +44,7 @@ export async function GET(request: NextRequest) {
             rateLimiter: {
                 mode,
                 healthy,
+                instanceMode,
                 /**
                  * True when mode has degraded from 'distributed' to
                  * 'in-memory-fallback', meaning Redis was configured but is

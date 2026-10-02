@@ -498,6 +498,8 @@ describe('Academic Credential E2E Integration / Lifecycle', () => {
             eq: vi.fn().mockReturnThis(),
             gte: vi.fn().mockReturnThis(),
             not: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockReturnThis(),
             maybeSingle: vi.fn().mockResolvedValue({
                 data: { last_ledger: 0, updated_at: null },
                 error: null,
@@ -538,6 +540,12 @@ describe('Academic Credential E2E Integration / Lifecycle', () => {
             indexer: {
                 lastLedger: null,
                 lastUpdated: null,
+            },
+            ttlKeeper: {
+                lastRunId: null,
+                lastRunAt: null,
+                lastRunStatus: null,
+                lastRunSummary: null,
             },
             // Surfaced so a deployment that never configured Upstash is visible
             // in the admin console rather than silently degrading to

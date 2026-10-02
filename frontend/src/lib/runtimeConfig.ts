@@ -379,8 +379,11 @@ function readContractId(name: ContractName, envName: string, isProduction: boole
     }
 
     // Fail fast if a known testnet contract is used on mainnet
-    const KNOWN_TESTNET_CONTRACT = 'CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK';
-    if (networkKind === 'mainnet' && value === KNOWN_TESTNET_CONTRACT) {
+    const KNOWN_TESTNET_CONTRACTS = new Set([
+        'CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK',
+        'CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH',
+    ]);
+    if (networkKind === 'mainnet' && KNOWN_TESTNET_CONTRACTS.has(value)) {
         // Unsafe, not merely invalid: booting past this would issue and verify
         // real credentials against a testnet contract while reporting success.
         unsafeConfigError(

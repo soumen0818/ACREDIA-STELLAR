@@ -14,7 +14,7 @@
 --   • DROP POLICY / TRIGGER IF EXISTS before each CREATE
 -- Existing objects are skipped; missing ones are created. No data is dropped.
 --
--- Generated: 2026-09-15T19:52:25Z
+-- Generated: 2026-10-02T06:16:34Z
 -- ============================================================================
 
 
@@ -96,8 +96,7 @@ CREATE TABLE IF NOT EXISTS public.credentials (
     hash_algorithm          TEXT NOT NULL DEFAULT 'sha256:canonical-json:v1',
     issued_at               TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     revoked                 BOOLEAN DEFAULT false,
-    revoked_at              TIMESTAMP WITH TIME ZONE,
-    revocation_source       TEXT CHECK (revocation_source IN ('issuer', 'platform'))
+    revoked_at              TIMESTAMP WITH TIME ZONE
 );
 
 -- Verification logs
@@ -2489,4 +2488,93 @@ CREATE TRIGGER block_credential_delete
     BEFORE DELETE ON public.credentials
     FOR EACH ROW
     EXECUTE FUNCTION public.prevent_credential_deletion();
+
+
+-- ============================================================================
+-- migration: 20260930000000_credential_revocation_source.sql
+-- ============================================================================
+
+BEGIN;
+
+ALTER TABLE public.credentials
+    ADD COLUMN IF NOT EXISTS revocation_source TEXT;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'public.credentials'::regclass
+          AND conname  = 'credentials_revocation_source_check'
+    ) THEN
+        ALTER TABLE public.credentials
+            ADD CONSTRAINT credentials_revocation_source_check
+            CHECK (revocation_source IN ('issuer', 'platform'));
+    END IF;
+END
+$$;
+
+UPDATE public.credentials
+SET    revocation_source = 'issuer'
+WHERE  revoked IS TRUE
+  AND  revocation_source IS NULL;
+
+COMMIT;
+
+
+-- ============================================================================
+-- migration: 20261002000000_ttl_keeper_run_log.sql
+-- ============================================================================
+
+-- Durable cursor and operator evidence for the daily credential TTL keeper.
+CREATE TABLE IF NOT EXISTS public.cron_run_log (
+    run_id uuid PRIMARY KEY,
+    job_name text NOT NULL,
+    status text NOT NULL CHECK (status IN ('succeeded', 'partial', 'failed')),
+    summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+    completed_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS cron_run_log_job_completed_idx
+    ON public.cron_run_log (job_name, completed_at DESC);
+ALTER TABLE public.cron_run_log ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.cron_run_log FROM anon, authenticated;
+GRANT SELECT, INSERT ON public.cron_run_log TO service_role;
+COMMENT ON TABLE public.cron_run_log IS
+    'Server-only keeper run summaries and cursor. Monitor missing or partial runs independently of the cron.';
+
+CREATE TABLE IF NOT EXISTS public.ttl_keeper_lock (
+    job_name text PRIMARY KEY,
+    owner_run_id uuid,
+    locked_until timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.ttl_keeper_lock ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ttl_keeper_lock FROM anon, authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.ttl_keeper_lock TO service_role;
+
+CREATE OR REPLACE FUNCTION public.claim_ttl_keeper_lock(p_run_id uuid)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public AS $$
+DECLARE updated_count integer;
+BEGIN
+    INSERT INTO public.ttl_keeper_lock(job_name) VALUES ('ttl-keeper')
+    ON CONFLICT (job_name) DO NOTHING;
+    UPDATE public.ttl_keeper_lock
+       SET owner_run_id = p_run_id, locked_until = now() + interval '6 minutes'
+     WHERE job_name = 'ttl-keeper' AND locked_until <= now();
+    GET DIAGNOSTICS updated_count = ROW_COUNT;
+    RETURN updated_count = 1;
+END;
+$$;
+CREATE OR REPLACE FUNCTION public.release_ttl_keeper_lock(p_run_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public AS $$
+BEGIN
+    UPDATE public.ttl_keeper_lock SET owner_run_id = NULL, locked_until = now()
+    WHERE job_name = 'ttl-keeper' AND owner_run_id = p_run_id;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.claim_ttl_keeper_lock(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.release_ttl_keeper_lock(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_ttl_keeper_lock(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.release_ttl_keeper_lock(uuid) TO service_role;
 

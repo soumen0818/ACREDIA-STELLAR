@@ -366,9 +366,9 @@ export const CONTRACT_MAX_BATCH_SIZE = 20;
 
 /** Mirrors ContractError::CredentialAlreadyExists = 3 in contracts/src/lib.rs. */
 const CONTRACT_ERROR_CREDENTIAL_ALREADY_EXISTS = 3;
-// ContractError::UriTooLarge — the contract caps ipfs_uri at MAX_IPFS_URI_LEN
+// ContractError::IpfsUriTooLarge — the contract caps ipfs_uri at MAX_IPFS_URI_LEN
 // (256 bytes); see contracts/src/lib.rs.
-const CONTRACT_ERROR_URI_TOO_LARGE = 14;
+const CONTRACT_ERROR_URI_TOO_LARGE = 17;
 
 export interface BatchCredentialInputItem {
     studentAddress: string;

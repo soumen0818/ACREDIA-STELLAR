@@ -297,6 +297,27 @@ export function isRateLimiterHealthy(): boolean {
     return currentMode === 'distributed';
 }
 
+/** A read-only Redis probe for health checks; does not consume a user quota. */
+export async function probeRateLimiterHealth(): Promise<boolean> {
+    const url = process.env.UPSTASH_REDIS_REST_URL?.replace(/\/$/, '');
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+    if (!url || !token) return false;
+    try {
+        const response = await fetch(`${url}/pipeline`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify([['PING']]),
+            cache: 'no-store',
+            signal: AbortSignal.timeout(3_000),
+        });
+        if (!response.ok) return false;
+        const result = await response.json() as Array<{ result?: unknown; error?: unknown }>;
+        return result.length === 1 && result[0]?.result === 'PONG' && !result[0]?.error;
+    } catch {
+        return false;
+    }
+}
+
 let activeStore: RateLimitStore = initRateLimitStore();
 
 /**

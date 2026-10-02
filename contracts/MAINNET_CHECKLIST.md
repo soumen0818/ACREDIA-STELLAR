@@ -30,10 +30,11 @@ contract governance.
   - a dedicated multisig/timelock smart contract.
 - [ ] Signer set, thresholds, and the recovery process for a lost/compromised signer are
       documented somewhere the whole team can find (link here: `<link>`).
-- [ ] `initialize()` requires the proposed owner's signature (fixed in this pass — see
-      SECURITY_AUDIT.md F-1) — **and** the deploy transaction and the `initialize` transaction
-      are submitted together / immediately in sequence by the same trusted operator, minimizing
-      the front-running window described in F-1.
+- [ ] Add and audit an owner-setting `__constructor` before mainnet deployment.
+      `initialize()` requires owner authorization, but a separate deployment
+      and initialization cannot be atomic because Soroban transactions permit
+      only one contract operation. Immediate succession is acceptable only for
+      disposable testnet rehearsal; see SECURITY_AUDIT.md F-1.
 - [ ] The team knows what an unexpected `init` event (from an address they didn't submit) means:
       redeploy before issuing any credentials.
 
