@@ -211,6 +211,33 @@ describe('invokeContractMethod with a keypair signer', () => {
         ).rejects.toThrow(issuerKeypair.publicKey());
     });
 
+    it.each([
+        'HostError: Error(Contract, #10)',
+        'HostError: Error(Contract, 10)\nEvent log (newest first): ...',
+    ])('explains an emergency pause instead of a raw contract error (%s)', async (error) => {
+        // ACREDIA-STELLAR#306: a paused contract is an operator decision, not a bug.
+        const { invokeContractMethod, CONTRACT_PAUSED_MESSAGE } = await loadContracts();
+        const { createKeypairSigner } = await import('../src/lib/stellarSigner');
+        rpc.simulateTransaction.mockResolvedValueOnce({ error } as never);
+
+        await expect(
+            invokeContractMethod(CONTRACT_ID, 'issue_credential', [], createKeypairSigner(issuerKeypair)),
+        ).rejects.toThrow(CONTRACT_PAUSED_MESSAGE);
+        expect(rpc.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it('does not mistake other contract errors for a pause', async () => {
+        const { invokeContractMethod, CONTRACT_PAUSED_MESSAGE } = await loadContracts();
+        const { createKeypairSigner } = await import('../src/lib/stellarSigner');
+        // #100 and #1 are different errors; only exactly #10 is ContractPaused.
+        for (const error of ['HostError: Error(Contract, #100)', 'HostError: Error(Contract, #1)']) {
+            rpc.simulateTransaction.mockResolvedValueOnce({ error } as never);
+            const attempt = invokeContractMethod(CONTRACT_ID, 'issue_credential', [], createKeypairSigner(issuerKeypair));
+            await expect(attempt).rejects.toThrow(/Simulation failed/);
+            await expect(attempt).rejects.not.toThrow(CONTRACT_PAUSED_MESSAGE);
+        }
+    });
+
     it('does not submit when simulation fails', async () => {
         const { invokeContractMethod } = await loadContracts();
         const { createKeypairSigner } = await import('../src/lib/stellarSigner');

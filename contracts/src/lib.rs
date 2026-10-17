@@ -833,8 +833,17 @@ impl AcrediaCredential {
         Ok(())
     }
 
-    /// Halt all state-changing entrypoints.  Reads and verification continue
-    /// to work while paused so existing credentials remain verifiable.
+    /// Emergency circuit breaker for credential state.
+    ///
+    /// While paused, `issue_credential`, `batch_issue_credential`,
+    /// `revoke_credential` and `admin_revoke_credential` fail with
+    /// `ContractPaused`. Reads, verification and `bump_credential` keep
+    /// working, so existing credentials stay verifiable and alive.
+    ///
+    /// Owner governance is *not* paused: `authorize_issuer`, `revoke_issuer`,
+    /// ownership transfer, upgrades and `unpause` all still work. Pause is
+    /// therefore no defence against a compromised owner key. See
+    /// docs/ops/incident-response.md for when to use it.
     pub fn pause(env: Env) -> Result<(), ContractError> {
         let owner = read_owner(&env);
         owner.require_auth();
@@ -2700,6 +2709,119 @@ mod tests {
             last_event_topics(&env),
             vec![&env, symbol_short!("unpaused").into_val(&env)]
         );
+    }
+
+    // ---------------------------------------------------------------------------
+    // What pause does and does not stop (ACREDIA-STELLAR#306)
+    //
+    // docs/ops/incident-response.md tells responders which lever to pull based
+    // on these exact behaviours. If one of these tests has to change, that
+    // document's pause matrix must change in the same commit.
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_pause_blocks_admin_revoke() {
+        // Pausing also blocks the platform override: a responder who pauses
+        // must unpause before revoking fraudulent credentials.
+        let (env, contract, _, issuer, student) = setup();
+        let token_id = env.as_contract(&contract, || {
+            AcrediaCredential::issue_credential(
+                env.clone(),
+                student,
+                issuer,
+                dummy_hash(&env, 40),
+                String::from_str(&env, "ipfs://before-pause-admin"),
+            )
+            .unwrap()
+        });
+        env.as_contract(&contract, || {
+            AcrediaCredential::pause(env.clone()).unwrap();
+        });
+        env.as_contract(&contract, || {
+            let result = AcrediaCredential::admin_revoke_credential(env.clone(), token_id);
+            assert_eq!(result, Err(ContractError::ContractPaused));
+            assert!(!AcrediaCredential::is_revoked(env.clone(), token_id));
+        });
+    }
+
+    #[test]
+    fn test_revoke_issuer_works_while_paused() {
+        // The targeted lever for a fraudulent issuer is not gated by pause.
+        let (env, contract, _, issuer, _) = setup();
+        env.as_contract(&contract, || {
+            AcrediaCredential::pause(env.clone()).unwrap();
+        });
+        env.as_contract(&contract, || {
+            AcrediaCredential::revoke_issuer(env.clone(), issuer.clone());
+            assert!(!AcrediaCredential::is_authorized_issuer(
+                env.clone(),
+                issuer.clone()
+            ));
+            assert!(AcrediaCredential::is_paused(env.clone()));
+        });
+    }
+
+    #[test]
+    fn test_pause_does_not_freeze_owner_governance() {
+        // Pause is a circuit breaker for issuance, not a lock on the owner key:
+        // the owner can still authorize issuers, hand over ownership and
+        // propose upgrades. Against a compromised owner key it protects nothing.
+        let (env, contract, owner, _, _) = setup();
+        let new_issuer = Address::generate(&env);
+        let new_owner = Address::generate(&env);
+        env.as_contract(&contract, || {
+            AcrediaCredential::pause(env.clone()).unwrap();
+        });
+        env.as_contract(&contract, || {
+            AcrediaCredential::authorize_issuer(env.clone(), new_issuer.clone());
+            assert!(AcrediaCredential::is_authorized_issuer(
+                env.clone(),
+                new_issuer.clone()
+            ));
+        });
+        env.as_contract(&contract, || {
+            AcrediaCredential::propose_upgrade(env.clone(), dummy_hash(&env, 41)).unwrap();
+            assert!(AcrediaCredential::get_pending_upgrade(env.clone()).is_some());
+        });
+        env.as_contract(&contract, || {
+            AcrediaCredential::transfer_owner(env.clone(), new_owner.clone()).unwrap();
+            assert_eq!(
+                AcrediaCredential::get_pending_owner(env.clone()),
+                Some(new_owner)
+            );
+            assert_eq!(AcrediaCredential::get_owner(env.clone()), owner);
+        });
+    }
+
+    #[test]
+    fn test_keeper_and_reads_work_while_paused() {
+        // A long pause must not let credentials expire: the TTL keeper's
+        // bump_credential and every verification read keep working.
+        let (env, contract, _, issuer, student) = setup();
+        let hash = dummy_hash(&env, 42);
+        let token_id = env.as_contract(&contract, || {
+            AcrediaCredential::issue_credential(
+                env.clone(),
+                student,
+                issuer.clone(),
+                hash.clone(),
+                String::from_str(&env, "ipfs://keeper-while-paused"),
+            )
+            .unwrap()
+        });
+        env.as_contract(&contract, || {
+            AcrediaCredential::pause(env.clone()).unwrap();
+        });
+        env.as_contract(&contract, || {
+            assert_eq!(
+                AcrediaCredential::bump_credential(env.clone(), token_id),
+                Ok(())
+            );
+            assert!(AcrediaCredential::verify_credential(env.clone(), hash).is_some());
+            assert!(!AcrediaCredential::is_revoked(env.clone(), token_id));
+            assert_eq!(AcrediaCredential::total_credentials(env.clone()), 1);
+            assert!(AcrediaCredential::is_authorized_issuer(env.clone(), issuer));
+        });
     }
 
     #[test]

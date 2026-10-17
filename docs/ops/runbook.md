@@ -29,6 +29,10 @@
 4. If RPC/IPFS is degraded, switch traffic to a known-good provider endpoint and redeploy.
 5. After mitigation, leave an incident note with root cause, customer impact, and follow-up tasks.
 
+Severity, escalation, the emergency contract levers (including when to `pause`),
+user communication and post-incident reviews are defined in the
+[incident-response plan](./incident-response.md).
+
 ## Data retention
 
 The nightly purge enforces the retention periods published at `/legal/privacy`

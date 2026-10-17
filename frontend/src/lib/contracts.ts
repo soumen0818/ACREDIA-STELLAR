@@ -57,6 +57,19 @@ async function waitForConfirmation(hash: string, maxAttempts = 20): Promise<unkn
     throw new Error(`Transaction ${hash} not confirmed after ${maxAttempts} attempts`);
 }
 
+/** `ContractError::ContractPaused` (code 10) as Soroban reports it in a simulation error. */
+const CONTRACT_PAUSED_ERROR = /Error\(Contract, #?10\)/;
+
+/**
+ * Shown when the contract's emergency pause is engaged
+ * (docs/ops/incident-response.md). A pause is a deliberate, temporary
+ * operator decision, so it must not read as a broken wallet or a bug.
+ */
+export const CONTRACT_PAUSED_MESSAGE =
+    'Acredia has temporarily paused credential issuance and revocation while an incident is handled. ' +
+    'Existing credentials remain verifiable, and nothing was submitted. ' +
+    'Please try again once Acredia confirms service has resumed.';
+
 /**
  * Builds, simulates, signs and submits one contract call.
  *
@@ -88,6 +101,9 @@ export async function invokeContractMethod(
 
     if ('error' in simResult) {
         const errStr = String((simResult as unknown as { error?: unknown }).error);
+        if (CONTRACT_PAUSED_ERROR.test(errStr)) {
+            throw new Error(CONTRACT_PAUSED_MESSAGE);
+        }
         if (errStr.includes('Issuer not authorized') || errStr.includes('UnreachableCodeReached')) {
             throw new Error(
                 `Your wallet is not authorized to issue credentials.\n\n` +

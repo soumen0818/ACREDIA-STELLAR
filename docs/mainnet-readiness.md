@@ -9,7 +9,7 @@ finished, what is not, and what must be true before the switch is thrown.
 > feature-complete and hardened on testnet. The outstanding items below are
 > mostly governance and operational, not code.
 
-**Last reviewed:** 2026-09-16
+**Last reviewed:** 2026-10-17
 
 ---
 
@@ -21,13 +21,13 @@ finished, what is not, and what must be true before the switch is thrown.
 | Database schema, RLS, data integrity | ✅ Ready | No |
 | Security posture (audit findings) | ⚠️ Deploy-time owner constructor pending | **YES** |
 | Dependency supply chain | ✅ 0 vulnerabilities | No |
-| Automated test coverage | ✅ 666 frontend unit/integration; 87 contract tests | No |
+| Automated test coverage | ✅ 728 frontend unit/integration; 91 contract tests | No |
 | **Independent smart-contract audit** | ❌ Not started | **YES** |
 | **Key custody for the contract owner** | ⚠️ 2-of-3 policy decided; hardware setup and rehearsal pending | **YES** |
 | **Credential TTL / keeper strategy** | ⚠️ Partial | **YES** |
 | **Distributed rate limiting configured** | ⚠️ Guard enforced — Upstash provisioning required | **YES** |
 | Institution business continuity | ⚠️ Single POC | Strongly advised |
-| Incident response & on-call | ❌ Not defined | Strongly advised |
+| Incident response & on-call | ⚠️ Plan adopted — roster, paging and team tabletop pending | Strongly advised |
 
 **Overall: 4 of 11 areas complete; 5 hard blockers remain.**
 
@@ -210,10 +210,38 @@ The `institution_users` table already models membership as a relation and
 supports multiple members per institution — the remaining work is to allow and
 encourage a second member. See [Issue 14](../ISSUE_DRAFT.md).
 
-### 4.2 Incident response
+### 4.2 Incident response — **plan adopted; staffing and tooling pending**
 
-No documented on-call rotation, escalation path, or user-communication plan for
-a mainnet incident. Decide before launch, not during one.
+The plan is in [docs/ops/incident-response.md](./ops/incident-response.md)
+(#306). It decides:
+
+- **Roles and on-call**: Incident Commander, owner-key holders,
+  communications lead and scribe; a weekly primary/secondary rotation with a
+  defined escalation path. The roster lives in the internal security registry,
+  alongside the owner-key holders, not in this public repo.
+- **Severity levels** SEV1–SEV4, grounded in this product: owner key
+  compromise and a fraudulent issuer are SEV1; verification outages and
+  credentials nearing on-chain expiry are SEV2.
+- **The emergency levers and who may pull them**, including an explicit
+  `pause()` decision path: the IC and one owner-key holder decide; two holders
+  sign on mainnet. Pause blocks issuance **and revocation** but not owner
+  governance, so it is the wrong tool against a single fraudulent issuer or a
+  compromised owner key. Four new contract tests lock that behaviour in.
+- **User communication**: a pinned GitHub `incident` issue as the public
+  record until a status page exists, direct email to institutions, and stated
+  update cadences and promises.
+- **Post-incident review**: blameless, within five business days, under
+  `docs/incidents/`.
+
+A first desk-check exercise ([fraudulent issuer](./incidents/exercises/2026-10-17-fraudulent-issuer-tabletop.md))
+ran the plan against the code. It fixed a misleading `pause()` doc comment and
+the raw error institutions saw while paused, and recorded the open gaps below.
+
+**Remaining before mainnet** (plan §11): on-call roster recorded; a paging
+tool wired to the runbook and keeper alerts; on-chain event monitoring for
+owner events; a hosting decision for the indexer; a private security-report
+channel in `SECURITY.md`; a status page; and a tabletop with the real on-call
+team.
 
 ### 4.3 Stellar SDK upgrade — **completed (17.x)**
 

@@ -1339,7 +1339,8 @@ Deeper documentation lives under [`docs/`](docs/):
 - **[Verifiable Credentials](docs/verifiable-credentials.md)** — the W3C VC / Open Badges 3.0 metadata schema, field mapping, and a third-party verification recipe.
 - **[Embeddable verify widget](docs/integrations/verify-widget.md)** — the partner integration guide: snippet, `data-token`, sizing and theming, what data the widget sends, the CSP a host site needs, and the widget's versioning and caching policy.
 - **[IPFS pin redundancy](docs/ops/pin-redundancy.md)** — the pin-keeper and the durability guarantee for issued credentials.
-- **[Operations runbook](docs/ops/runbook.md)** — on-call procedures and incident response.
+- **[Operations runbook](docs/ops/runbook.md)** — signals, dashboards, alert thresholds, and triage.
+- **[Incident response & on-call](docs/ops/incident-response.md)** — roles, on-call and escalation, severity levels, the emergency contract levers and who may pull them (including `pause()`), user communication, and post-incident reviews ([exercises](docs/incidents/exercises/)).
 - **[Email configuration & deliverability](docs/ops/email-configuration.md)** — Supabase custom SMTP setup, sending limits, upgrade triggers, and fallback direct recovery links.
 - **[POC handover runbook](docs/ops/poc-handover.md)** — defensible identity verification procedure, account deactivation, and audit trail for institutional turnover.
 - **[Multi-user institution decision (ADR 0003)](docs/decisions/0003-multiple-institution-users.md)** — architectural decision record on multiple users per institution for business continuity.
