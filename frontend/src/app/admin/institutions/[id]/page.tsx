@@ -37,6 +37,7 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { captureException } from '@/lib/debug';
+import { CONTINUITY_LABELS, continuityBadgeClass } from '@/lib/institutionContinuity';
 import {
     adminFetch,
     formatDate,
@@ -599,6 +600,56 @@ function InstitutionDetailContent() {
                             </div>
                         </div>
                     </Card>
+
+                    {/* Team & continuity (Issue #307): who else could act if the POC cannot */}
+                    {institution.continuity && (
+                        <Card className="overflow-hidden">
+                            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-4">
+                                <div className="flex items-center gap-2">
+                                    <Users className="h-4 w-4 text-muted-foreground" />
+                                    <h3 className="text-base font-semibold text-foreground">Team</h3>
+                                </div>
+                                <span
+                                    className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${continuityBadgeClass(institution.continuity.level)}`}
+                                >
+                                    {CONTINUITY_LABELS[institution.continuity.level]}
+                                </span>
+                            </div>
+                            {(institution.members ?? []).length === 0 ? (
+                                <p className="px-6 py-4 text-sm text-muted-foreground">
+                                    No active members or pending invitations. Use POC handover to provision one.
+                                </p>
+                            ) : (
+                                <ul className="divide-y divide-border">
+                                    {(institution.members ?? []).map((member) => (
+                                        <li
+                                            key={member.id}
+                                            className="flex flex-wrap items-center justify-between gap-2 px-6 py-3 text-sm"
+                                        >
+                                            <span className="min-w-0">
+                                                <span className="block truncate font-semibold text-foreground">
+                                                    {member.name ?? member.email ?? 'Unnamed member'}
+                                                </span>
+                                                {member.email && (
+                                                    <span className="block truncate text-xs text-muted-foreground">
+                                                        {member.email}
+                                                    </span>
+                                                )}
+                                            </span>
+                                            <span className="text-xs capitalize text-muted-foreground">
+                                                {member.role} ·{' '}
+                                                {member.status === 'active'
+                                                    ? `joined ${formatDate(member.acceptedAt)}`
+                                                    : member.status === 'expired'
+                                                      ? 'invitation expired'
+                                                      : `invited, expires ${formatDate(member.inviteExpiresAt)}`}
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </Card>
+                    )}
 
                     {/* Admin Audit Trail Card */}
                     <Card className="overflow-hidden">

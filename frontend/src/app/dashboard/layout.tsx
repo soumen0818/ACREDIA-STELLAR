@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { ConsoleShell } from '@/components/console/ConsoleShell';
+import { ContinuityBanner } from '@/components/institution/ContinuityBanner';
 import { RouteStateScreen } from '@/components/route-state/RouteStateScreen';
 import { getConsoleNav } from '@/lib/consoleNav';
 import { ProtectedRoute, useAuth } from '@/contexts/AuthContext';
@@ -21,7 +22,13 @@ function DashboardChrome({ children }: { children: ReactNode }) {
         );
     }
 
-    return <ConsoleShell nav={getConsoleNav(userRole)}>{children}</ConsoleShell>;
+    return (
+        <ConsoleShell nav={getConsoleNav(userRole)}>
+            {/* On every institution page, until a second person can issue (Issue #307). */}
+            {userRole === 'institution' && <ContinuityBanner />}
+            {children}
+        </ConsoleShell>
+    );
 }
 
 /**

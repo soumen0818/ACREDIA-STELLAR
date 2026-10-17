@@ -21,15 +21,15 @@ finished, what is not, and what must be true before the switch is thrown.
 | Database schema, RLS, data integrity | ✅ Ready | No |
 | Security posture (audit findings) | ⚠️ Deploy-time owner constructor pending | **YES** |
 | Dependency supply chain | ✅ 0 vulnerabilities | No |
-| Automated test coverage | ✅ 728 frontend unit/integration; 91 contract tests | No |
+| Automated test coverage | ✅ 796 frontend unit/integration; 91 contract tests | No |
 | **Independent smart-contract audit** | ❌ Not started | **YES** |
 | **Key custody for the contract owner** | ⚠️ 2-of-3 policy decided; hardware setup and rehearsal pending | **YES** |
 | **Credential TTL / keeper strategy** | ⚠️ Partial | **YES** |
 | **Distributed rate limiting configured** | ⚠️ Guard enforced — Upstash provisioning required | **YES** |
-| Institution business continuity | ⚠️ Single POC | Strongly advised |
+| Institution business continuity | ✅ Self-service members & risk list — mainnet second-member rule proposed | Strongly advised |
 | Incident response & on-call | ⚠️ Plan adopted — roster, paging and team tabletop pending | Strongly advised |
 
-**Overall: 4 of 11 areas complete; 5 hard blockers remain.**
+**Overall: 5 of 11 areas complete; 5 hard blockers remain.**
 
 ---
 
@@ -200,15 +200,33 @@ is observability, not an independently configured alert.
 
 Not strictly blocking, but each is a real operational risk.
 
-### 4.1 Institution business continuity
+### 4.1 Institution business continuity — **self-service shipped; mainnet rule proposed**
 
-An institution is currently reachable through a single point of contact. If that
-person is locked out or leaves, **all issuance for that institution stops** until
-an Acredia admin intervenes manually.
+Institutions no longer depend on a single point of contact by default (#307,
+[ADR 0006](./decisions/0006-institution-member-continuity.md)):
 
-The `institution_users` table already models membership as a relation and
-supports multiple members per institution — the remaining work is to allow and
-encourage a second member. See [Issue 14](../ISSUE_DRAFT.md).
+- **Self-service team management.** An institution's owners invite, re-role
+  and remove members from **Team** in the console (`/dashboard/team`) with no
+  Acredia admin. Roles: owner, issuer, viewer. Invitations go straight to the
+  invitee's inbox and are never shown to the inviter.
+- **The last owner, or the last member who can issue, cannot be removed or
+  demoted.** A database function enforces this inside one locked transaction.
+  Account erasure is the one path that cannot be blocked; it asks the last
+  issuer for explicit confirmation and is audited.
+- **Visible risk.** A persistent console banner shows while fewer than two
+  members can issue; the first owner is prompted to invite a second member on
+  activation; admins get a continuity-risk list fed by live membership and the
+  erasure audit signal.
+- Erasing one member no longer suspends an institution others can still run.
+
+**Proposed for mainnet** (ADR 0006 §4, awaiting acceptance): Acredia does not
+authorize an institution's wallet on mainnet until it has two active members
+with issuing rights, unless an exception is recorded in the authorization
+request.
+
+**Not covered by Acredia:** issuing also needs the institution's Stellar
+wallet, which a second member must be able to sign with. That custody is the
+institution's own responsibility.
 
 ### 4.2 Incident response — **plan adopted; staffing and tooling pending**
 

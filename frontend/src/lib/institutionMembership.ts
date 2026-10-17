@@ -46,6 +46,39 @@ export function canManageMembers(role: InstitutionRole): boolean {
     return MEMBER_MANAGEMENT_ROLES.has(role);
 }
 
+/** The three roles members see and assign; legacy values map onto them. */
+export type MemberRole = 'owner' | 'issuer' | 'viewer';
+
+/** Maps a stored role, including the legacy vocabulary, to what a member sees. */
+export function normalizeMemberRole(role: InstitutionRole | string | null | undefined): MemberRole {
+    if (role === 'owner' || role === 'poc') return 'owner';
+    if (role === 'issuer' || role === 'admin') return 'issuer';
+    return 'viewer';
+}
+
+/**
+ * Whether the user has any membership row at all, in any status.
+ *
+ * Gates the legacy `institutions.auth_user_id` fallback: that column predates
+ * memberships, so it may only speak for users the membership table has never
+ * heard of. A member who was removed (`deactivated`) or has not accepted yet
+ * (`invited`) must not regain access through it (Issue #307).
+ */
+async function hasAnyMembership(client: SupabaseClient, userId: string): Promise<boolean> {
+    const { data, error } = await client
+        .from('institution_users')
+        .select('id')
+        .eq('auth_user_id', userId)
+        .limit(1)
+        .maybeSingle();
+
+    if (error) {
+        throw error;
+    }
+
+    return data !== null && data !== undefined;
+}
+
 /**
  * Resolves which institution a user acts for, and with what role.
  *
@@ -58,9 +91,10 @@ export function canManageMembers(role: InstitutionRole): boolean {
  * Only `active` memberships resolve — an `invited` member has not accepted yet
  * and a `deactivated` one has been offboarded, so neither may act.
  *
- * Falls back to the deprecated `institutions.auth_user_id` column when no
- * membership row exists, so an institution provisioned before the backfill (or
- * during a rollback) never loses access. That fallback is removed with the
+ * Falls back to the deprecated `institutions.auth_user_id` column only when the
+ * user has no membership row at all, so an institution provisioned before the
+ * backfill (or during a rollback) never loses access — while a removed member
+ * cannot regain it through that column. The fallback is removed with the
  * column itself.
  */
 export async function resolveInstitutionForUser(
@@ -82,6 +116,14 @@ export async function resolveInstitutionForUser(
             role: (membership.role as InstitutionRole) ?? 'issuer',
             status: (membership.status as MembershipStatus) ?? 'active',
         };
+    }
+
+    if (error) {
+        throw error;
+    }
+
+    if (await hasAnyMembership(client, userId)) {
+        return null;
     }
 
     const { data: legacy, error: legacyError } = await client
@@ -145,6 +187,10 @@ export async function isMemberOfInstitution(
 
     if (data?.institution_id) {
         return true;
+    }
+
+    if (await hasAnyMembership(client, userId)) {
+        return false;
     }
 
     const { data: legacy } = await client

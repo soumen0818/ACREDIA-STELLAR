@@ -3,7 +3,7 @@ import type { User } from '@supabase/supabase-js';
 import type { NextRequest } from 'next/server';
 import { resolveUserRole } from './roleResolver';
 import { runtimeConfig, serverRuntimeConfig } from './runtimeConfig';
-import { resolveInstitutionIdForUser } from './institutionMembership';
+import { resolveInstitutionForUser, type InstitutionRole } from './institutionMembership';
 
 type AuthenticatedRequest = {
     ok: true;
@@ -217,7 +217,12 @@ export async function requireAuthenticatedRequest(
 export async function requireInstitutionRequest(
     request: NextRequest,
 ): Promise<
-    | { ok: true; userId: string; institutionId: string | null }
+    | {
+          ok: true;
+          userId: string;
+          institutionId: string | null;
+          memberRole: InstitutionRole | null;
+      }
     | { ok: false; status: number; error: string }
 > {
     const authCheck = await requireAuthenticatedRequest(request);
@@ -251,12 +256,15 @@ export async function requireInstitutionRequest(
     // Best-effort: callers use this to scope uploads to the issuing institution.
     // A missing membership is not fatal — `profiles.role` already established
     // the role.
-    const institutionId = await resolveInstitutionIdForUser(client, authCheck.userId);
+    const membership = await resolveInstitutionForUser(client, authCheck.userId);
 
     return {
         ok: true,
         userId: authCheck.userId,
-        institutionId,
+        institutionId: membership?.institutionId ?? null,
+        // Lets write routes refuse read-only members (`viewer`), which
+        // institution owners can now assign themselves (Issue #307).
+        memberRole: membership?.role ?? null,
     };
 }
 

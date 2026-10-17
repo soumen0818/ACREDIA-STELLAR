@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Building2, Check, Copy, Plus, RefreshCw, Search } from 'lucide-react';
+import {
+    ArrowRight,
+    Building2,
+    Check,
+    Copy,
+    Plus,
+    RefreshCw,
+    Search,
+    ShieldCheck,
+    TriangleAlert,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { ConsolePage } from '@/components/console/ConsoleShell';
 import { Button } from '@/components/ui/button';
@@ -19,6 +29,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { captureException } from '@/lib/debug';
+import { AT_RISK_LEVELS, CONTINUITY_LABELS, continuityBadgeClass } from '@/lib/institutionContinuity';
 import {
     adminFetch,
     formatDate,
@@ -36,6 +47,100 @@ function StatusBadge({ status }: { status: string }) {
         >
             {status}
         </span>
+    );
+}
+
+function ContinuityBadge({ institution }: { institution: AdminInstitutionSummary }) {
+    if (!institution.continuity) return <span className="text-xs text-muted-foreground">—</span>;
+    const { level, activeIssuers } = institution.continuity;
+    return (
+        <span className="inline-flex flex-col gap-0.5">
+            <span
+                className={`inline-flex w-fit items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${continuityBadgeClass(level)}`}
+            >
+                {CONTINUITY_LABELS[level]}
+            </span>
+            <span className="text-xs text-muted-foreground">
+                {activeIssuers} can issue
+            </span>
+        </span>
+    );
+}
+
+const RISK_ORDER = { no_issuers: 0, single_issuer: 1, single_owner: 2, healthy: 3 } as const;
+
+/**
+ * Institutions that stop issuing if one person is unavailable — or already
+ * have (Issue #307). Fed by live membership and by the erasure audit signal.
+ */
+function ContinuityRiskPanel({ institutions }: { institutions: AdminInstitutionSummary[] }) {
+    const atRisk = institutions
+        .filter((institution) => institution.continuity && AT_RISK_LEVELS.has(institution.continuity.level))
+        .sort(
+            (a, b) =>
+                RISK_ORDER[a.continuity!.level] - RISK_ORDER[b.continuity!.level] ||
+                a.name.localeCompare(b.name),
+        );
+
+    if (institutions.length === 0) return null;
+
+    if (atRisk.length === 0) {
+        return (
+            <Card className="mb-6 flex items-center gap-3 p-4 text-sm">
+                <ShieldCheck className="h-5 w-5 shrink-0 text-success" aria-hidden="true" />
+                <span className="text-muted-foreground">
+                    Every institution has at least two people who can issue credentials.
+                </span>
+            </Card>
+        );
+    }
+
+    return (
+        <Card className="mb-6 overflow-hidden" aria-labelledby="continuity-risk-heading">
+            <div className="flex items-start gap-3 border-b border-border px-5 py-4">
+                <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden="true" />
+                <div>
+                    <h2 id="continuity-risk-heading" className="text-base font-semibold text-foreground">
+                        Continuity risk ({atRisk.length})
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                        Institutions where one person being locked out or leaving stops issuance. Owners
+                        can fix this themselves from their Team page; nudge them before it matters.
+                    </p>
+                </div>
+            </div>
+            <ul className="divide-y divide-border">
+                {atRisk.map((institution) => {
+                    const continuity = institution.continuity!;
+                    return (
+                        <li key={institution.id}>
+                            <Link
+                                href={`/admin/institutions/${institution.id}`}
+                                className="flex flex-col gap-1 px-5 py-3 transition-colors hover:bg-secondary/40 sm:flex-row sm:items-center sm:justify-between"
+                            >
+                                <span className="min-w-0">
+                                    <span className="block truncate font-semibold text-foreground">
+                                        {institution.name}
+                                    </span>
+                                    <span className="block text-xs text-muted-foreground">
+                                        {continuity.level === 'no_issuers'
+                                            ? institution.memberLossAt
+                                                ? `Nobody can issue since an account erasure on ${formatDate(institution.memberLossAt)} — provision a new member.`
+                                                : 'Nobody active can issue — provision a new member.'
+                                            : `One person can issue${continuity.pendingInvites > 0 ? ` · ${continuity.pendingInvites} invitation pending` : ' · no invitation sent'}`}
+                                    </span>
+                                </span>
+                                <span
+                                    className={`inline-flex w-fit shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${continuityBadgeClass(continuity.level)}`}
+                                >
+                                    {CONTINUITY_LABELS[continuity.level]}
+                                </span>
+                            </Link>
+                        </li>
+                    );
+                })}
+            </ul>
+        </Card>
     );
 }
 
@@ -65,6 +170,7 @@ function InstitutionsContent() {
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState('');
     const [query, setQuery] = useState('');
+    const [atRiskOnly, setAtRiskOnly] = useState(false);
 
     // "Add institution" provisioning flow
     const [addOpen, setAddOpen] = useState(false);
@@ -181,14 +287,16 @@ function InstitutionsContent() {
 
     const filtered = useMemo(() => {
         const term = query.trim().toLowerCase();
-        if (!term) return institutions;
         return institutions.filter(
             (institution) =>
-                institution.name.toLowerCase().includes(term) ||
-                institution.email.toLowerCase().includes(term) ||
-                (institution.walletAddress ?? '').toLowerCase().includes(term),
+                (!atRiskOnly ||
+                    (institution.continuity && AT_RISK_LEVELS.has(institution.continuity.level))) &&
+                (!term ||
+                    institution.name.toLowerCase().includes(term) ||
+                    institution.email.toLowerCase().includes(term) ||
+                    (institution.walletAddress ?? '').toLowerCase().includes(term)),
         );
-    }, [institutions, query]);
+    }, [institutions, query, atRiskOnly]);
 
     return (
         <ConsolePage
@@ -212,8 +320,10 @@ function InstitutionsContent() {
                 </div>
             }
         >
-            <Card className="mb-6 p-4">
-                <div className="relative">
+            {!loading && !error && <ContinuityRiskPanel institutions={institutions} />}
+
+            <Card className="mb-6 flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+                <div className="relative flex-1">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                         value={query}
@@ -223,6 +333,15 @@ function InstitutionsContent() {
                         aria-label="Search institutions"
                     />
                 </div>
+                <Button
+                    variant={atRiskOnly ? 'default' : 'outline'}
+                    size="sm"
+                    aria-pressed={atRiskOnly}
+                    onClick={() => setAtRiskOnly((value) => !value)}
+                >
+                    <TriangleAlert className="h-4 w-4" aria-hidden="true" />
+                    At risk only
+                </Button>
             </Card>
 
             {loading ? (
@@ -268,6 +387,7 @@ function InstitutionsContent() {
                                         <th className="px-5 py-3 font-semibold">Institution</th>
                                         <th className="px-5 py-3 font-semibold">Status</th>
                                         <th className="px-5 py-3 font-semibold">Onboarding</th>
+                                        <th className="px-5 py-3 font-semibold">Team</th>
                                         <th className="px-5 py-3 font-semibold">Wallet</th>
                                         <th className="px-5 py-3 font-semibold">Credentials</th>
                                         <th className="px-5 py-3 font-semibold">Registered</th>
@@ -293,6 +413,9 @@ function InstitutionsContent() {
                                             </td>
                                             <td className="px-5 py-4">
                                                 <OnboardingBadge institution={institution} />
+                                            </td>
+                                            <td className="px-5 py-4">
+                                                <ContinuityBadge institution={institution} />
                                             </td>
                                             <td className="px-5 py-4 font-mono text-xs text-muted-foreground">
                                                 {shortenAddress(institution.walletAddress)}
@@ -345,6 +468,12 @@ function InstitutionsContent() {
                                     </div>
                                 </div>
                                 <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                                    <div className="col-span-2">
+                                        <dt className="text-muted-foreground">Team</dt>
+                                        <dd className="mt-0.5">
+                                            <ContinuityBadge institution={institution} />
+                                        </dd>
+                                    </div>
                                     <div>
                                         <dt className="text-muted-foreground">Wallet</dt>
                                         <dd className="mt-0.5 font-mono text-foreground">

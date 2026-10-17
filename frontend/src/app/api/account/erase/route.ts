@@ -3,6 +3,8 @@ import { requireAuthenticatedRequest, getServiceRoleClient } from '@/lib/serverA
 import { unpinFromPinata } from '@/lib/ipfsServer';
 import { captureException } from '@/lib/debug';
 import { enforceRateLimit } from '@/lib/rateLimit';
+import { canManageMembers, canWrite, type InstitutionRole } from '@/lib/institutionMembership';
+import { institutionsLeftWithoutIssuer } from '@/lib/institutionMembers';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +15,46 @@ const ACCOUNT_ERASE_RATE_LIMIT = {
 } as const;
 
 type ServiceClient = ReturnType<typeof getServiceRoleClient>;
+
+/**
+ * Detaches the erased user from institutions that still name them as their
+ * single login (`institutions.auth_user_id`).
+ *
+ * An institution that still has an active member who can issue is handed to
+ * that member — an owner by preference — and keeps working. Only an
+ * institution left with nobody able to issue is suspended. Suspending
+ * unconditionally, as before, turned one person's erasure request into an
+ * outage for every colleague (Issue #307).
+ */
+async function detachInstitutionLogin(serviceClient: ServiceClient, userId: string): Promise<void> {
+    const { data: institutions } = await serviceClient
+        .from('institutions')
+        .select('id')
+        .eq('auth_user_id', userId);
+
+    for (const institution of institutions ?? []) {
+        const { data: remaining } = await serviceClient
+            .from('institution_users')
+            .select('auth_user_id, role, created_at')
+            .eq('institution_id', institution.id)
+            .eq('status', 'active')
+            .neq('auth_user_id', userId)
+            .order('created_at', { ascending: true });
+
+        const rows = (remaining ?? []) as Array<{ auth_user_id: string; role: InstitutionRole }>;
+        const successor =
+            rows.find((row) => canManageMembers(row.role)) ?? rows.find((row) => canWrite(row.role));
+
+        await serviceClient
+            .from('institutions')
+            .update(
+                successor
+                    ? { auth_user_id: successor.auth_user_id }
+                    : { auth_user_id: null, status: 'suspended' },
+            )
+            .eq('id', institution.id);
+    }
+}
 
 /**
  * Writes an audit record for every institution membership this user holds,
@@ -39,12 +81,16 @@ async function recordMembershipRemoval(
         for (const membership of memberships) {
             // Count the members that will remain once this one is gone, so a
             // newly-orphaned institution is visible in the audit trail.
-            const { count: remainingActive } = await serviceClient
+            const { data: remaining } = await serviceClient
                 .from('institution_users')
-                .select('id', { count: 'exact', head: true })
+                .select('role')
                 .eq('institution_id', membership.institution_id)
                 .eq('status', 'active')
                 .neq('auth_user_id', userId);
+            const remainingActive = remaining?.length ?? 0;
+            const remainingIssuers = (remaining ?? []).filter((row) =>
+                canWrite(row.role as InstitutionRole),
+            ).length;
 
             await serviceClient.from('admin_audit_logs').insert({
                 action: 'deactivate_account',
@@ -54,10 +100,13 @@ async function recordMembershipRemoval(
                     reason: 'gdpr_erasure',
                     removed_role: membership.role,
                     removed_status: membership.status,
-                    remaining_active_members: remainingActive ?? 0,
+                    remaining_active_members: remainingActive,
+                    remaining_issuers: remainingIssuers,
                     // The signal an operator needs: this institution can no
                     // longer issue until a new member is provisioned.
-                    institution_left_without_members: (remainingActive ?? 0) === 0,
+                    institution_left_without_members: remainingActive === 0,
+                    // Remaining viewers cannot issue either (Issue #307).
+                    institution_left_without_issuers: remainingIssuers === 0,
                 },
             });
         }
@@ -108,6 +157,28 @@ export async function POST(request: NextRequest) {
 
         const { userId } = authCheck;
         const serviceClient = getServiceRoleClient();
+
+        // 1b. Erasure is a legal right and is never blocked — but if this user
+        //     is the last person able to issue for an institution, they must
+        //     say so explicitly first. Leaving an institution unable to issue
+        //     must never happen silently (Issue #307).
+        const body = (await request.json().catch(() => ({}))) as {
+            acknowledgeInstitutionImpact?: unknown;
+        };
+        const stranded = await institutionsLeftWithoutIssuer(serviceClient, userId);
+
+        if (stranded.length > 0 && body.acknowledgeInstitutionImpact !== true) {
+            const names = stranded.map((entry) => entry.name ?? 'your institution').join(', ');
+            return NextResponse.json(
+                {
+                    success: false,
+                    code: 'last_institution_issuer',
+                    institutions: stranded,
+                    error: `You are the only person who can issue credentials for ${names}. If you delete your account, ${names} will be unable to issue or revoke credentials until Acredia provisions a new member. Add a colleague on the Team page first, or confirm to continue.`,
+                },
+                { status: 409 },
+            );
+        }
 
         // 2. Create an erasure request record.
         const { data: erasureRow, error: requestErr } = await serviceClient
@@ -184,10 +255,7 @@ export async function POST(request: NextRequest) {
         // before deleting the auth user, ensuring no cascade can possibly occur
         // even if foreign keys are mis-configured.
         await Promise.all([
-            serviceClient
-                .from('institutions')
-                .update({ auth_user_id: null, status: 'suspended' })
-                .eq('auth_user_id', userId),
+            detachInstitutionLogin(serviceClient, userId),
             serviceClient
                 .from('students')
                 .update({ auth_user_id: null })

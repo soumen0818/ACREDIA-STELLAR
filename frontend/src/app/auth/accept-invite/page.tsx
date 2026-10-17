@@ -19,11 +19,13 @@ import { safeGetSession, supabase, updatePassword } from '@/lib/supabase';
 import { captureException } from '@/lib/debug';
 
 /**
- * Invite acceptance for an institution POC.
+ * Invite acceptance for an institution member — the POC the admin console
+ * provisions, or a colleague an owner invites from the Team page (Issue #307).
  *
- * The admin console provisions the account with no password and issues a
- * single-use invite link; following it establishes a session, and this page is
- * where the POC chooses their own password. Acredia staff never see it.
+ * The account is provisioned with no password and a single-use invite link is
+ * emailed; following it establishes a session, and this page is where the
+ * member chooses their own password. Neither Acredia staff nor the inviting
+ * owner ever see it.
  */
 function AcceptInviteForm() {
     const router = useRouter();
@@ -37,6 +39,13 @@ function AcceptInviteForm() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [accepted, setAccepted] = useState(false);
+    // What the membership activation returned, so the confirmation can say
+    // what happened instead of assuming success (Issue #307).
+    const [acceptance, setAcceptance] = useState<
+        | { ok: true; role: string | null; institutionName: string | null }
+        | { ok: false; message: string }
+        | null
+    >(null);
 
     const passwordRequirements = getPasswordRequirements(password);
 
@@ -112,20 +121,36 @@ function AcceptInviteForm() {
             setConfirmPassword('');
             setAccepted(true);
 
-            // Record that onboarding completed. A failure here must not block
-            // the POC — their password is already set and they can sign in.
+            // Activate the membership. The password is already set either way;
+            // what this decides is whether the account can act for the
+            // institution, so its outcome is shown rather than assumed.
             try {
                 const {
                     data: { session },
                 } = await safeGetSession();
 
                 if (session?.access_token) {
-                    await fetch('/api/auth/accept-invite', {
+                    const response = await fetch('/api/auth/accept-invite', {
                         method: 'POST',
                         headers: {
                             Authorization: `Bearer ${session.access_token}`,
                         },
                     });
+                    const payload = await response.json().catch(() => null);
+                    setAcceptance(
+                        response.ok && payload?.success
+                            ? {
+                                  ok: true,
+                                  role: payload.role ?? null,
+                                  institutionName: payload.institution?.name ?? null,
+                              }
+                            : {
+                                  ok: false,
+                                  message:
+                                      payload?.error ??
+                                      'Your password is set, but your invitation could not be completed. Sign in and contact whoever invited you.',
+                              },
+                    );
                 }
             } catch (markError) {
                 captureException(markError, { context: 'acceptInviteMark' });
@@ -166,8 +191,8 @@ function AcceptInviteForm() {
                     className="rounded-lg border border-destructive/25 bg-destructive/8 px-4 py-3 text-sm text-destructive"
                     role="alert"
                 >
-                    This invite link is invalid, has already been used, or has expired. Contact your
-                    Acredia administrator to have a new invite issued.
+                    This invite link is invalid, has already been used, or has expired. Ask whoever
+                    invited you — your institution&apos;s owner or Acredia — to send a new one.
                 </div>
             )}
 
@@ -238,15 +263,60 @@ function AcceptInviteForm() {
                 </form>
             )}
 
-            {accepted && (
+            {accepted && acceptance?.ok === false && (
+                <div className="space-y-4">
+                    <div
+                        className="rounded-lg border border-destructive/25 bg-destructive/8 px-4 py-3 text-sm text-destructive"
+                        role="alert"
+                    >
+                        {acceptance.message}
+                    </div>
+                    <Button
+                        type="button"
+                        size="lg"
+                        variant="outline"
+                        onClick={() => router.push('/auth/login')}
+                        className="w-full"
+                    >
+                        Go to sign in
+                    </Button>
+                </div>
+            )}
+
+            {accepted && acceptance?.ok !== false && (
                 <div className="space-y-4">
                     <div
                         className="rounded-lg border border-success/25 bg-success/8 px-4 py-3 text-sm text-success"
                         role="status"
                     >
-                        Your account is active. Your institution's wallet still needs to be
-                        authorized by Acredia before you can issue credentials.
+                        Your account is active
+                        {acceptance?.institutionName ? ` for ${acceptance.institutionName}` : ''}.
+                        Issuing credentials also needs your institution&apos;s wallet to be
+                        authorized by Acredia, if it isn&apos;t already.
                     </div>
+                    {acceptance?.role === 'owner' && (
+                        // The moment to fix the single point of contact is
+                        // before it matters (Issue #307).
+                        <div className="rounded-lg border border-border bg-secondary/40 px-4 py-3 text-sm">
+                            <p className="font-semibold text-foreground">
+                                Recommended next step: add a second member
+                            </p>
+                            <p className="mt-1 text-muted-foreground">
+                                If you are the only person who can issue and you are locked out or
+                                leave, your institution stops issuing until Acredia steps in. Invite
+                                a colleague now — it takes a minute.
+                            </p>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="mt-3"
+                                onClick={() => router.push('/dashboard/team')}
+                            >
+                                Invite a colleague
+                            </Button>
+                        </div>
+                    )}
                     <Button
                         type="button"
                         size="lg"

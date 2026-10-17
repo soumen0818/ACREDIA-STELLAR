@@ -33,12 +33,16 @@ ALTER TABLE public.institutions
 COMMENT ON COLUMN public.institutions.provisioning_origin IS
     'How this institution came to exist: admin = provisioned through the admin console; self_signup = created by the removed public registration flow (Issue #239).';
 
--- An institution carrying a provisioning admin was created through the console
--- (Issue #240). Everything else predates that and came from public signup.
+-- An institution carrying a provisioning admin, or an invite, was created
+-- through the console (Issue #240). Everything else predates that and came
+-- from public signup. `invited_at` matters on a re-run of schema.sql:
+-- `created_by_admin_id` is ON DELETE SET NULL, so once the provisioning admin's
+-- account is gone it alone would misfile — and then suspend — a legitimate
+-- institution (Issue #307). Public signup never set an invite.
 UPDATE public.institutions
 SET provisioning_origin = 'admin'
 WHERE provisioning_origin IS NULL
-  AND created_by_admin_id IS NOT NULL;
+  AND (created_by_admin_id IS NOT NULL OR invited_at IS NOT NULL);
 
 UPDATE public.institutions
 SET provisioning_origin = 'self_signup'
@@ -65,7 +69,8 @@ ALTER TABLE public.admin_audit_logs
             'accept_invite',
             'triage_self_signup'
         )
-    );
+    -- NOT VALID: see 20260807 — a re-run must not abort on later actions.
+    ) NOT VALID;
 
 -- A self-signup that an admin already authorized on-chain has been vetted by
 -- the only act that actually matters, so it is left alone. The rest are

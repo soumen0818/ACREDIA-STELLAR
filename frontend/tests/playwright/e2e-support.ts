@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { E2eAdminInstitution, E2eAdminStats, E2eState } from '@/lib/e2e';
+import { assessContinuity } from '../../src/lib/institutionContinuity';
 
 export function createE2eState(overrides: Partial<E2eState> = {}): E2eState {
     return {
@@ -119,7 +120,109 @@ async function readE2eState(page: Page) {
     }
 }
 
-export async function installE2eRoutes(page: Page) {
+/** A member of the E2E institution's team, as the team API reports it. */
+export interface E2eTeamMember {
+    id: string;
+    name: string;
+    email: string;
+    role: 'owner' | 'issuer' | 'viewer';
+    status: 'active' | 'invited';
+    isYou?: boolean;
+}
+
+/** The signed-in owner alone — the single-point-of-contact state (Issue #307). */
+export function soloTeam(): E2eTeamMember[] {
+    return [
+        { id: 'member-1', name: 'Acredia User', email: 'user@acredia.test', role: 'owner', status: 'active', isYou: true },
+    ];
+}
+
+/**
+ * Stateful stand-in for the team API (Issue #307). Continuity is computed by
+ * the app's own `assessContinuity`, and removals apply the same last-owner and
+ * last-issuer refusals as the database guard, so the UI is exercised against
+ * the real rules rather than canned responses.
+ */
+async function installTeamRoutes(page: Page, initial: E2eTeamMember[]) {
+    const team = initial.map((member) => ({ ...member }));
+    const inviteExpiresAt = () => new Date(Date.now() + 7 * 86_400_000).toISOString();
+    const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    const canIssue = (role: string) => role === 'owner' || role === 'issuer';
+
+    await page.route('**/api/institution/members**', async (route) => {
+        const request = route.request();
+        const [, memberId, action] =
+            new URL(request.url()).pathname.match(/\/api\/institution\/members(?:\/([^/]+))?(?:\/(resend))?$/) ?? [];
+
+        if (request.method() === 'GET') {
+            const members = team.map((member) => ({
+                ...member,
+                isYou: Boolean(member.isYou),
+                invitedAt: null,
+                inviteExpiresAt: member.status === 'invited' ? inviteExpiresAt() : null,
+                acceptedAt: member.status === 'active' ? new Date().toISOString() : null,
+            }));
+            await route.fulfill(json(200, { success: true, canManage: true, members, continuity: assessContinuity(team) }));
+            return;
+        }
+
+        if (request.method() === 'POST' && !memberId) {
+            const body = request.postDataJSON() as { email: string; name: string; role: E2eTeamMember['role'] };
+            team.push({ id: `member-${team.length + 1}`, name: body.name, email: body.email, role: body.role, status: 'invited' });
+            await route.fulfill(json(201, { success: true, message: `Invitation emailed to ${body.email}. It expires in 7 days.` }));
+            return;
+        }
+
+        const target = team.find((member) => member.id === memberId);
+        if (!target) {
+            await route.fulfill(json(404, { success: false, code: 'member_not_found', error: 'That member is not part of this institution.' }));
+            return;
+        }
+
+        if (action === 'resend') {
+            await route.fulfill(json(200, { success: true, message: `Invitation emailed again to ${target.email}.` }));
+            return;
+        }
+
+        const newRole = request.method() === 'PATCH' ? (request.postDataJSON() as { role: E2eTeamMember['role'] }).role : null;
+        const others = team.filter((member) => member !== target && member.status === 'active');
+        if (target.status === 'active' && target.role === 'owner' && newRole !== 'owner' && !others.some((m) => m.role === 'owner')) {
+            await route.fulfill(json(409, { success: false, code: 'last_owner', error: 'This is the only owner. Make another active member an owner first, so someone can still manage the team.' }));
+            return;
+        }
+        if (target.status === 'active' && canIssue(target.role) && !(newRole && canIssue(newRole)) && !others.some((m) => canIssue(m.role))) {
+            await route.fulfill(json(409, { success: false, code: 'last_issuer', error: 'This is the only member who can issue credentials. Give another active member issuing rights first.' }));
+            return;
+        }
+
+        if (newRole) target.role = newRole;
+        else team.splice(team.indexOf(target), 1);
+        await route.fulfill(json(200, { success: true, member: { id: target.id, role: target.role, status: target.status } }));
+    });
+}
+
+export async function installE2eRoutes(page: Page, { team = soloTeam() }: { team?: E2eTeamMember[] } = {}) {
+    await installTeamRoutes(page, team);
+
+    // Institution membership is resolved through `institution_users` (Issue
+    // #238). Without this the request failed and the app used to fall back to
+    // the legacy single-login column on the error path; that fallback now
+    // fails closed (Issue #307), so the membership has to be served.
+    await page.route('**/rest/v1/institution_users**', async (route) => {
+        const state = await readE2eState(page);
+        const institution = state?.institution;
+
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(
+                institution && state?.role === 'institution'
+                    ? [{ id: 'membership-1', institution_id: institution.id, role: 'owner', status: 'active' }]
+                    : [],
+            ),
+        });
+    });
+
     await page.route('**/rest/v1/institutions**', async (route) => {
         const state = await readE2eState(page);
         const institution = state?.institution;

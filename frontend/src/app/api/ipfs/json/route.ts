@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pinJsonToPinata, validatePinataJson } from '@/lib/ipfsServer';
 import { enforceRateLimit } from '@/lib/rateLimit';
 import { requireInstitutionRequest } from '@/lib/serverAuth';
+import { canWrite } from '@/lib/institutionMembership';
 import { captureException } from '@/lib/debug';
 
 export const dynamic = 'force-dynamic';
@@ -35,6 +36,14 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(
                 { success: false, error: authCheck.error },
                 { status: authCheck.status },
+            );
+        }
+
+        // Pinning is part of issuing; read-only members may not (Issue #307).
+        if (authCheck.memberRole && !canWrite(authCheck.memberRole)) {
+            return NextResponse.json(
+                { success: false, error: 'Your role is read-only and cannot upload credentials.' },
+                { status: 403 },
             );
         }
 

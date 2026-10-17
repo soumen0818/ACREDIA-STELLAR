@@ -109,6 +109,8 @@ test.describe('WCAG 2.1 AA accessibility audit', () => {
         // audited in its own right.
         await expectNoViolations(page, '/dashboard/issue');
         await expectNoViolations(page, '/dashboard/issued');
+        // Team management and the continuity banner (Issue #307).
+        await expectNoViolations(page, '/dashboard/team');
     });
 
     test('public verification surfaces', async ({ page }) => {

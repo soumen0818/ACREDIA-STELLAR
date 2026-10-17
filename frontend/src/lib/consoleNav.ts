@@ -8,6 +8,7 @@ import {
     ShieldCheck,
     Upload,
     Users,
+    UsersRound,
     Wallet,
     type LucideIcon,
 } from 'lucide-react';
@@ -95,6 +96,14 @@ const INSTITUTION_NAV: ConsoleNav = {
             href: '/dashboard/students',
             icon: Users,
             description: 'Manage your roster',
+        },
+        {
+            // Your colleagues on the institution — so it never depends on
+            // one person (Issue #307).
+            label: 'Team',
+            href: '/dashboard/team',
+            icon: UsersRound,
+            description: 'Members and invitations',
         },
         {
             label: 'Issued credentials',

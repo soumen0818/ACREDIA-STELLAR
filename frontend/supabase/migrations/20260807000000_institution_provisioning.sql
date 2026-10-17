@@ -50,6 +50,10 @@ CREATE INDEX IF NOT EXISTS idx_institutions_pending_invites
 ALTER TABLE public.admin_audit_logs
     DROP CONSTRAINT IF EXISTS admin_audit_logs_action_check;
 
+-- NOT VALID: on a re-run of schema.sql, existing rows already carry actions
+-- that later migrations admit. Validating them against this older list would
+-- abort the re-run here (Issue #307). The latest migration that redefines this
+-- constraint adds it validated, so the final schema still checks every row.
 ALTER TABLE public.admin_audit_logs
     ADD CONSTRAINT admin_audit_logs_action_check CHECK (
         action IN (
@@ -62,6 +66,6 @@ ALTER TABLE public.admin_audit_logs
             'create_institution',
             'accept_invite'
         )
-    );
+    ) NOT VALID;
 
 COMMIT;

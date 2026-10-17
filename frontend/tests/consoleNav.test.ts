@@ -31,6 +31,8 @@ describe('Console Navigation & Role Scoping', () => {
         expect(hrefs).toContain('/dashboard/issued');
         expect(hrefs).toContain('/dashboard/analytics');
         expect(hrefs).toContain('/dashboard/settings');
+        // Issue #307: an institution manages its own members.
+        expect(hrefs).toContain('/dashboard/team');
     });
 
     it('provides student-scoped navigation items', () => {

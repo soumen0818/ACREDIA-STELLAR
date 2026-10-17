@@ -12,6 +12,9 @@ In Acredia, each institution is managed by an authorized administrative user (Po
 
 Because an unauthorized handover would permit an adversary to issue counterfeit credentials or revoke legitimate degrees, every handover request must satisfy a **defensible, consistent identity verification standard** before execution.
 
+> [!NOTE]
+> **Handover is now the exception, not the routine path** ([ADR 0006](../decisions/0006-institution-member-continuity.md), #307). Institutions add, re-role and remove their own members from **Team** in their console. If a requester's institution still has an active owner, point them there first — that owner can add the new person without Acredia holding the keys to the account. Use this runbook when **nobody at the institution can act any more**: the admin institutions list shows these under *Continuity risk* as "No one can issue".
+
 ---
 
 ## 2. Identity Verification Standard (Pre-Handover Checklist)

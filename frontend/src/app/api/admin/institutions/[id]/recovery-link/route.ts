@@ -177,6 +177,28 @@ export async function POST(
                     institutionId: institution.id,
                 });
             }
+
+            // Acceptance is checked per membership (Issue #307), so the POC's
+            // pending membership must move to the same window — otherwise a
+            // regenerated link would be refused as expired.
+            if (institution.auth_user_id) {
+                const { error: membershipUpdateError } = await supabase
+                    .from('institution_users')
+                    .update({
+                        invited_at: invitedAt.toISOString(),
+                        invite_expires_at: inviteExpiresAt,
+                    })
+                    .eq('institution_id', institution.id)
+                    .eq('auth_user_id', institution.auth_user_id)
+                    .eq('status', 'invited');
+
+                if (membershipUpdateError) {
+                    structuredLog('WARN', 'Failed to extend the POC membership invite', requestId, {
+                        error: membershipUpdateError,
+                        institutionId: institution.id,
+                    });
+                }
+            }
         }
 
         // 5. Record audit log

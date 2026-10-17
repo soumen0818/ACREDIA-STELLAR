@@ -196,6 +196,7 @@ describe('requireInstitutionRequest', () => {
             ok: true,
             userId: 'institution-user',
             institutionId: 'institution-1',
+            memberRole: 'owner',
         });
     });
 
@@ -207,6 +208,7 @@ describe('requireInstitutionRequest', () => {
             ok: true,
             userId: 'institution-user',
             institutionId: null,
+            memberRole: null,
         });
     });
 

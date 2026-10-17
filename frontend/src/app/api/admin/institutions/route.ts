@@ -4,6 +4,8 @@ import { getServiceRoleClient, requireAdminRequest } from '@/lib/serverAuth';
 import { enforceRateLimit } from '@/lib/rateLimit';
 import { structuredLog, captureException } from '@/lib/debug';
 import { isValidStellarAddress } from '@/lib/contracts';
+import { assessContinuity, type ContinuityAssessment, type ContinuityMember } from '@/lib/institutionContinuity';
+import { inviteExpiryFrom } from '@/lib/institutionMembers';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +31,10 @@ export interface AdminInstitution {
     invitedAt: string | null;
     inviteExpiresAt: string | null;
     inviteAcceptedAt: string | null;
+    /** Who can keep this institution issuing if one person is unavailable (Issue #307). */
+    continuity: ContinuityAssessment;
+    /** Most recent erasure that left the institution with nobody able to issue. */
+    memberLossAt: string | null;
 }
 
 export type OnboardingState = 'invited' | 'invite_expired' | 'active' | 'wallet_authorized';
@@ -129,6 +135,50 @@ export async function GET(request: NextRequest) {
             totals.set(key, entry);
         }
 
+        // Membership and member-loss signals, also aggregated in one pass each.
+        // A failure here degrades the risk list rather than the whole page.
+        const [{ data: memberships, error: membershipsError }, { data: memberLosses }] =
+            await Promise.all([
+                supabase
+                    .from('institution_users')
+                    .select('institution_id, role, status, invite_expires_at'),
+                supabase
+                    .from('admin_audit_logs')
+                    .select('target_institution_id, created_at, details')
+                    .eq('action', 'deactivate_account')
+                    .order('created_at', { ascending: false }),
+            ]);
+
+        if (membershipsError) {
+            structuredLog('ERROR', 'Error fetching institution memberships', requestId, {
+                error: membershipsError,
+            });
+        }
+
+        const membersByInstitution = new Map<string, ContinuityMember[]>();
+        for (const membership of memberships ?? []) {
+            const list = membersByInstitution.get(membership.institution_id) ?? [];
+            list.push({
+                role: membership.role,
+                status: membership.status,
+                inviteExpiresAt: membership.invite_expires_at,
+            });
+            membersByInstitution.set(membership.institution_id, list);
+        }
+
+        const memberLossAt = new Map<string, string>();
+        for (const entry of memberLosses ?? []) {
+            const details = (entry.details ?? {}) as Record<string, unknown>;
+            const lostEveryone =
+                details.institution_left_without_issuers === true ||
+                details.institution_left_without_members === true;
+            if (lostEveryone && entry.target_institution_id && !memberLossAt.has(entry.target_institution_id)) {
+                memberLossAt.set(entry.target_institution_id, entry.created_at);
+            }
+        }
+
+        const now = new Date();
+
         const payload: AdminInstitution[] = (institutions ?? []).map((institution) => {
             const counts = totals.get(institution.id) ?? { total: 0, active: 0 };
             return {
@@ -146,6 +196,8 @@ export async function GET(request: NextRequest) {
                 invitedAt: institution.invited_at ?? null,
                 inviteExpiresAt: institution.invite_expires_at ?? null,
                 inviteAcceptedAt: institution.invite_accepted_at ?? null,
+                continuity: assessContinuity(membersByInstitution.get(institution.id) ?? [], now),
+                memberLossAt: memberLossAt.get(institution.id) ?? null,
             };
         });
 
@@ -360,6 +412,10 @@ export async function POST(request: NextRequest) {
                 accreditation_ref: accreditationRef || null,
                 internal_notes: internalNotes || null,
                 created_by_admin_id: adminCheck.userId,
+                // Recorded explicitly: inferring it later from
+                // created_by_admin_id breaks once that admin's account is
+                // deleted (ON DELETE SET NULL) — see migration 20261017.
+                provisioning_origin: 'admin',
                 invited_at: invitedAt.toISOString(),
                 invite_expires_at: inviteExpiresAt.toISOString(),
             })
@@ -387,6 +443,10 @@ export async function POST(request: NextRequest) {
                 // to active members, so the invite is what activates them.
                 status: 'invited',
                 invited_by: adminCheck.userId,
+                // Acceptance is checked per membership, so the POC's row
+                // carries the same window as the institution's invite.
+                invited_at: invitedAt.toISOString(),
+                invite_expires_at: inviteExpiryFrom(invitedAt),
             },
             { onConflict: 'institution_id,auth_user_id' },
         );

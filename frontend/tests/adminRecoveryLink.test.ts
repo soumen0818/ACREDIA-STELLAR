@@ -100,9 +100,16 @@ vi.mock('@supabase/supabase-js', () => ({
                 }),
                 // The invite path advances `institutions.invited_at` after the
                 // link is generated, so `update(...).eq(...)` must resolve.
-                update: vi.fn(() => ({
-                    eq: vi.fn(async () => ({ data: null, error: null })),
-                })),
+                // Chainable and awaitable at any depth, like the real
+                // builder: `update(...).eq(...).eq(...)` resolves too.
+                update: vi.fn(() => {
+                    const chain: Record<string, unknown> = {
+                        then: (resolve: (value: unknown) => void) =>
+                            resolve({ data: null, error: null }),
+                    };
+                    chain.eq = vi.fn(() => chain);
+                    return chain;
+                }),
             })),
         };
     }),

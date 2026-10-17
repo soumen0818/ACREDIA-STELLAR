@@ -32,9 +32,14 @@ export function AccountSettingsPanels() {
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
     const [confirmText, setConfirmText] = useState('');
     const [deleting, setDeleting] = useState(false);
+    // Set when the server reports this account is the last one able to issue
+    // for an institution; erasure then needs an explicit acknowledgement.
+    const [institutionImpact, setInstitutionImpact] = useState<string | null>(null);
+    const [impactAcknowledged, setImpactAcknowledged] = useState(false);
 
     const handleDeleteAccount = async () => {
         if (confirmText !== 'DELETE') return;
+        if (institutionImpact && !impactAcknowledged) return;
 
         setDeleting(true);
         try {
@@ -53,7 +58,19 @@ export function AccountSettingsPanels() {
                     Authorization: `Bearer ${token}`,
                     'Content-Type': 'application/json',
                 },
+                body: JSON.stringify({ acknowledgeInstitutionImpact: impactAcknowledged }),
             });
+
+            if (response.status === 409) {
+                const body = await response.json().catch(() => ({}));
+                if (body?.code === 'last_institution_issuer') {
+                    // Never silent: stop and make the consequence explicit (Issue #307).
+                    setInstitutionImpact(body.error);
+                    setImpactAcknowledged(false);
+                    setDeleting(false);
+                    return;
+                }
+            }
 
             if (response.status === 204) {
                 toast.success('Your account has been deleted. Redirecting…');
@@ -159,11 +176,44 @@ export function AccountSettingsPanels() {
                             />
                         </div>
 
+                        {institutionImpact && (
+                            <div
+                                className="space-y-3 rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm"
+                                role="alert"
+                            >
+                                <p className="font-semibold text-foreground">
+                                    Your institution will be unable to issue credentials
+                                </p>
+                                <p className="text-muted-foreground">{institutionImpact}</p>
+                                <Link
+                                    href="/dashboard/team"
+                                    className="inline-block font-semibold text-primary underline"
+                                >
+                                    Add a colleague on the Team page first →
+                                </Link>
+                                <label className="flex items-start gap-2 text-foreground">
+                                    <input
+                                        id="acknowledge-institution-impact"
+                                        type="checkbox"
+                                        checked={impactAcknowledged}
+                                        onChange={(e) => setImpactAcknowledged(e.target.checked)}
+                                        className="mt-1"
+                                    />
+                                    I understand my institution will not be able to issue or revoke
+                                    credentials until Acredia provisions a new member.
+                                </label>
+                            </div>
+                        )}
+
                         <div className="flex gap-3">
                             <Button
                                 id="btn-confirm-delete"
                                 variant="destructive"
-                                disabled={confirmText !== 'DELETE' || deleting}
+                                disabled={
+                                    confirmText !== 'DELETE' ||
+                                    deleting ||
+                                    (Boolean(institutionImpact) && !impactAcknowledged)
+                                }
                                 onClick={handleDeleteAccount}
                             >
                                 {deleting ? 'Deleting…' : 'Permanently delete account'}
@@ -174,6 +224,8 @@ export function AccountSettingsPanels() {
                                 onClick={() => {
                                     setShowDeleteDialog(false);
                                     setConfirmText('');
+                                    setInstitutionImpact(null);
+                                    setImpactAcknowledged(false);
                                 }}
                                 disabled={deleting}
                             >

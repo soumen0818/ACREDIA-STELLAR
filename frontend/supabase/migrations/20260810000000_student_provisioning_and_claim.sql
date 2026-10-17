@@ -163,6 +163,8 @@ CREATE POLICY "Institutions can update own students"
 ALTER TABLE public.admin_audit_logs
     DROP CONSTRAINT IF EXISTS admin_audit_logs_action_check;
 
+-- NOT VALID so a re-run of schema.sql over rows using later actions does not
+-- abort here; the final redefinition validates (see 20260807, Issue #307).
 ALTER TABLE public.admin_audit_logs
     ADD CONSTRAINT admin_audit_logs_action_check CHECK (
         action IN (
@@ -184,6 +186,6 @@ ALTER TABLE public.admin_audit_logs
             'claim_wallet_attempt',
             'claim_wallet_success'
         )
-    );
+    ) NOT VALID;
 
 COMMIT;

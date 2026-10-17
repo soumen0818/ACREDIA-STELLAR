@@ -1,4 +1,6 @@
 import { safeGetSession } from '@/lib/supabase';
+import type { ContinuityAssessment } from '@/lib/institutionContinuity';
+import type { InstitutionMemberView } from '@/lib/institutionMembers';
 
 export interface AdminPocInfo {
     id: string;
@@ -36,6 +38,12 @@ export interface AdminInstitutionSummary {
     invitedAt?: string | null;
     inviteExpiresAt?: string | null;
     inviteAcceptedAt?: string | null;
+    /** Who can keep the institution issuing if one person is unavailable (Issue #307). */
+    continuity?: ContinuityAssessment;
+    /** Most recent account erasure that left nobody able to issue. */
+    memberLossAt?: string | null;
+    /** Current team; returned by the detail route only. */
+    members?: InstitutionMemberView[];
 }
 
 /** Provisioning progress: invited -> active -> wallet authorized. */

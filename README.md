@@ -206,6 +206,7 @@ Acredia connects four roles around a single, shared source of truth. See the
 - **Batch Processing**: Upload credentials for multiple students
 - **Blockchain Verification**: Each credential is verifiable on-chain
 - **Authorization Control**: Admin-approved issuer system
+- **Team Management**: Invite colleagues as owners, issuers or viewers yourself, so issuance never depends on one person
 
 ### For Verifiers (Employers/Universities)
 
@@ -1344,6 +1345,7 @@ Deeper documentation lives under [`docs/`](docs/):
 - **[Email configuration & deliverability](docs/ops/email-configuration.md)** — Supabase custom SMTP setup, sending limits, upgrade triggers, and fallback direct recovery links.
 - **[POC handover runbook](docs/ops/poc-handover.md)** — defensible identity verification procedure, account deactivation, and audit trail for institutional turnover.
 - **[Multi-user institution decision (ADR 0003)](docs/decisions/0003-multiple-institution-users.md)** — architectural decision record on multiple users per institution for business continuity.
+- **[Institution member continuity (ADR 0006)](docs/decisions/0006-institution-member-continuity.md)** — self-service team management, the last-owner guard, the continuity-risk list, and the proposed mainnet second-member rule.
 - **[Contract reference](contracts/README.md)** — the Soroban `AcrediaCredential` contract, storage/TTL model, and deployment.
 - **[Roadmap & backlog](ISSUE_DRAFTS.md)** — the production & market issue backlog.
 - **API reference** — _planned (see the "public verification API" item in the backlog)._

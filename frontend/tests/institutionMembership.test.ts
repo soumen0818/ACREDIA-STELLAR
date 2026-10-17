@@ -130,6 +130,32 @@ describe('resolveInstitutionForUser', () => {
         });
     });
 
+    it('does not let a removed POC regain access through the legacy column (Issue #307)', async () => {
+        // The original POC was removed from the Team page, but the deprecated
+        // single-login column still names them. Before the fix, the fallback
+        // resolved them straight back to `owner`.
+        const client = makeClient({
+            institution_users: [
+                { institution_id: INST_A, auth_user_id: USER_A, role: 'owner', status: 'deactivated' },
+            ],
+            institutions: [{ id: INST_A, auth_user_id: USER_A }],
+        });
+
+        expect(await resolveInstitutionForUser(client, USER_A)).toBeNull();
+        expect(await isMemberOfInstitution(client, USER_A, INST_A)).toBe(false);
+    });
+
+    it('does not let a pending invitee act through the legacy column before accepting', async () => {
+        const client = makeClient({
+            institution_users: [
+                { institution_id: INST_A, auth_user_id: USER_A, role: 'owner', status: 'invited' },
+            ],
+            institutions: [{ id: INST_A, auth_user_id: USER_A }],
+        });
+
+        expect(await resolveInstitutionForUser(client, USER_A)).toBeNull();
+    });
+
     it('returns null for a user with no membership and no legacy row', async () => {
         const client = makeClient({ institution_users: [], institutions: [] });
 

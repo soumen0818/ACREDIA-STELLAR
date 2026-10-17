@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { getServiceRoleClient, requireAdminRequest } from '@/lib/serverAuth';
 import { enforceRateLimit } from '@/lib/rateLimit';
 import { structuredLog, captureException } from '@/lib/debug';
+import type { ContinuityAssessment } from '@/lib/institutionContinuity';
+import { listInstitutionTeam, type InstitutionMemberView } from '@/lib/institutionMembers';
 
 export const dynamic = 'force-dynamic';
 
@@ -137,6 +139,16 @@ export async function GET(
 
         const rows = credentials ?? [];
 
+        // The team behind the institution, so an admin handling a recovery
+        // request can see who else could act (Issue #307). Degrades to an
+        // empty team rather than failing the page.
+        let team: { members: InstitutionMemberView[]; continuity: ContinuityAssessment } | Record<string, never> = {};
+        try {
+            team = await listInstitutionTeam(supabase, parsedId.data, null);
+        } catch (teamError) {
+            structuredLog('WARN', 'Error fetching institution team', requestId, { error: teamError });
+        }
+
         return NextResponse.json({
             success: true,
             institution: {
@@ -151,6 +163,7 @@ export async function GET(
                 credentialCount: rows.length,
                 activeCredentialCount: rows.filter((row) => !row.revoked).length,
                 poc: pocProfile,
+                ...team,
             },
             auditLogs: (auditLogs ?? []).map((log) => ({
                 id: log.id,

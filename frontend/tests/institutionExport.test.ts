@@ -39,7 +39,14 @@ function makeSupabase() {
                 for (const method of ['select', 'eq', 'in', 'order', 'limit']) {
                     builder[method] = () => builder;
                 }
-                builder.maybeSingle = mockInstMaybeSingle;
+                // No membership row: the user resolves through the legacy
+                // `institutions.auth_user_id` column, which `mockInstMaybeSingle`
+                // supplies. (A membership row in any status disables that
+                // fallback — Issue #307.)
+                builder.maybeSingle =
+                    table === 'institution_users'
+                        ? async () => ({ data: null, error: null })
+                        : mockInstMaybeSingle;
                 return builder;
             }
             if (table === 'credentials') {
