@@ -20,7 +20,7 @@ It opens Acredia's public verification page in a popup.
 
 In every snippet below, `https://<acredia-host>` is the Acredia deployment you
 verify against. For the live testnet deployment that is
-`https://acredia-stellar-tau.vercel.app`; its `/docs/api` page shows the
+`https://acredia-stellar.vercel.app`; its `/docs/api` page shows the
 snippet with the host already filled in.
 
 ## Quick start

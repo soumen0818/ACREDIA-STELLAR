@@ -56,15 +56,11 @@ interface Credential {
 
 interface StudentCredentialsListProps {
     studentId: string;
-    studentWallet?: string;
 }
 
 const PAGE_SIZE = 20;
 
-export default function StudentCredentialsList({
-    studentId,
-    studentWallet,
-}: StudentCredentialsListProps) {
+export default function StudentCredentialsList({ studentId }: StudentCredentialsListProps) {
     const router       = useRouter();
     const pathname     = usePathname();
     const searchParams = useSearchParams();
@@ -101,13 +97,9 @@ export default function StudentCredentialsList({
                 return;
             }
 
-            if (studentWallet) {
-                await supabase
-                    .from('students')
-                    .update({ wallet_address: studentWallet })
-                    .eq('auth_user_id', studentId);
-            }
-
+            // The student's wallet is recorded by their institution (roster) or
+            // by the signed /claim flow, never from here: connecting a wallet in
+            // the browser proves nothing about owning it (review §3.3).
             const { data: { session }, error: sessionError } = await supabase.auth.getSession();
             if (sessionError) throw new Error('Failed to refresh your session');
 
@@ -174,7 +166,7 @@ export default function StudentCredentialsList({
         } finally {
             setLoading(false);
         }
-    }, [studentId, studentWallet, page, search, status, dateFrom, dateTo]);
+    }, [studentId, page, search, status, dateFrom, dateTo]);
 
     useEffect(() => {
         loadCredentials();

@@ -90,3 +90,50 @@ describe('database migration policy model', () => {
     });
 });
 
+// Review §3.2: direct writes to public.students are locked down. The real
+// behavior is proven against Postgres in tests/rls/students.rls.test.ts
+// (`npm run test:rls`); these checks are the fast, Docker-free guard that a
+// later migration does not quietly undo it.
+describe('students direct-write lockdown', () => {
+    const lockdown = readSql(
+        'supabase',
+        'migrations',
+        '20261029000000_lock_down_student_writes.sql',
+    );
+    const schema = readSql('supabase', 'schema.sql');
+    const writePolicies = [
+        'Students can update own data',
+        'Institutions can insert own students',
+        'Institutions can update own students',
+        'Admin can update students',
+    ];
+
+    it('drops every direct-write policy and revokes write privileges', () => {
+        for (const policy of writePolicies) {
+            expect(lockdown).toContain(`DROP POLICY IF EXISTS "${policy}" ON public.students;`);
+        }
+        expect(lockdown).toContain(
+            'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.students FROM anon, authenticated;',
+        );
+    });
+
+    it('is included in the generated schema.sql', () => {
+        expect(schema).toContain('-- migration: 20261029000000_lock_down_student_writes.sql');
+    });
+
+    it('is not undone by a later migration in schema.sql', () => {
+        const lockdownAt = schema.indexOf(
+            '-- migration: 20261029000000_lock_down_student_writes.sql',
+        );
+        const after = schema.slice(lockdownAt);
+
+        // No write policy on students may be (re)created after the lockdown...
+        expect(after).not.toMatch(
+            /CREATE POLICY\s+"[^"]+"\s+ON public\.students\s+FOR\s+(INSERT|UPDATE|DELETE|ALL)\b/i,
+        );
+        // ...and no write privilege may be granted back to client roles.
+        expect(after).not.toMatch(
+            /GRANT\s+[^;]*\b(INSERT|UPDATE|DELETE|TRUNCATE|ALL)\b[^;]*\bON\s+(TABLE\s+)?public\.students\b[^;]*\bTO\b[^;]*\b(anon|authenticated|PUBLIC)\b/i,
+        );
+    });
+});

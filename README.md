@@ -21,7 +21,7 @@
 
 [🌐 Stellar Network](https://stellar.org) | [📊 Stellar Expert Explorer](https://stellar.expert) | [💧 Get Test XLM](https://laboratory.stellar.org/)
 
-**[🌐 Live app (Stellar testnet)](https://acredia-stellar-tau.vercel.app/)**
+**[🌐 Live app (Stellar testnet)](https://acredia-stellar.vercel.app/)**
 
 [Product Vision](docs/product/vision.md) · [Architecture](docs/architecture.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 

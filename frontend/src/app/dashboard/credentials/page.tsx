@@ -2,12 +2,10 @@
 
 import { Suspense } from 'react';
 import { ConsolePage } from '@/components/console/ConsoleShell';
-import { WalletPromptCard } from '@/components/console/ConsoleCards';
 import StudentCredentialsList from '@/components/student/StudentCredentialsList';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
-import { useStellarAccount } from '@/contexts/StellarContext';
 import { ProtectedRoute, useAuth } from '@/contexts/AuthContext';
 
 function ListFallback() {
@@ -23,25 +21,17 @@ function ListFallback() {
 /** Credentials issued to the signed-in student — /dashboard/credentials. */
 function StudentCredentialsContent() {
     const { user } = useAuth();
-    const { address } = useStellarAccount();
 
     return (
         <ConsolePage
             title="My credentials"
             subtitle="Every credential issued to you"
         >
-            <div className="space-y-6">
-                {!address && (
-                    <WalletPromptCard message="Connect your wallet to view your credentials on the blockchain — use the “Connect Wallet” button in the sidebar." />
-                )}
-
-                <Suspense fallback={<ListFallback />}>
-                    <StudentCredentialsList
-                        studentId={user?.id || ''}
-                        studentWallet={address || undefined}
-                    />
-                </Suspense>
-            </div>
+            {/* The list is loaded by the signed-in account, so no wallet is
+                needed to view it (review §3.3). */}
+            <Suspense fallback={<ListFallback />}>
+                <StudentCredentialsList studentId={user?.id || ''} />
+            </Suspense>
         </ConsolePage>
     );
 }

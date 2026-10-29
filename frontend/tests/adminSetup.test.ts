@@ -9,9 +9,10 @@ import { isTrustedAdminEmail } from '../src/lib/serverAuth';
 describe('closed provisioning (Issue #239)', () => {
     it('exposes no client path that can create an account', () => {
         expect('signUp' in supabaseModule).toBe(false);
-        expect(
-            'signUp' in (supabaseModule.authHelpers as unknown as Record<string, unknown>),
-        ).toBe(false);
+        // The authHelpers/dbHelpers objects were removed (review §3.3); among
+        // them was a client-side `createStudent` insert.
+        expect('authHelpers' in supabaseModule).toBe(false);
+        expect('dbHelpers' in supabaseModule).toBe(false);
     });
 
     it('no longer clamps a self-asserted signup role, because none is accepted', () => {

@@ -66,3 +66,55 @@ Two transitive dependencies are pinned in `package.json` `overrides` because ups
 ```
 
 These overrides should be removed once `@stellar/stellar-sdk` and `next` declare patched minimums in their own `package.json`.
+
+## Dependency Audit — 2026-10-29
+
+The 2026-05-27 result above is out of date. A fresh `npm audit --omit=dev` on
+2026-10-29 reported 22 issues (1 critical, 13 high, 5 moderate, 3 low). The
+critical and every Next.js advisory are fixed; the remaining items are
+transitive dependencies of the wallet kit and are tracked below.
+
+### Fixes Applied
+
+| Package | Issue | Resolution |
+|---|---|---|
+| `next` | Three critical RCEs (`next/og` `ImageResponse`, Image Optimization with SVG, `use cache` typed arrays), plus SSRF, DoS, cache poisoning and information-disclosure advisories | Upgraded `^16.2.6` → `^16.4.3` (installed 16.3.3 → 16.4.3) |
+| `eslint-config-next` | Kept in step with `next` | Upgraded `^16.2.9` → `^16.4.3` |
+| `zod` | Memory exhaustion on oversized constrained collections (HIGH, GHSA-mrhx-c7xc-m3w5) | Upgraded `^4.4.3` → `^4.6.7` |
+| `sharp` (via `next`) | librsvg CVE (HIGH) | 0.35.4 → 0.35.5, pulled in by the `next` upgrade |
+| `follow-redirects` (via `@stellar/stellar-sdk` → `axios`) | Credential exposure across redirects (HIGH, GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c) | Lockfile 1.16.0 → 1.16.1 (inside `axios`'s existing `^1.16.0` range; no override) |
+| `source-map-js` (build-time, via Tailwind/PostCSS) | Event-loop DoS (HIGH, GHSA-68fv-2mgg-jv7q) | Lockfile 1.2.1 → 1.2.2 (inside the existing range; no override) |
+
+### CI gate
+
+`ci.yml` now runs `npm audit --omit=dev --audit-level=critical` as a blocking
+step. Tighten it to `--audit-level=high` once the wallet-kit chain below is
+patched upstream.
+
+### Known transitive advisories (accepted, tracked)
+
+After the fixes, `npm audit --omit=dev` reports 18 issues: 0 critical, 10 high, 5
+moderate, 3 low. All of them come from `@creit.tech/stellar-wallets-kit`, which
+pins its WalletConnect/Reown and HOT wallet dependencies exactly. The newest
+release (2.8.0) pins the same versions, and `npm audit`'s only suggested fix is
+a downgrade to 1.9.5, which would remove multi-wallet support.
+
+| Source chain | Advisory | Why it is accepted for now |
+|---|---|---|
+| wallet kit → `@reown/appkit*`, `@coinbase/cdp-sdk` → bundled `zod` 3.x | Zod memory exhaustion (HIGH, GHSA-mrhx-c7xc-m3w5) | No patched zod 3.x exists, and forcing zod 4 into these SDKs risks breaking wallet connection. |
+| wallet kit → `@hot-wallet/sdk` → `@solana/web3.js` → `jayson` → `stream-json`, `uuid` | stream-json DoS and prototype pollution (MODERATE), uuid bounds check (MODERATE) | Same pinning; no compatible fix. |
+| wallet kit → `@hot-wallet/sdk` → `@near-js/crypto` → `secp256k1` → `elliptic` | Risky primitive implementation (LOW, GHSA-848j-6mx2-7j84) | Same pinning; no compatible fix. |
+
+**Exposure.** These packages run only in the browser, inside the wallet
+connection flow. No API route, server library, script or worker imports the
+wallet layer (`src/lib/wallet/` is the only importer, enforced by ESLint), so
+none of them can be reached on the server. The realistic impact is limited to
+the user's own browser tab during a wallet connection.
+
+**Related peer-dependency mismatch.** `abitype` (inside `@coinbase/cdp-sdk`)
+declares `zod ^3` but resolves to the app's `zod` 4 because `.npmrc` sets
+`legacy-peer-deps=true`. This predates the upgrade and is part of the same
+upstream chain.
+
+**Recheck** on every `@creit.tech/stellar-wallets-kit` release: run
+`npm audit --omit=dev` and remove rows from this table as they are fixed.

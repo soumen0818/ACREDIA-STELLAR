@@ -6,7 +6,7 @@
 #   ./scripts/check-security-headers.sh <base-url>
 #
 # Example:
-#   ./scripts/check-security-headers.sh https://acredia-stellar-tau.vercel.app
+#   ./scripts/check-security-headers.sh https://acredia-stellar.vercel.app
 #
 # This script checks that the expected security headers are present in the
 # response from a production (or preview) deployment. It exits with code 0
@@ -17,7 +17,7 @@ set -euo pipefail
 
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <base-url>"
-    echo "Example: $0 https://acredia-stellar-tau.vercel.app"
+    echo "Example: $0 https://acredia-stellar.vercel.app"
     exit 1
 fi
 

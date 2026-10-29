@@ -2,7 +2,7 @@
 
 import { ShieldCheck, Wallet } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { InfoField, WalletPromptCard, WalletStatus } from '@/components/console/ConsoleCards';
+import { InfoField, WalletStatus } from '@/components/console/ConsoleCards';
 import { ConsoleQuickLink } from '@/components/console/overview/ConsoleQuickLink';
 import { useStellarAccount } from '@/contexts/StellarContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -27,10 +27,6 @@ export function StudentOverview() {
                 </div>
             </Card>
 
-            {!address && (
-                <WalletPromptCard message="Connect your wallet to view your credentials on the blockchain — use the “Connect Wallet” button in the sidebar." />
-            )}
-
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <ConsoleQuickLink
                     href="/dashboard/credentials"
@@ -44,7 +40,7 @@ export function StudentOverview() {
                     icon={Wallet}
                     iconClassName="bg-gold/12 text-gold"
                     title="Wallet"
-                    description="Connect or change the Stellar wallet your credentials are issued to."
+                    description="Connect the Stellar wallet your credentials are issued to. To change that wallet, ask your institution."
                     cta="Manage wallet"
                 />
             </div>

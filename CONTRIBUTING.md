@@ -95,6 +95,22 @@ Use the GitHub issue templates. Reports should include:
 
 Issues missing setup steps, labels/area, or file paths may be closed until enough detail is provided.
 
+## Engineering Standards
+
+These are the parts of the codebase that are already done right. Every pull request is reviewed against them, and a PR that weakens one of them will be asked to change, even if its tests pass.
+
+- **Verification trusts the chain, not the database.** `frontend/src/app/api/verify/[token]/route.ts` re-hashes database metadata against the on-chain `credential_hash`, checks IPFS integrity separately, and treats a credential as revoked if *either* the chain or the database says so. Do not add a code path where editing a database row can make a credential verify or un-revoke it.
+- **Runtime config fails fast.** `frontend/src/lib/runtimeConfig.ts` refuses known testnet contract IDs on mainnet, requires an explicit network in production, and blocks secrets from `NEXT_PUBLIC_*`. New environment variables go through `runtimeConfig`, not raw `process.env` reads, and must keep these guarantees.
+- **No hardcoded network values.** Explorer URLs, Horizon/RPC endpoints and passphrases come from `runtimeConfig.stellar` (for example `explorerBaseUrl`). Never write `testnet` or `public` into a URL in a component.
+- **Contract governance stays intact.** Two-step ownership (`transfer_owner` → `accept_owner`), the timelocked upgrade (`propose_upgrade` → `upgrade`), `pause`, typed `ContractError` returns, the bounded `MAX_BATCH_SIZE`, and TTL management are deliberate. Changes to any of them need an issue, an explanation, and tests. Behaviour changes to `contracts/src/lib.rs` must add or update unit tests, and property tests where an invariant is involved.
+- **Every API route is rate limited** with `enforceRateLimit` (`frontend/src/lib/rateLimit.ts`). Routes that send email or other costly side effects also get a per-user quota, not only a per-IP limit.
+- **New and changed API routes validate their input** with a zod schema and return the `{ success, error }` envelope used across `frontend/src/app/api/`. Some older routes do not validate yet; if your PR touches one, add the schema.
+- **The CSP stays strict.** Scripts are allowed by per-request nonce and `strict-dynamic`. Do not add `'unsafe-inline'` or `'unsafe-eval'` to `script-src` in production. New external origins go in `frontend/src/lib/securityHeaders.ts` only when the feature actually uses them, with the reason in the PR.
+- **Wallet libraries stay behind the wallet boundary.** Only `frontend/src/lib/wallet/` may import a wallet library. Everything else uses the `WalletAdapter` from `@/lib/wallet`. ESLint enforces this; do not disable the rule.
+- **Use design tokens, not raw colours.** Use the semantic utilities defined in `frontend/src/app/globals.css` (`bg-primary`, `text-success`, `border-warning`, …). Do not add Tailwind palette classes such as `bg-gray-50` or `text-amber-800`.
+- **Record decisions and procedures.** A change to architecture, data retention, roles, or key custody gets an ADR in `docs/decisions/`. A change to how the system is operated updates the matching runbook in `docs/ops/`.
+- **CI stays pinned and green.** GitHub Actions are pinned to full commit SHAs. Gitleaks, CodeQL, dependency review, `cargo audit` and `cargo deny` must pass; do not skip or weaken them.
+
 ## Pull Requests
 
 Before opening a pull request:
