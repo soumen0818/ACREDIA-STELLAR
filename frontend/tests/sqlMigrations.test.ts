@@ -90,16 +90,25 @@ describe('database migration policy model', () => {
     });
 });
 
+/**
+ * The SQL of every migration after `migration` in schema.sql, with `--`
+ * comments removed, so a guard sees only statements a later migration runs.
+ */
+function sqlAfterMigration(schema: string, migration: string): string {
+    const marker = `-- migration: ${migration}`;
+    const at = schema.indexOf(marker);
+    if (at === -1) throw new Error(`${migration} is missing from schema.sql`);
+    const next = schema.indexOf('-- migration: ', at + marker.length);
+    return next === -1 ? '' : schema.slice(next).replace(/--.*$/gm, '');
+}
+
 // Review §3.2: direct writes to public.students are locked down. The real
 // behavior is proven against Postgres in tests/rls/students.rls.test.ts
 // (`npm run test:rls`); these checks are the fast, Docker-free guard that a
 // later migration does not quietly undo it.
 describe('students direct-write lockdown', () => {
-    const lockdown = readSql(
-        'supabase',
-        'migrations',
-        '20261029000000_lock_down_student_writes.sql',
-    );
+    const migration = '20261029000000_lock_down_student_writes.sql';
+    const lockdown = readSql('supabase', 'migrations', migration);
     const schema = readSql('supabase', 'schema.sql');
     const writePolicies = [
         'Students can update own data',
@@ -118,22 +127,117 @@ describe('students direct-write lockdown', () => {
     });
 
     it('is included in the generated schema.sql', () => {
-        expect(schema).toContain('-- migration: 20261029000000_lock_down_student_writes.sql');
+        expect(schema).toContain(`-- migration: ${migration}`);
     });
 
     it('is not undone by a later migration in schema.sql', () => {
-        const lockdownAt = schema.indexOf(
-            '-- migration: 20261029000000_lock_down_student_writes.sql',
-        );
-        const after = schema.slice(lockdownAt);
+        const later = sqlAfterMigration(schema, migration);
 
         // No write policy on students may be (re)created after the lockdown...
-        expect(after).not.toMatch(
+        expect(later).not.toMatch(
             /CREATE POLICY\s+"[^"]+"\s+ON public\.students\s+FOR\s+(INSERT|UPDATE|DELETE|ALL)\b/i,
         );
         // ...and no write privilege may be granted back to client roles.
-        expect(after).not.toMatch(
+        expect(later).not.toMatch(
             /GRANT\s+[^;]*\b(INSERT|UPDATE|DELETE|TRUNCATE|ALL)\b[^;]*\bON\s+(TABLE\s+)?public\.students\b[^;]*\bTO\b[^;]*\b(anon|authenticated|PUBLIC)\b/i,
         );
+    });
+});
+
+// Review §3.9: internal SECURITY DEFINER functions are service-role only, and
+// the RLS policy helpers stay executable. Proven against Postgres in
+// tests/rls/functions.rls.test.ts; these are the fast, Docker-free guards.
+describe('function EXECUTE lockdown', () => {
+    const migration = '20261029010000_lock_down_function_execute.sql';
+    const lockdown = readSql('supabase', 'migrations', migration);
+    const schema = readSql('supabase', 'schema.sql');
+    const internal = [
+        'next_job',
+        'process_erasure',
+        'run_retention_purge',
+        'purge_old_verification_logs',
+        'purge_old_contact_messages',
+        'retention_status',
+        'request_erasure',
+    ];
+    const policyHelpers = ['is_admin', 'user_institution_ids', 'user_issuer_institution_ids'];
+    const callsAny = (sql: string, names: string[]) =>
+        names.some((fn) => new RegExp(`\\b${fn}\\s*\\(`).test(sql));
+
+    it('revokes internal functions from clients and keeps policy helpers executable', () => {
+        const revoke = lockdown.match(
+            /REVOKE EXECUTE ON FUNCTION([\s\S]*?)FROM PUBLIC, anon, authenticated;/,
+        );
+        const keep = lockdown.match(
+            /GRANT EXECUTE ON FUNCTION([\s\S]*?)TO anon, authenticated, service_role;/,
+        );
+        expect(revoke).not.toBeNull();
+        expect(keep).not.toBeNull();
+        for (const fn of internal) expect(revoke![1]).toContain(`public.${fn}(`);
+        for (const fn of policyHelpers) expect(keep![1]).toContain(`public.${fn}(`);
+        expect(lockdown).toContain(
+            'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM anon, authenticated;',
+        );
+        expect(lockdown).toContain(
+            'ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;',
+        );
+    });
+
+    it('is included in the generated schema.sql', () => {
+        expect(schema).toContain(`-- migration: ${migration}`);
+    });
+
+    it('is not undone by a later migration in schema.sql', () => {
+        const statements = sqlAfterMigration(schema, migration).split(';');
+
+        // No internal function may be granted back to a client role...
+        const regrants = statements.filter(
+            (sql) =>
+                /\bGRANT\s+(EXECUTE|ALL)\b/i.test(sql) &&
+                /\bTO\b[\s\S]*\b(anon|authenticated|PUBLIC)\b/i.test(sql) &&
+                callsAny(sql, internal),
+        );
+        // ...and no policy helper may be revoked from one.
+        const helperRevokes = statements.filter(
+            (sql) =>
+                /\bREVOKE\s+(EXECUTE|ALL)\b/i.test(sql) &&
+                /\bFROM\b[\s\S]*\b(anon|authenticated|PUBLIC)\b/i.test(sql) &&
+                callsAny(sql, policyHelpers),
+        );
+        expect(regrants).toEqual([]);
+        expect(helperRevokes).toEqual([]);
+    });
+});
+
+// Review §3.10: erasure is account-only, and erasure records and membership
+// history outlive the account. Proven against Postgres in
+// tests/rls/erasure.rls.test.ts; these are the fast, Docker-free guards.
+describe('account erasure fix', () => {
+    const migration = '20261029020000_fix_account_erasure.sql';
+    const fix = readSql('supabase', 'migrations', migration).replace(/--.*$/gm, '');
+    const schema = readSql('supabase', 'schema.sql');
+
+    it('keeps erasure records and membership rows when an account is deleted', () => {
+        expect(fix).toContain('ALTER TABLE public.erasure_requests DROP CONSTRAINT');
+        expect(fix).toMatch(
+            /FOREIGN KEY \(auth_user_id\) REFERENCES auth\.users \(id\) ON DELETE SET NULL/,
+        );
+        expect(fix).toContain('CREATE TRIGGER trg_deactivate_unlinked_membership');
+    });
+
+    it('is included in the generated schema.sql', () => {
+        expect(schema).toContain(`-- migration: ${migration}`);
+    });
+
+    it('is not undone by a later migration in schema.sql', () => {
+        const cascades = sqlAfterMigration(schema, migration)
+            .split(';')
+            .filter(
+                (sql) =>
+                    /\b(erasure_requests|institution_users)\b/.test(sql) &&
+                    /REFERENCES\s+auth\.users\b/i.test(sql) &&
+                    /ON\s+DELETE\s+CASCADE/i.test(sql),
+            );
+        expect(cascades).toEqual([]);
     });
 });

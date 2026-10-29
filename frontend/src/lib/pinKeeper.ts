@@ -79,7 +79,12 @@ export const defaultPinKeeperDeps: PinKeeperDeps = {
     now: () => new Date(),
 };
 
-/** Sentinel written by `process_erasure()` (GDPR Art. 17) — see gdpr_erasure.sql. */
+/**
+ * Sentinel the original `process_erasure()` wrote into credential metadata
+ * (gdpr_erasure.sql). Erasure has been account-only since
+ * 20261029020000_fix_account_erasure.sql and no longer writes it; the check
+ * stays for any legacy row.
+ */
 export function isRedactedMetadata(metadata: unknown): boolean {
     return (
         Boolean(metadata) &&

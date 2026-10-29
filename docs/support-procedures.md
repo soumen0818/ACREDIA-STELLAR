@@ -110,28 +110,78 @@ issued at the time. Do not revoke them as part of a wallet change.
 
 ---
 
-## 4. Account erasure requests (GDPR Art. 17)
+## 4. Account erasure requests (GDPR Art. 17 / DPDP Act)
 
-Users can self-serve erasure from **Settings → Delete my account**. Administrator
-involvement is only needed if that fails.
-
-What the system does, and what it deliberately retains:
+Account deletion is **account-only** (decided 2026-10-29, review §3.10):
 
 | Data | Outcome |
 |---|---|
-| Email, name, profile | Deleted / redacted |
-| Auth account | Deleted |
-| Links to business records | Nulled |
-| **Issued credentials** | **Retained** — Art. 17(3)(b) & (d) |
-| On-chain hashes | Retained — immutable, no personal data |
+| Login, email, profile, notification preferences | Deleted |
+| Link between the account and the student roster record | Removed |
+| Student roster record | **Retained** — the institution's record |
+| **Issued credentials** | **Retained and still verifiable** |
+| Institution memberships | **Retained** as history, unlinked and deactivated |
+| On-chain records | Retained — immutable |
+| The erasure request itself | Retained 7 years, as evidence it was completed |
 
-Erasing an institution POC does **not** delete that institution's credentials.
-Those belong to the graduates who hold them, who are separate data subjects and
-did not make the request.
+If someone asks for their **student record or credential data** to be corrected
+or removed, that is the institution's decision as the data controller for those
+records: forward the request to the institution's point of contact.
 
-When a POC is erased, the system records an audit row noting whether the
-institution was left with no active members — meaning it can no longer issue.
-Watch for that flag and re-provision a POC.
+### 4.1 Students: self-service
+
+Students delete their own account from **Settings → Delete my account**.
+Support is only needed if that fails: the request is then left in
+`erasure_requests` with `status = 'failed'` and a `failure_reason`. To retry it,
+in the Supabase SQL editor:
+
+```sql
+SELECT id, auth_user_id, failure_reason, requested_at
+FROM public.erasure_requests
+WHERE status = 'failed'
+ORDER BY requested_at DESC;
+
+UPDATE public.erasure_requests SET status = 'processing', failure_reason = NULL
+WHERE id = '<request id>';
+
+SELECT public.process_erasure('<request id>');
+```
+
+Then delete the login (step 4 of §4.2).
+
+### 4.2 Institution staff and administrators: through support
+
+The app refuses their self-deletion and shows **Request account removal**,
+which emails us. Removing them carelessly can leave an institution unable to
+issue or revoke, so:
+
+1. **Verify the request** comes from the account's own email address. Treat it
+   with the same care as §1.2: it removes someone's access to an institution.
+2. **Keep the institution working before anything is deleted.**
+   - If they are the institution's point of contact, run the POC handover (§1)
+     first.
+   - Otherwise, an owner of the institution removes them on the **Team** page.
+   - Check the institution in the admin console still has someone able to
+     issue. If it will not, tell the institution and get their agreement
+     before continuing.
+   - For an Acredia administrator, also remove their email from
+     `ADMIN_EMAIL_ALLOWLIST` in the hosting environment and redeploy.
+3. **Erase the account data** in the Supabase SQL editor:
+
+   ```sql
+   -- Record the request (kept 7 years). Note the returned id.
+   INSERT INTO public.erasure_requests (auth_user_id, status)
+   VALUES ('<account id>', 'processing')
+   RETURNING id;
+
+   -- Delete the profile and unlink the account from the roster.
+   SELECT public.process_erasure('<request id>');
+   ```
+
+4. **Delete the login**: Supabase dashboard → Authentication → Users → the
+   user → Delete user. Their institution memberships are kept automatically,
+   unlinked and marked deactivated, as the record of who held which role.
+5. **Reply** to confirm the removal is complete.
 
 ---
 

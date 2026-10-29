@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuthenticatedRequest, getServiceRoleClient } from '@/lib/serverAuth';
-import { unpinFromPinata } from '@/lib/ipfsServer';
+import type { User } from '@supabase/supabase-js';
+import {
+    getServiceRoleClient,
+    isTrustedAdminEmail,
+    requireAuthenticatedRequest,
+} from '@/lib/serverAuth';
 import { captureException } from '@/lib/debug';
 import { enforceRateLimit } from '@/lib/rateLimit';
-import { canManageMembers, canWrite, type InstitutionRole } from '@/lib/institutionMembership';
-import { institutionsLeftWithoutIssuer } from '@/lib/institutionMembers';
+import { CONTACT_EMAIL } from '@/lib/contact';
+import { SELF_DELETION_NOT_AVAILABLE } from '@/lib/accountErasure';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,123 +21,60 @@ const ACCOUNT_ERASE_RATE_LIMIT = {
 type ServiceClient = ReturnType<typeof getServiceRoleClient>;
 
 /**
- * Detaches the erased user from institutions that still name them as their
- * single login (`institutions.auth_user_id`).
+ * Whether this account is tied to an institution or to Acredia
+ * administration, in which case self-service deletion is refused.
  *
- * An institution that still has an active member who can issue is handed to
- * that member — an owner by preference — and keeps working. Only an
- * institution left with nobody able to issue is suspended. Suspending
- * unconditionally, as before, turned one person's erasure request into an
- * outage for every colleague (Issue #307).
- */
-async function detachInstitutionLogin(serviceClient: ServiceClient, userId: string): Promise<void> {
-    const { data: institutions } = await serviceClient
-        .from('institutions')
-        .select('id')
-        .eq('auth_user_id', userId);
-
-    for (const institution of institutions ?? []) {
-        const { data: remaining } = await serviceClient
-            .from('institution_users')
-            .select('auth_user_id, role, created_at')
-            .eq('institution_id', institution.id)
-            .eq('status', 'active')
-            .neq('auth_user_id', userId)
-            .order('created_at', { ascending: true });
-
-        const rows = (remaining ?? []) as Array<{ auth_user_id: string; role: InstitutionRole }>;
-        const successor =
-            rows.find((row) => canManageMembers(row.role)) ?? rows.find((row) => canWrite(row.role));
-
-        await serviceClient
-            .from('institutions')
-            .update(
-                successor
-                    ? { auth_user_id: successor.auth_user_id }
-                    : { auth_user_id: null, status: 'suspended' },
-            )
-            .eq('id', institution.id);
-    }
-}
-
-/**
- * Writes an audit record for every institution membership this user holds,
- * before the auth user is deleted and the rows cascade away.
+ * Deleting such an account can leave an institution unable to issue or
+ * revoke, and cascades away the record of who held issuing rights. Support
+ * removes these accounts deliberately instead, through the Team page or the
+ * admin POC handover (docs/support-procedures.md §4).
  *
- * Deliberately best-effort: an erasure request is a legal obligation and must
- * not fail because the audit write did. Failures are captured for follow-up.
+ * Any tie counts, including a removed membership: its row is the audit record
+ * of past issuing authority and would be cascaded away with the account.
  */
-async function recordMembershipRemoval(
-    serviceClient: ServiceClient,
-    userId: string,
-    requestId: string,
-): Promise<void> {
-    try {
-        const { data: memberships } = await serviceClient
-            .from('institution_users')
-            .select('institution_id, role, status')
-            .eq('auth_user_id', userId);
-
-        if (!memberships?.length) {
-            return;
-        }
-
-        for (const membership of memberships) {
-            // Count the members that will remain once this one is gone, so a
-            // newly-orphaned institution is visible in the audit trail.
-            const { data: remaining } = await serviceClient
-                .from('institution_users')
-                .select('role')
-                .eq('institution_id', membership.institution_id)
-                .eq('status', 'active')
-                .neq('auth_user_id', userId);
-            const remainingActive = remaining?.length ?? 0;
-            const remainingIssuers = (remaining ?? []).filter((row) =>
-                canWrite(row.role as InstitutionRole),
-            ).length;
-
-            await serviceClient.from('admin_audit_logs').insert({
-                action: 'deactivate_account',
-                target_institution_id: membership.institution_id,
-                previous_poc_id: userId,
-                details: {
-                    reason: 'gdpr_erasure',
-                    removed_role: membership.role,
-                    removed_status: membership.status,
-                    remaining_active_members: remainingActive,
-                    remaining_issuers: remainingIssuers,
-                    // The signal an operator needs: this institution can no
-                    // longer issue until a new member is provisioned.
-                    institution_left_without_members: remainingActive === 0,
-                    // Remaining viewers cannot issue either (Issue #307).
-                    institution_left_without_issuers: remainingIssuers === 0,
-                },
-            });
-        }
-    } catch (error) {
-        captureException(error, {
-            requestId,
-            context: 'POST /api/account/erase - recordMembershipRemoval',
-        });
+async function hasOrganisationalTie(serviceClient: ServiceClient, user: User): Promise<boolean> {
+    if (user.email && isTrustedAdminEmail(user.email)) {
+        return true;
     }
+
+    const [profile, membership, contact] = await Promise.all([
+        serviceClient.from('profiles').select('role').eq('id', user.id).maybeSingle(),
+        serviceClient.from('institution_users').select('id').eq('auth_user_id', user.id).limit(1),
+        serviceClient.from('institutions').select('id').eq('auth_user_id', user.id).limit(1),
+    ]);
+
+    // Fail closed: if any lookup errors, treat the account as tied rather
+    // than risk deleting an institution's only issuer.
+    if (profile.error || membership.error || contact.error) {
+        throw new Error('Could not determine whether the account belongs to an institution.');
+    }
+
+    const role = (profile.data as { role?: string } | null)?.role;
+    return (
+        role === 'admin' ||
+        role === 'institution' ||
+        (membership.data?.length ?? 0) > 0 ||
+        (contact.data?.length ?? 0) > 0
+    );
 }
 
 /**
  * POST /api/account/erase
  *
- * GDPR Art. 17 — Right to erasure ("right to be forgotten").
+ * Self-service account deletion for students (GDPR Art. 17 / DPDP Act).
+ *
+ * Deletion is account-only: the login, the profile (email, name, notification
+ * preferences) and the roster's link to the account. The roster record and
+ * the credentials issued against it belong to the institution and stay
+ * verifiable; on-chain records are permanent. This is what the Delete screen
+ * and the privacy policy tell users.
  *
  * Steps:
  *   1. Authenticate the caller.
- *   2. Insert an erasure_request row and lock processing.
- *   3. Fetch all IPFS CIDs associated with this user's credentials and
- *      unpin them from Pinata (best-effort — individual failures logged).
- *   4. Call process_erasure() DB function to redact PII columns.
- *   5. Delete the Supabase auth user (cascades to profiles FK).
- *
- * On-chain data (blockchain_hash, token_id) is NOT deleted; it is not
- * personal data under GDPR — it is a one-way hash pointer. This is
- * documented in docs/legal/data-model.md and the Privacy Policy.
+ *   2. Refuse institution staff and admins (see hasOrganisationalTie).
+ *   3. Record an erasure request (kept 7 years; survives the account).
+ *   4. process_erasure(): unlink the roster record, delete the profile.
+ *   5. Delete the auth account.
  *
  * Returns 204 No Content on success.
  */
@@ -155,32 +96,22 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const { userId } = authCheck;
+        const { userId, user } = authCheck;
         const serviceClient = getServiceRoleClient();
 
-        // 1b. Erasure is a legal right and is never blocked — but if this user
-        //     is the last person able to issue for an institution, they must
-        //     say so explicitly first. Leaving an institution unable to issue
-        //     must never happen silently (Issue #307).
-        const body = (await request.json().catch(() => ({}))) as {
-            acknowledgeInstitutionImpact?: unknown;
-        };
-        const stranded = await institutionsLeftWithoutIssuer(serviceClient, userId);
-
-        if (stranded.length > 0 && body.acknowledgeInstitutionImpact !== true) {
-            const names = stranded.map((entry) => entry.name ?? 'your institution').join(', ');
+        // 2. Students only.
+        if (await hasOrganisationalTie(serviceClient, user)) {
             return NextResponse.json(
                 {
                     success: false,
-                    code: 'last_institution_issuer',
-                    institutions: stranded,
-                    error: `You are the only person who can issue credentials for ${names}. If you delete your account, ${names} will be unable to issue or revoke credentials until Acredia provisions a new member. Add a colleague on the Team page first, or confirm to continue.`,
+                    code: SELF_DELETION_NOT_AVAILABLE,
+                    error: `Accounts linked to an institution or to Acredia administration are removed by our support team, so issuing and revoking keep working. Email ${CONTACT_EMAIL} to request removal.`,
                 },
-                { status: 409 },
+                { status: 403 },
             );
         }
 
-        // 2. Create an erasure request record.
+        // 3. Create an erasure request record.
         const { data: erasureRow, error: requestErr } = await serviceClient
             .from('erasure_requests')
             .insert({ auth_user_id: userId, status: 'processing' })
@@ -200,36 +131,8 @@ export async function POST(request: NextRequest) {
 
         const erasureRequestId: string = erasureRow.id;
 
-        // 3. Fetch IPFS hashes for this user's credentials.
-        const { data: student } = await serviceClient
-            .from('students')
-            .select('id')
-            .eq('auth_user_id', userId)
-            .maybeSingle();
-
-        if (student?.id) {
-            const { data: creds } = await serviceClient
-                .from('credentials')
-                .select('ipfs_hash')
-                .eq('student_id', student.id);
-
-            if (creds && creds.length > 0) {
-                const unpinResults = await Promise.allSettled(
-                    creds.map((c: { ipfs_hash: string }) => unpinFromPinata(c.ipfs_hash)),
-                );
-                // Log individual unpin failures but don't abort — DB erasure must still proceed.
-                unpinResults.forEach((result, idx) => {
-                    if (result.status === 'rejected') {
-                        captureException(
-                            new Error(`Unpin failed for CID ${creds[idx].ipfs_hash}: ${result.reason}`),
-                            { requestId, context: 'POST /api/account/erase - unpin' },
-                        );
-                    }
-                });
-            }
-        }
-
-        // 4. Run the DB PII scrub function (service_role — bypasses RLS).
+        // 4. Account-level erasure (service_role — the function is not
+        //    callable by clients).
         const { error: scrubError } = await serviceClient.rpc('process_erasure', {
             p_request_id: erasureRequestId,
         });
@@ -239,7 +142,7 @@ export async function POST(request: NextRequest) {
                 requestId,
                 context: 'POST /api/account/erase - process_erasure',
             });
-            // Mark the erasure request as failed so admin can retry.
+            // Mark the erasure request as failed so support can retry.
             await serviceClient
                 .from('erasure_requests')
                 .update({ status: 'failed', failure_reason: scrubError.message })
@@ -251,39 +154,17 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Issue #232: explicitly unlink the auth_user_id from business records
-        // before deleting the auth user, ensuring no cascade can possibly occur
-        // even if foreign keys are mis-configured.
-        await Promise.all([
-            detachInstitutionLogin(serviceClient, userId),
-            serviceClient
-                .from('students')
-                .update({ auth_user_id: null })
-                .eq('auth_user_id', userId),
-        ]);
-
-        // `institution_users.auth_user_id` is ON DELETE CASCADE, so deleting the
-        // auth user below silently removes every membership row. That is safe
-        // for credentials, but it erases the record of who held issuing rights —
-        // which must remain auditable, because a credential issued in the past
-        // was signed under that authority. Capture it first.
-        //
-        // This also surfaces the continuity risk: if the erased user was the
-        // institution's only active member, nobody can issue for it any more and
-        // an admin has to re-provision a POC. That is recorded rather than left
-        // to be discovered when issuance fails.
-        await recordMembershipRemoval(serviceClient, userId, requestId);
-
-        // 5. Delete the auth user — cascades to profiles via FK, but business records survive.
+        // 5. Delete the auth account. The profile is already gone and the
+        //    roster record already unlinked, so nothing else cascades.
         const { error: deleteAuthError } = await serviceClient.auth.admin.deleteUser(userId);
 
         if (deleteAuthError) {
-            // PII is already scrubbed from DB; auth deletion failure is recoverable.
-            captureException(
-                new Error(`Auth user delete failed: ${deleteAuthError.message}`),
-                { requestId, context: 'POST /api/account/erase - deleteUser' },
-            );
-            // Don't return an error to the user — their data is already gone.
+            // Personal data is already removed; the leftover login is
+            // recoverable by support.
+            captureException(new Error(`Auth user delete failed: ${deleteAuthError.message}`), {
+                requestId,
+                context: 'POST /api/account/erase - deleteUser',
+            });
         }
 
         return new NextResponse(null, { status: 204 });

@@ -14,7 +14,7 @@
 --   • DROP POLICY / TRIGGER IF EXISTS before each CREATE
 -- Existing objects are skipped; missing ones are created. No data is dropped.
 --
--- Generated: 2026-10-29T06:47:02Z
+-- Generated: 2026-10-29T18:06:55Z
 -- ============================================================================
 
 
@@ -2919,6 +2919,356 @@ COMMENT ON TABLE public.students IS
     'Student roster. Read via RLS (own row / own institution / admin); '
     'written only by service-role server routes. Direct writes from anon and '
     'authenticated are revoked (migration 20261029000000).';
+
+COMMIT;
+
+
+-- ============================================================================
+-- migration: 20261029010000_lock_down_function_execute.sql
+-- ============================================================================
+
+-- =====================================================================
+-- ACREDIA-STELLAR — LOCK DOWN FUNCTION EXECUTE PRIVILEGES (IDEMPOTENT)
+-- Codebase review 2026-10-29, §3.9 (docs/reviews/2026-10-29-codebase-review.md)
+-- =====================================================================
+-- The problem:
+--   Supabase grants EXECUTE on every new function in `public` to `anon` and
+--   `authenticated` (and Postgres grants it to PUBLIC). Earlier migrations
+--   ran only `REVOKE ALL ON FUNCTION ... FROM PUBLIC`, which leaves those
+--   per-role grants in place. So anyone, even logged out, could call these
+--   SECURITY DEFINER functions through POST /rest/v1/rpc/<name>:
+--
+--     next_job(text, text)           reproduced: an anonymous caller received a
+--                                    queued email job (student email, name,
+--                                    institution) and left it 'processing', so
+--                                    the real worker never sent the email
+--     process_erasure(uuid)          erasure, meant for the service role only
+--     run_retention_purge()          retention purge, meant for cron only
+--     purge_old_verification_logs()  "
+--     purge_old_contact_messages()   "
+--     retention_status()             admin-only operational counts
+--     request_erasure()              unused by the app; erasure goes through
+--                                    /api/account/erase only
+--
+--   Separately, the RLS policy helpers user_institution_ids(p_user_id) and
+--   user_issuer_institution_ids(p_user_id) accepted any user id, so anyone
+--   could look up another user's institution memberships by UUID.
+--
+-- What this file does:
+--   1. The two membership helpers answer only for the caller's own account
+--      (auth.uid()). An explicit other user id returns nothing unless the
+--      caller is the service role or a direct database session (no JWT:
+--      migrations, pg_cron, the SQL editor). Policies call them with no
+--      argument, so policy behaviour is unchanged.
+--   2. Revokes EXECUTE on the seven functions above from PUBLIC, anon and
+--      authenticated, and grants it explicitly to service_role. Every real
+--      caller uses the service role, and pg_cron runs as the owner.
+--   3. Grants EXECUTE explicitly to anon and authenticated on the three
+--      functions RLS policies call: is_admin(), user_institution_ids(uuid),
+--      user_issuer_institution_ids(uuid). Policies are evaluated with the
+--      querying user's privileges; without EXECUTE every query on the 15
+--      tables they protect fails with "permission denied for function".
+--      These grants must never be removed.
+--   4. Stops new functions from being executable by clients by default:
+--      functions created by this role (postgres: migrations and the SQL
+--      editor) no longer get EXECUTE for PUBLIC, anon or authenticated.
+--      service_role keeps its default.
+--
+-- For future migrations:
+--   A new function that clients call through /rest/v1/rpc, or that an RLS
+--   policy calls, needs an explicit
+--       GRANT EXECUTE ON FUNCTION public.<name>(<args>) TO anon, authenticated;
+--   and an entry in the allowlist in tests/rls/functions.rls.test.ts, with
+--   the reason. Trigger functions need nothing: Postgres never lets them be
+--   called directly, and they fire regardless of the firing user's EXECUTE.
+-- =====================================================================
+
+BEGIN;
+
+-- ---------------------------------------------------------------------
+-- 1. Membership helpers answer only for the caller
+-- ---------------------------------------------------------------------
+-- Same signature, filters and SECURITY DEFINER as before (see
+-- 20260808000000_institution_membership.sql); only the caller check is new.
+CREATE OR REPLACE FUNCTION public.user_institution_ids(p_user_id UUID DEFAULT auth.uid())
+RETURNS SETOF UUID
+LANGUAGE sql
+STABLE
+SECURITY DEFINER SET search_path = public
+AS $$
+    SELECT institution_id
+    FROM public.institution_users
+    WHERE auth_user_id = p_user_id
+      AND status = 'active'
+      AND (
+          p_user_id IS NOT DISTINCT FROM auth.uid()
+          OR coalesce(auth.jwt() ->> 'role', '') = 'service_role'
+          OR nullif(current_setting('request.jwt.claims', true), '') IS NULL
+      );
+$$;
+
+COMMENT ON FUNCTION public.user_institution_ids(UUID) IS
+    'Institutions the caller is an active member of. The single source of truth for institution ownership in RLS policies. '
+    'Another user''s id returns nothing unless called by the service role or a direct database session.';
+
+CREATE OR REPLACE FUNCTION public.user_issuer_institution_ids(p_user_id UUID DEFAULT auth.uid())
+RETURNS SETOF UUID
+LANGUAGE sql
+STABLE
+SECURITY DEFINER SET search_path = public
+AS $$
+    SELECT institution_id
+    FROM public.institution_users
+    WHERE auth_user_id = p_user_id
+      AND status = 'active'
+      AND role IN ('owner', 'issuer', 'admin', 'poc')
+      AND (
+          p_user_id IS NOT DISTINCT FROM auth.uid()
+          OR coalesce(auth.jwt() ->> 'role', '') = 'service_role'
+          OR nullif(current_setting('request.jwt.claims', true), '') IS NULL
+      );
+$$;
+
+COMMENT ON FUNCTION public.user_issuer_institution_ids(UUID) IS
+    'Institutions the caller may write to. Excludes viewer/member, which are read-only. '
+    'Another user''s id returns nothing unless called by the service role or a direct database session.';
+
+-- ---------------------------------------------------------------------
+-- 2. Internal functions: service role only
+-- ---------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION
+    public.next_job(text, text),
+    public.process_erasure(uuid),
+    public.run_retention_purge(),
+    public.purge_old_verification_logs(),
+    public.purge_old_contact_messages(),
+    public.retention_status(),
+    public.request_erasure()
+FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION
+    public.next_job(text, text),
+    public.process_erasure(uuid),
+    public.run_retention_purge(),
+    public.purge_old_verification_logs(),
+    public.purge_old_contact_messages(),
+    public.retention_status(),
+    public.request_erasure()
+TO service_role;
+
+-- ---------------------------------------------------------------------
+-- 3. Functions RLS policies call: every role that queries must keep them
+-- ---------------------------------------------------------------------
+GRANT EXECUTE ON FUNCTION
+    public.is_admin(),
+    public.user_institution_ids(uuid),
+    public.user_issuer_institution_ids(uuid)
+TO anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------
+-- 4. New functions are not client-executable by default
+-- ---------------------------------------------------------------------
+-- Supabase's per-schema default for functions created by this role.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM anon, authenticated;
+-- Postgres's built-in PUBLIC default can only be revoked globally (not per
+-- schema). anon and authenticated are members of PUBLIC, so without this the
+-- line above would have no effect.
+ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+
+COMMIT;
+
+
+-- ============================================================================
+-- migration: 20261029020000_fix_account_erasure.sql
+-- ============================================================================
+
+-- =====================================================================
+-- ACREDIA-STELLAR — ACCOUNT ERASURE: ACCOUNT-ONLY, AND IT WORKS (IDEMPOTENT)
+-- Codebase review 2026-10-29, §3.10 (docs/reviews/2026-10-29-codebase-review.md)
+-- =====================================================================
+-- The problems:
+--   1. process_erasure() failed for every user. It set profiles.email,
+--      students.email and institutions.email to NULL, but all three columns
+--      are NOT NULL ("null value in column email violates not-null
+--      constraint"). No account deletion has ever completed.
+--   2. Had it worked, it would have done far more than users are told. The
+--      Delete screen and the privacy policy say deletion removes the user's
+--      account, profile and preferences, and that issued credentials are
+--      retained. The function instead redacted the student's roster record
+--      and credential metadata (so verification would report a hash
+--      "mismatch", making a genuine degree look forged) and renamed the
+--      user's institution to '[deleted]' (shown on every graduate's
+--      verification and in the issuer registry).
+--   3. erasure_requests.auth_user_id was ON DELETE CASCADE, so deleting the
+--      auth account deleted the erasure record with it. The privacy policy
+--      promises those records are kept for 7 years.
+--   4. institution_users.auth_user_id was ON DELETE CASCADE too, so deleting
+--      a former staff member's account deleted their membership rows: the
+--      only record that they once held issuing rights for an institution,
+--      which must stay auditable because credentials were signed under it.
+--
+-- Decisions (2026-10-29):
+--   - Deletion is account-only: login, profile (email, name, notification
+--     preferences) and the link from the student roster to the account.
+--     The roster record and its credentials belong to the institution and
+--     stay verifiable; requests to remove them go to the institution, which
+--     is the data controller for those records.
+--   - Only students self-serve deletion (/api/account/erase refuses
+--     institution staff and admins). Staff and admins are removed through
+--     support, using the Team page or the admin POC handover; see
+--     docs/support-procedures.md §4.
+--   - Erasure records keep the account id after the account is deleted, so
+--     a completed request can still be evidenced. The id identifies nobody
+--     once the account no longer exists.
+--   - Membership rows outlive the account: the link is set to NULL and the
+--     row is kept, with its role and dates, as history.
+--
+-- What this file does:
+--   1. Rewrites process_erasure() to do exactly the account-level erasure.
+--      Grants are unchanged (service role only, see 20261029010000).
+--   2. Removes the foreign key from erasure_requests.auth_user_id to
+--      auth.users, keeping the column and its value.
+--   3. Makes institution_users.auth_user_id nullable and ON DELETE SET NULL,
+--      and adds a trigger that marks a membership 'deactivated' when its
+--      account link is cleared. Without it a deleted account that was still
+--      'active' or 'invited' would linger as a nameless member that the Team
+--      page lists and continuity checks count as able to issue.
+-- =====================================================================
+
+BEGIN;
+
+-- ---------------------------------------------------------------------
+-- 1. Account-level erasure
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.process_erasure(p_request_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_user_id uuid;
+BEGIN
+    -- Lock the request row and validate it.
+    SELECT auth_user_id INTO v_user_id
+    FROM public.erasure_requests
+    WHERE id = p_request_id AND status IN ('pending', 'processing')
+    FOR UPDATE SKIP LOCKED;
+
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'Erasure request % not found or already processed', p_request_id;
+    END IF;
+
+    UPDATE public.erasure_requests
+    SET status = 'processing'
+    WHERE id = p_request_id;
+
+    -- Unlink the roster record from the account. The record itself, and the
+    -- credentials issued against it, belong to the institution and stay
+    -- verifiable.
+    UPDATE public.students
+    SET auth_user_id = NULL
+    WHERE auth_user_id = v_user_id;
+
+    -- Account-level personal data: email, full name, notification
+    -- preferences. Deleting the auth account would cascade here anyway; doing
+    -- it now means the data is gone even if that later step fails.
+    DELETE FROM public.profiles
+    WHERE id = v_user_id;
+
+    UPDATE public.erasure_requests
+    SET status = 'completed', completed_at = NOW()
+    WHERE id = p_request_id;
+END;
+$$;
+
+COMMENT ON FUNCTION public.process_erasure(uuid) IS
+    'Account-level erasure: unlinks the student roster record and deletes the profile. '
+    'Roster records, credentials and institutions are retained. Service role only.';
+
+-- ---------------------------------------------------------------------
+-- 2. Erasure records outlive the account they describe
+-- ---------------------------------------------------------------------
+-- Found by what it references rather than by name, so this works whatever
+-- the constraint is called and is a no-op once it is gone.
+DO $$
+DECLARE
+    v_constraint text;
+BEGIN
+    FOR v_constraint IN
+        SELECT c.conname
+        FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+        WHERE c.contype = 'f'
+          AND c.conrelid = 'public.erasure_requests'::regclass
+          AND c.confrelid = 'auth.users'::regclass
+          AND a.attname = 'auth_user_id'
+    LOOP
+        EXECUTE format('ALTER TABLE public.erasure_requests DROP CONSTRAINT %I', v_constraint);
+    END LOOP;
+END;
+$$;
+
+COMMENT ON COLUMN public.erasure_requests.auth_user_id IS
+    'Account the request was for. Deliberately not a foreign key: the record must survive '
+    'deletion of the account (kept 7 years as evidence the request was completed).';
+
+-- ---------------------------------------------------------------------
+-- 3. Membership history outlives the account
+-- ---------------------------------------------------------------------
+ALTER TABLE public.institution_users ALTER COLUMN auth_user_id DROP NOT NULL;
+
+-- Replace the CASCADE foreign key on auth_user_id only. invited_by and
+-- removed_by also reference auth.users and are already ON DELETE SET NULL.
+DO $$
+DECLARE
+    v_constraint text;
+BEGIN
+    FOR v_constraint IN
+        SELECT c.conname
+        FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+        WHERE c.contype = 'f'
+          AND c.conrelid = 'public.institution_users'::regclass
+          AND c.confrelid = 'auth.users'::regclass
+          AND a.attname = 'auth_user_id'
+    LOOP
+        EXECUTE format('ALTER TABLE public.institution_users DROP CONSTRAINT %I', v_constraint);
+    END LOOP;
+END;
+$$;
+
+ALTER TABLE public.institution_users
+    ADD CONSTRAINT institution_users_auth_user_id_fkey
+    FOREIGN KEY (auth_user_id) REFERENCES auth.users (id) ON DELETE SET NULL;
+
+-- A membership whose account is gone can never be active or pending. Fires
+-- for the foreign key's SET NULL as for any UPDATE. Named to sort before
+-- trg_sync_institution_user_status, which then brings is_active in line.
+CREATE OR REPLACE FUNCTION public.deactivate_unlinked_membership()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+    IF NEW.auth_user_id IS NULL
+       AND OLD.auth_user_id IS NOT NULL
+       AND NEW.status IS DISTINCT FROM 'deactivated' THEN
+        NEW.status := 'deactivated';
+        NEW.removed_at := coalesce(NEW.removed_at, NOW());
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_deactivate_unlinked_membership ON public.institution_users;
+CREATE TRIGGER trg_deactivate_unlinked_membership
+    BEFORE UPDATE ON public.institution_users
+    FOR EACH ROW EXECUTE FUNCTION public.deactivate_unlinked_membership();
+
+COMMENT ON COLUMN public.institution_users.auth_user_id IS
+    'Member''s account. Set to NULL (and the row deactivated) when the account is deleted, '
+    'so the record of who held which role survives.';
 
 COMMIT;
 

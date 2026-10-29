@@ -8,7 +8,7 @@ export const metadata: Metadata = {
         'How Acredia collects, uses, and protects your personal data, your GDPR rights, and how on-chain immutability is handled.',
 };
 
-const LAST_UPDATED = '8 August 2026';
+const LAST_UPDATED = '29 October 2026';
 
 export default function PrivacyPolicyPage() {
     return (
@@ -275,9 +275,10 @@ export default function PrivacyPolicyPage() {
                             <li><strong className="text-foreground">Access</strong> — request a copy of your personal data.</li>
                             <li><strong className="text-foreground">Rectification</strong> — correct inaccurate personal data.</li>
                             <li>
-                                <strong className="text-foreground">Erasure</strong> — delete your account via
-                                Dashboard → Settings → Delete Account. This removes your personal user account, profile,
-                                and personal preferences. Academic credentials previously issued to students are retained
+                                <strong className="text-foreground">Erasure</strong> — students can delete their
+                                account via Dashboard → Settings → Delete my account; institution staff and
+                                administrators can request removal by emailing us. Deletion removes your personal user
+                                account, profile, and personal preferences. Academic credentials previously issued to students are retained
                                 under Art. 17(3)(b) and (d) as records belonging to the recipient data subjects, and
                                 on-chain cryptographic hashes are permanent non-PII records (see §7).
                             </li>

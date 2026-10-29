@@ -189,10 +189,13 @@ describe('students: RLS still blocks writes if the privileges are ever re-grante
 });
 
 describe('students: reads are unchanged', () => {
+    // Scoped to this file's institutions: other tests/rls files add students
+    // to the same database, and files may run in any order.
     const visibleNames = async (role: 'anon' | 'authenticated', user: string | null) =>
         asRole(db, role, user, async (c) => {
             const { rows } = await c.query<{ name: string }>(
-                'SELECT name FROM public.students ORDER BY name',
+                'SELECT name FROM public.students WHERE institution_id = ANY($1) ORDER BY name',
+                [[UNI_A, UNI_B]],
             );
             return rows.map((row) => row.name);
         });
@@ -251,31 +254,22 @@ describe('students: server-side writes still work', () => {
         }
     });
 
-    // KNOWN BUG, pre-existing (review §3.10): process_erasure() sets
-    // students.email and profiles.email to NULL, but both columns are NOT
-    // NULL, so erasure fails for every user. This pins today's exact failure.
-    //
-    // It still proves this migration did not break erasure: the error is a
-    // not-null violation (23502) raised by the students UPDATE inside the
-    // SECURITY DEFINER function, not a permission error (42501), so the
-    // function still reaches and writes the table.
-    //
-    // When §3.10 is fixed this test fails; change it to assert that the
-    // student row is redacted.
-    it('process_erasure() reaches the students write (pinned known bug: NOT NULL email)', async () => {
-        await expect(
-            asRole(db, 'service_role', null, async (c) => {
-                const request = await c.query(
-                    'INSERT INTO public.erasure_requests (auth_user_id) VALUES ($1) RETURNING id',
-                    [ALICE_USER],
-                );
-                await c.query('SELECT public.process_erasure($1)', [request.rows[0].id]);
-            }),
-        ).rejects.toMatchObject({
-            code: '23502',
-            table: 'students',
-            column: 'email',
+    // The lockdown must not stop the SECURITY DEFINER erasure function from
+    // writing students. Full erasure behaviour is in erasure.rls.test.ts.
+    it('process_erasure() can still unlink the student row', async () => {
+        const authUserId = await asRole(db, 'service_role', null, async (c) => {
+            const request = await c.query(
+                'INSERT INTO public.erasure_requests (auth_user_id) VALUES ($1) RETURNING id',
+                [ALICE_USER],
+            );
+            await c.query('SELECT public.process_erasure($1)', [request.rows[0].id]);
+            const { rows } = await c.query(
+                'SELECT auth_user_id FROM public.students WHERE id = $1',
+                [ALICE],
+            );
+            return rows[0].auth_user_id;
         });
+        expect(authUserId).toBeNull();
     });
 });
 

@@ -10,7 +10,10 @@
 --      wrong reason (missing grant instead of policy/revoke).
 --   2. auth.uid() / auth.role() / auth.jwt(), which read the JWT claims
 --      PostgREST sets per request. Tests set `request.jwt.claims` the same
---      way, so policies see exactly what they see in production.
+--      way, so policies see exactly what they see in production. Like
+--      Supabase's own definitions, they treat an empty setting as absent:
+--      once a session has set the claims, later transactions see '' rather
+--      than NULL, and casting '' to jsonb would fail.
 
 CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
@@ -38,7 +41,7 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
     SELECT nullif(
         coalesce(
             current_setting('request.jwt.claim.sub', true),
-            current_setting('request.jwt.claims', true)::jsonb ->> 'sub'
+            nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'
         ),
         ''
     )::uuid
@@ -48,7 +51,7 @@ CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
     SELECT nullif(
         coalesce(
             current_setting('request.jwt.claim.role', true),
-            current_setting('request.jwt.claims', true)::jsonb ->> 'role'
+            nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'
         ),
         ''
     )::text

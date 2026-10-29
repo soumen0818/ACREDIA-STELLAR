@@ -14,10 +14,12 @@ Acredia stores data across three distinct layers with different mutability chara
 │  LAYER            │  CONTENT                    │  MUTABLE?     │
 ├───────────────────┼─────────────────────────────┼───────────────┤
 │  Supabase DB      │  PII (name, email, metadata) │  YES ✓       │
-│  IPFS (Pinata)    │  Encrypted credential docs   │  YES (unpin) │
+│  IPFS (Pinata)    │  Credential docs + metadata* │  YES (unpin) │
 │  Stellar Blockchain│  SHA-256 hash + CID pointer  │  NO ✗        │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+\* Not encrypted today; see the note under Layer 2.
 
 ---
 
@@ -27,10 +29,12 @@ All personally identifiable information lives in Supabase:
 
 | Table | PII columns | On erasure |
 |-------|-------------|-----------|
-| `profiles` | `email`, `full_name` | Nullified |
-| `students` | `name`, `email` | Set to `[deleted]` / NULL |
-| `institutions` | `name`, `email` | Set to `[deleted]` / NULL |
-| `credentials` | `metadata` (JSONB — contains student name, degree, grade) | Replaced with `{"redacted": true}` |
+| `profiles` | `email`, `full_name`, notification preferences | Row deleted |
+| `students` | `name`, `email` | **Retained** — the institution's roster record. Only its link to the account (`auth_user_id`) is removed. |
+| `institutions` | `name`, `email` | **Retained** — organisation data. Staff accounts are removed by support, who hand over the contact first. |
+| `credentials` | `metadata` (JSONB — contains student name, degree, grade) | **Retained** — credentials stay verifiable. |
+
+Account deletion is **account-only** (decided 2026-10-29, review §3.10). It removes the login, the profile and the account's link to the roster, which is what the Delete screen and the privacy policy describe. Roster records and credentials belong to the institution, the data controller for them; requests to correct or remove them go to the institution. Only students self-serve deletion; institution staff and admins request removal through support (`docs/support-procedures.md` §4).
 | `verification_logs` | `verifier_email`, `verifier_org` (optional) | Auto-purged after 90 days |
 
 **Non-PII columns retained after erasure** (not subject to Art. 17):
@@ -42,13 +46,14 @@ All personally identifiable information lives in Supabase:
 
 ---
 
-## Layer 2 — IPFS / Pinata (unpin on erasure)
+## Layer 2 — IPFS / Pinata
 
-Credential documents (PDFs, images) and metadata JSON objects are encrypted with **AES-256-GCM** before being uploaded to Pinata. Without the encryption key, the content is unreadable.
+> **⚠ Correction (2026-10-29), under review as §3.11 of the codebase review.** This section previously said credential documents and metadata are encrypted with AES-256-GCM before upload. **They are not**: the encryption helper exists in `src/lib/ipfsServer.ts` but is never called, and documents and metadata are pinned in plain form. Their IPFS addresses are public on-chain, so the content is readable by anyone who looks them up. The design for fixing this is the next item of work.
 
-- On account erasure: the server calls `DELETE /pinning/unpin/{CID}` on Pinata for each CID associated with the user's credentials.
-- After unpinning, the content is no longer retrievable from IPFS gateways (assuming no other pinner has the content, which is the case since Acredia is the sole pinner).
-- The CID value (a hash pointer) remains in `credentials.ipfs_hash` for audit continuity but the content it references is gone.
+Credential documents (PDFs, images) and metadata JSON objects are pinned to IPFS through Pinata when a credential is issued.
+
+- Account deletion does **not** unpin them: the credentials stay verifiable (§3.10).
+- Unpinning only stops Pinata from hosting the content. Copies already fetched or pinned elsewhere on IPFS are outside Acredia's control.
 
 ---
 
@@ -69,7 +74,9 @@ Under **GDPR Recital 26**:
 
 > *"The principles of data protection should therefore not apply to anonymous information, namely information which does not relate to an identified or identifiable natural person or to personal data rendered anonymous in such a manner that the data subject is not or no longer identifiable."*
 
-The `blockchain_hash` is a one-way SHA-256 digest of the credential metadata. Without access to the original metadata document (which Acredia deletes on erasure), an observer **cannot reverse the hash** to identify the individual. The hash is therefore pseudonymous / anonymous in the GDPR sense — it is not personal data.
+The `blockchain_hash` is a one-way SHA-256 digest of the credential metadata. Without access to the original metadata document, an observer **cannot reverse the hash** to identify the individual.
+
+> **⚠ To revisit (2026-10-29).** This paragraph previously added that Acredia deletes the metadata on erasure, and concluded the hash is anonymous. Neither holds today: account deletion retains credentials (§3.10), and the metadata is publicly readable on IPFS (§3.11). Whether the on-chain hash and IPFS pointer are personal data must be re-assessed with the §3.11 design and confirmed by counsel.
 
 ### Why it cannot be erased
 
@@ -87,8 +94,9 @@ Academic credential verification serves a legitimate public-interest function. T
 
 | Data | Retention | Basis |
 |------|-----------|-------|
-| Account profile + credentials | Lifetime of account | Contract |
-| IPFS credential documents | Lifetime of account; unpinned on erasure | Contract |
+| Account profile and login | Until the account is deleted | Contract |
+| Student roster records and credentials | Retained as the institution's records; not removed by account deletion | Institution (controller) |
+| IPFS credential documents | Retained with the credential; not unpinned on account deletion | Institution (controller) |
 | Verification logs | 90 days (auto-purge via `purge_old_verification_logs()`) | Legitimate interest |
 | Erasure request records | 7 years | Legal compliance |
 | On-chain hash records | Permanent | Art. 17(3)(b) GDPR |
@@ -97,31 +105,35 @@ Academic credential verification serves a legitimate public-interest function. T
 
 ## Erasure Flow (Technical)
 
+Self-service, students only:
+
 ```
-User clicks "Delete Account"
+Student clicks "Delete my account" (Settings)
   │
   ▼
 POST /api/account/erase   (bearer token required)
   │
+  ├─► Refuse with 403 self_deletion_not_available if the account has any
+  │   institution tie (profile role institution/admin, trusted admin email,
+  │   any institution_users row, or institutions.auth_user_id) — support
+  │   handles those (docs/support-procedures.md §4)
+  │
   ├─► INSERT erasure_requests (status = 'processing')
   │
-  ├─► For each credentials.ipfs_hash:
-  │       DELETE https://api.pinata.cloud/pinning/unpin/{CID}
-  │       (best-effort; failures logged, do not abort)
-  │
-  ├─► CALL process_erasure(request_id)   [service_role]
-  │       UPDATE students SET name='[deleted]', email=NULL
-  │       UPDATE institutions SET name='[deleted]', email=NULL
-  │       UPDATE profiles SET email=NULL, full_name=NULL
-  │       UPDATE credentials SET metadata='{"redacted":true}'
-  │       UPDATE erasure_requests SET status='completed'
+  ├─► CALL process_erasure(request_id)   [service_role only]
+  │       UPDATE students SET auth_user_id = NULL   (record retained)
+  │       DELETE FROM profiles                      (email, name, preferences)
+  │       UPDATE erasure_requests SET status = 'completed'
   │
   └─► supabase.auth.admin.deleteUser(userId)
-          (cascades → profiles FK → auth.users ON DELETE CASCADE)
+          (erasure_requests has no foreign key to auth.users, so the record
+           survives for its 7-year retention)
   │
   ▼
 204 No Content → client signs out → redirect to /
 ```
+
+Nothing is unpinned and no credential, roster or institution data is changed.
 
 ---
 
@@ -132,6 +144,7 @@ POST /api/account/erase   (bearer token required)
 - [GDPR Art. 17(3)(b) — Exemption](https://gdpr-info.eu/art-17-gdpr/)
 - [Pinata Unpin API](https://docs.pinata.cloud/api-reference/endpoint/unpin-file)
 - [Stellar Ledger Immutability](https://developers.stellar.org/docs/learn/fundamentals)
-- `frontend/supabase/migrations/20260801000000_gdpr_erasure.sql` — SQL migration
+- `frontend/supabase/migrations/20260801000000_gdpr_erasure.sql` — original SQL migration
+- `frontend/supabase/migrations/20261029020000_fix_account_erasure.sql` — account-only erasure, erasure records outlive the account
 - `frontend/src/app/api/account/erase/route.ts` — API route
 - `frontend/src/app/legal/privacy/page.tsx` — Privacy Policy
