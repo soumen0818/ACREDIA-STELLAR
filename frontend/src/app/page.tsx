@@ -40,7 +40,7 @@ const steps = [
         step: '01',
         title: 'Institutions issue',
         description:
-            'Verified institutions mint each credential as an immutable record on Stellar, with documents pinned to IPFS.',
+            'Verified institutions anchor each credential on Stellar, while its document stays private and fingerprinted on-chain.',
     },
     {
         icon: GraduationCap,

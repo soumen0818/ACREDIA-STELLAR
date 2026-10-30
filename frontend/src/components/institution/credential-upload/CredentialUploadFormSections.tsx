@@ -30,8 +30,9 @@ interface CredentialUploadFormSectionsProps {
         major: string;
         gpa: string;
         issueDate: string;
+        expiresAt: string;
     };
-    setFormData: (value: { studentName: string; studentWallet: string; studentEmail: string; credentialType: string; degree: string; major: string; gpa: string; issueDate: string }) => void;
+    setFormData: (value: { studentName: string; studentWallet: string; studentEmail: string; credentialType: string; degree: string; major: string; gpa: string; issueDate: string; expiresAt: string }) => void;
     subjects: Subject[];
     addSubject: () => void;
     removeSubject: (id: string) => void;
@@ -150,6 +151,20 @@ export function CredentialUploadFormSections({
                         />
                     </div>
                 </div>
+                <div>
+                    <Label htmlFor="expiresAt">Expiry Date (Optional)</Label>
+                    <Input
+                        id="expiresAt"
+                        type="date"
+                        value={formData.expiresAt}
+                        min={formData.issueDate || undefined}
+                        onChange={(e) => setFormData({ ...formData, expiresAt: e.target.value })}
+                        aria-describedby="expiresAt-hint"
+                    />
+                    <p id="expiresAt-hint" className="mt-1 text-xs text-muted-foreground">
+                        Leave empty if it never expires. Valid through this date (UTC); it cannot be changed after issuing.
+                    </p>
+                </div>
             </div>
 
             <div className="space-y-4">
@@ -242,7 +257,7 @@ export function CredentialUploadFormSections({
                 {selectedFile && selectedFile.type === 'application/pdf' && (
                     <div className="flex items-center space-x-2 text-sm text-muted-foreground">
                         <FileText className="h-5 w-5" />
-                        <span>PDF files will be uploaded to IPFS</span>
+                        <span>The document is stored privately and only shared through the student's link</span>
                     </div>
                 )}
             </div>

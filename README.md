@@ -11,7 +11,6 @@
 ![Soroban](https://img.shields.io/badge/Soroban-393939?style=for-the-badge&logo=stellar)
 ![Stellar](https://img.shields.io/badge/Stellar_Network-05192E?style=for-the-badge)
 ![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase)
-![IPFS](https://img.shields.io/badge/IPFS-65C2CB?style=for-the-badge&logo=ipfs)
 
 ---
 
@@ -53,7 +52,7 @@
 
 ## 🌟 Overview
 
-**Acredia** is a decentralized platform that transforms how academic credentials are issued, stored, and verified. Built on the **Stellar network** — designed for fast, low-cost, globally accessible transactions — Acredia combines a Soroban smart contract, IPFS storage, and a modern web app to eliminate credential fraud, cut verification time from days to seconds, and give students lifetime ownership of their records.
+**Acredia** is a decentralized platform that transforms how academic credentials are issued, stored, and verified. Built on the **Stellar network** — designed for fast, low-cost, globally accessible transactions — Acredia combines a Soroban smart contract, private credential storage, and a modern web app to eliminate credential fraud, cut verification time from days to seconds, and give students lifetime ownership of their records.
 
 > **Vision.** The trust layer for academic credentials: institutions issue tamper-proof credentials, students own them for life, and anyone verifies them in seconds — for free.
 >
@@ -159,7 +158,7 @@ The current academic credential system faces critical challenges:
 Acredia creates a **three-layer verification system** powered by Stellar Network:
 
 1. **Blockchain Layer**: Immutable credential records on Stellar Network using Soroban smart contracts
-2. **Storage Layer**: Decentralized metadata storage on IPFS
+2. **Storage Layer**: Credential content and documents in private storage (Supabase Postgres and Storage), anchored on-chain by their hash
 3. **Database Layer**: Fast querying and indexing via Supabase
 
 This architecture ensures credentials are:
@@ -182,7 +181,7 @@ Acredia connects four roles around a single, shared source of truth. See the
 
 | Role | What they get | How they use it |
 |---|---|---|
-| **🏛 Institutions** (universities, colleges, bootcamps, cert bodies) | Fraud-proof credentials and near-zero verification overhead. | 1. Get provisioned by an Acredia admin and accept your invite → 2. Connect a Stellar wallet → 3. Fill the issuance form (student, degree, subjects, document) → 4. Sign the transaction to mint the credential on-chain and pin the document to IPFS. Revoke anytime. |
+| **🏛 Institutions** (universities, colleges, bootcamps, cert bodies) | Fraud-proof credentials and near-zero verification overhead. | 1. Get provisioned by an Acredia admin and accept your invite → 2. Connect a Stellar wallet → 3. Fill the issuance form (student, degree, subjects, document) → 4. Sign the transaction to anchor the credential's hash on-chain; the document is stored privately. Revoke anytime. |
 | **🎓 Students / graduates** | Lifelong, portable ownership of their achievements. | 1. Receive an invite from your institution and link a wallet → 2. Receive credentials directly in the dashboard → 3. Share a verification link or QR code with employers → 4. Export/download the credential whenever needed. |
 | **✅ Verifiers** (employers, ATS, admissions) | Instant, free authenticity checks. | 1. Open the shared link or scan the QR (or enter a token ID) on `/verify` → 2. See authenticity, revocation status, and credential details in seconds — **no account required**. |
 | **🛡 Admins / operators** | Governance of who can be trusted to issue. | 1. Provision institutions and issue invite links → 2. Authorize legitimate issuers on-chain → 3. Monitor issuance/verification statistics. |
@@ -232,16 +231,17 @@ Acredia uses a single unified Soroban smart contract, `AcrediaCredential`, writt
 
 ### ✅ AcrediaCredential Contract — Live on Testnet
 
-> **Contract ID**: `CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH`
+> **Contract ID**: `CD3NAUTBD5JXFNJVB7DGJW2ALLLEEYBYC5PQ3IQIL7JSSGBDL2VZOY4U`
 > **Network**: Stellar Testnet  
-> **Owner / Deployer**: `GAMI3XDDII72W23RADNPPAZ2GYEZ2MTYXLETOU36R4ISXMQ7IURFEKFP`  
-> **Deployed**: 2026-10-02 (fresh testnet instance)
-> **Explorer**: [View on Stellar Expert ↗](https://stellar.expert/explorer/testnet/contract/CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH)
+> **Owner**: `GDKEG4EDTV3PPSQ7T7QNPYFHAEYRVYGQ665DYKKNI6ACE3HZCD6COCRO` (2-of-3 multisig account)  
+> **Deployed**: 2026-10-30 (Phase 0 contract: hash-only storage, optional expiry, typed events)
+> **Explorer**: [View on Stellar Expert ↗](https://stellar.expert/explorer/testnet/contract/CD3NAUTBD5JXFNJVB7DGJW2ALLLEEYBYC5PQ3IQIL7JSSGBDL2VZOY4U)
 
-This instance was initialized with the owner above and currently has no
-credentials or authorized issuers. See the [deployment record](docs/deployments/2026-10-02-testnet.md)
-for its WASM hash and transaction evidence. Hosted frontend settings have not
-been changed to this ID.
+The owner was set atomically by the contract's constructor at deployment. Any
+owner action needs two of its three signers. See the
+[deployment record](docs/deployments/2026-10-30-testnet.md) for the WASM hash
+and transaction evidence. The previous testnet contract (`CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH`) is retired:
+its owner key was lost.
 
 This single contract replaces two separate EVM contracts (CredentialNFT + CredentialRegistry) with one unified Soroban contract written in Rust. Additionally, it features upgraded Next.js boundary protection to bypass `@stellar/stellar-sdk` object coercions on the browser.
 
@@ -250,7 +250,7 @@ This single contract replaces two separate EVM contracts (CredentialNFT + Creden
 **Key Features**:
 
 - Authorization system — only admin-approved institutions can issue credentials
-- Immutable on-chain credential storage with IPFS metadata links
+- Immutable on-chain credential hashes, with content and documents held privately
 - Credential lookup by token ID or SHA-256 hash
 - Issuer revocation plus a distinct, auditable owner override for compromised issuer incidents
 - Timestamp-based issuance records via `env.ledger().timestamp()`
@@ -319,8 +319,8 @@ Mainnet endpoints, for reference:
 
 All deployments, metadata hashes, and transaction executions can be publicly verified directly on the Stellar ledger explorer:
 
-1. **Main Contract Viewer**: [AcrediaCredential Testnet Explorer ↗](https://stellar.expert/explorer/testnet/contract/CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH)
-2. **Deployer Account Ledger**: [Stellar Account Overview ↗](https://stellar.expert/explorer/testnet/account/GAMI3XDDII72W23RADNPPAZ2GYEZ2MTYXLETOU36R4ISXMQ7IURFEKFP)
+1. **Main Contract Viewer**: [AcrediaCredential Testnet Explorer ↗](https://stellar.expert/explorer/testnet/contract/CD3NAUTBD5JXFNJVB7DGJW2ALLLEEYBYC5PQ3IQIL7JSSGBDL2VZOY4U)
+2. **Owner Account (multisig)**: [Stellar Account Overview ↗](https://stellar.expert/explorer/testnet/account/GDKEG4EDTV3PPSQ7T7QNPYFHAEYRVYGQ665DYKKNI6ACE3HZCD6COCRO)
 3. **Soroban RPC Instance**: `https://soroban-testnet.stellar.org`
 
 > **⚠️ Important**: Always verify contract IDs on Stellar Expert before interacting with them. Never trust addresses from unofficial sources.
@@ -338,7 +338,7 @@ All deployments, metadata hashes, and transaction executions can be publicly ver
 | **Smart contract** | Rust + Soroban SDK | `AcrediaCredential` — issuance, authorization, revocation |
 | **Blockchain** | Stellar (testnet) · Soroban RPC · Horizon | Ledger, contract calls, network queries |
 | **Client SDK** | `@stellar/stellar-sdk` | Build / simulate / submit transactions, read contract state |
-| **Storage** | IPFS via Pinata | Credential documents & metadata (encryption on the roadmap) |
+| **Storage** | Supabase Storage (private bucket) | Credential documents, served only through short-lived signed links |
 | **Database** | Supabase (PostgreSQL) + Row Level Security | Off-chain index: profiles, credentials, verification logs |
 | **Testing** | Vitest, Cargo test, `@vitest/coverage-v8` | Frontend, contract, and coverage |
 | **Tooling** | npm, ESLint, Prettier, Stellar CLI, GitHub Actions | Dev, lint/format, deploy, CI |
@@ -454,7 +454,7 @@ graph TD
     API["Next.js API Routes"]
     AUTH["Supabase Auth"]
     DB[("Supabase Postgres + RLS")]
-    IPFS[("IPFS via Pinata")]
+    ST[("Supabase Storage (private)")]
     SC["AcrediaCredential (Soroban)"]
     L[("Stellar Ledger")]
 
@@ -465,21 +465,23 @@ graph TD
     FE -->|"read / verify (RPC)"| SC
     FW -->|"sign issue / revoke tx"| SC
     API --> DB
-    API --> IPFS
+    API --> ST
+    API -->|"status reads (RPC)"| SC
     SC --> L
 
     style FE fill:#0ea5e9,color:#fff
     style SC fill:#f59e0b,color:#000
-    style IPFS fill:#8b5cf6,color:#fff
+    style ST fill:#8b5cf6,color:#fff
     style DB fill:#10b981,color:#fff
     style AUTH fill:#10b981,color:#fff
 ```
 
-> **Deeper dive:** see [`docs/architecture.md`](docs/architecture.md) for component responsibilities and the full issue / verify / revoke data flows, [`docs/verifiable-credentials.md`](docs/verifiable-credentials.md) for the W3C Verifiable Credential / Open Badges 3.0 metadata schema, field mapping, and a third-party verification recipe, and [`docs/ops/pin-redundancy.md`](docs/ops/pin-redundancy.md) for the IPFS pin-redundancy/keeper durability guarantee.
+> **Deeper dive:** see [`docs/architecture.md`](docs/architecture.md) for component responsibilities and the full issue / verify / revoke data flows, [`docs/verifiable-credentials.md`](docs/verifiable-credentials.md) for the W3C Verifiable Credential / Open Badges 3.0 metadata schema, field mapping, and a third-party verification recipe.
 
 **Data flow (summary)**
-- **Issue:** institution fills the form → document + metadata (modeled as a W3C VC / Open Badges 3.0 document) pinned to IPFS → SHA-256 hash computed over the canonical payload → issuer signs `issue_credential(student, issuer, hash, ipfs_uri)` in their wallet → the credential is written on-chain and indexed in Postgres.
-- **Verify:** anyone opens `/verify` (token/QR) → the app reads the credential from the contract via Soroban RPC → shows authenticity + revocation status; a privacy-safe entry is recorded in `verification_logs`.
+- **Issue:** institution fills the form → the document goes to a private storage bucket and its SHA-256 is recorded in the credential (a W3C VC / Open Badges 3.0 document) → SHA-256 hash computed over the canonical payload → issuer signs `issue_credential(student, issuer, hash, expires_at)` in their wallet → only the hash is written on-chain; the credential is stored privately and indexed in Postgres.
+- **Verify by token ID:** anyone opens `/verify` (token/QR) → the app reads the credential's status from the contract via Soroban RPC → shows issuer, dates and valid / revoked / expired, nothing personal; a privacy-safe entry is recorded in `verification_logs`.
+- **Share:** the student shares `/credentials/<share-token>` → the app re-hashes the stored credential, checks it against the on-chain hash, and shows its details; the viewer's browser checks the document against its anchored SHA-256.
 - **Revoke:** the original issuer signs `revoke_credential(token_id, issuer)` → the on-chain record is flagged revoked (still readable, so verifiers see "revoked" not "missing") → the index is updated.
 
 ### Architecture Layers
@@ -487,7 +489,7 @@ graph TD
 1. **Presentation Layer**: User interfaces for students, institutions, and verifiers
 2. **Application Layer**: Business logic, authentication, and API routes
 3. **Blockchain Layer**: Smart contracts deployed on Stellar Network using Soroban for decentralized transaction processing
-4. **Storage Layer**: IPFS for decentralized metadata storage ensuring data persistence
+4. **Storage Layer**: Private Supabase Storage for credential documents; only hashes go on-chain
 5. **Database Layer**: Supabase for fast queries and off-chain indexing with Row Level Security
 
 ### Why This Architecture?
@@ -496,7 +498,7 @@ graph TD
 
 **Cost-Efficiency**: Minimal transaction fees on Stellar Network make the system economically viable for educational institutions worldwide
 
-**Security**: Multi-layer approach ensures data integrity - blockchain for immutability, IPFS for decentralization, and Supabase for access control
+**Security**: Multi-layer approach ensures data integrity - blockchain for immutability, hashes that bind private content to the ledger, and Supabase for access control
 
 **Performance**: Fast transaction settlement on Stellar Network provides excellent user experience
 
@@ -510,19 +512,18 @@ graph TD
 sequenceDiagram
     participant Institution
     participant Frontend
-    participant IPFS
+    participant Storage as Private Storage
     participant Blockchain
     participant Database
-    participant Student
 
-    Institution->>Frontend: Enter credential details
-    Frontend->>IPFS: Upload metadata + documents
-    IPFS-->>Frontend: Return IPFS hash
-    Frontend->>Blockchain: Mint NFT with IPFS hash
-    Blockchain-->>Frontend: Transaction confirmed
-    Frontend->>Database: Store credential record
+    Institution->>Frontend: Enter credential details + document
+    Frontend->>Storage: Upload document (private bucket)
+    Storage-->>Frontend: Path + SHA-256
+    Frontend->>Frontend: Build credential, hash canonical payload
+    Frontend->>Blockchain: issue_credential(student, issuer, hash, expires_at)
+    Blockchain-->>Frontend: Token ID
+    Frontend->>Database: Store credential + share token
     Database-->>Frontend: Success
-    Frontend->>Student: Send NFT to wallet
     Frontend-->>Institution: Credential issued successfully
 ```
 
@@ -533,17 +534,20 @@ sequenceDiagram
     participant Verifier
     participant Frontend
     participant Database
-    participant IPFS
     participant Blockchain
 
-    Verifier->>Frontend: Enter token ID or scan QR
-    Frontend->>Database: Query credential data
-    Database-->>Frontend: Return metadata
-    Frontend->>IPFS: Fetch detailed metadata
-    IPFS-->>Frontend: Return full data
-    Frontend->>Blockchain: Verify on-chain status
-    Blockchain-->>Frontend: Confirm validity
-    Frontend-->>Verifier: Display verification result
+    alt Token ID (status only)
+        Verifier->>Frontend: Enter token ID or scan QR
+        Frontend->>Blockchain: get_credential, is_revoked, is_authorized_issuer
+        Blockchain-->>Frontend: Issuer, dates, status
+        Frontend-->>Verifier: Valid / revoked / expired
+    else Share link (details)
+        Verifier->>Frontend: Open /credentials/<share-token>
+        Frontend->>Database: Stored credential
+        Frontend->>Blockchain: On-chain hash and status
+        Frontend->>Frontend: Re-hash and compare
+        Frontend-->>Verifier: Verified details + document check
+    end
 ```
 
 ### Step-by-Step Process
@@ -554,8 +558,8 @@ sequenceDiagram
 2. **Enter Student Details**: Name, wallet address, credential type
 3. **Add Academic Data**: Degree, major, GPA, issue date
 4. **Add Subject Marks**: Subject name, marks obtained, maximum marks, grade
-5. **Upload to IPFS**: System uploads metadata to decentralized storage
-6. **Record on Blockchain**: Smart contract records credential on Stellar Network
+5. **Store Privately**: The document goes to private storage and its SHA-256 into the credential
+6. **Record on Blockchain**: The contract records the credential's hash (and optional expiry) on Stellar
 7. **Database Record**: System creates searchable database entry
 8. **Confirmation**: Student receives credential on Stellar blockchain
 
@@ -564,15 +568,15 @@ sequenceDiagram
 1. **Login**: Authenticate with email or wallet
 2. **Dashboard**: View all issued credentials from Stellar
 3. **Details**: Click credential to see complete information stored on Stellar blockchain
-4. **Share**: Generate QR code or verification link
+4. **Share**: Generate a QR code or share link; only people you give it to can see the details
 5. **Download**: Export credential details or share blockchain proof from Stellar Expert
 
 #### For Verifiers (Checking Credentials)
 
 1. **Access**: Navigate to public verification page (no login required)
 2. **Input**: Enter credential token ID or scan QR code
-3. **Verification**: System checks Stellar blockchain and IPFS
-4. **Results**: View complete credential details with blockchain proof
+3. **Verification**: System reads the credential's status from the Stellar contract
+4. **Results**: A token ID shows issuer, dates and status; the holder's share link shows the full details, checked against the on-chain hash
 5. **Confirmation**: Verify authenticity via Stellar Expert blockchain explorer link
 
 ---
@@ -648,10 +652,10 @@ Copy-Item .env.local.example .env.local
 Edit `frontend\.env.local` and replace placeholder values:
 
 ```env
-# Smart Contract Addresses — Stellar Testnet (fresh instance, 2026-10-02)
+# Smart Contract Addresses — Stellar Testnet (deployed 2026-10-30)
 # Single unified AcrediaCredential contract (replaces separate NFT + Registry)
-NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT=CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH
-NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT=CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH
+NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT=CD3NAUTBD5JXFNJVB7DGJW2ALLLEEYBYC5PQ3IQIL7JSSGBDL2VZOY4U
+NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT=CD3NAUTBD5JXFNJVB7DGJW2ALLLEEYBYC5PQ3IQIL7JSSGBDL2VZOY4U
 
 # Stellar Network Configuration
 NEXT_PUBLIC_STELLAR_NETWORK=testnet
@@ -668,10 +672,8 @@ VERIFICATION_LOG_HASH_SECRET=your_random_audit_hash_secret
 # Admin accounts must be provisioned by a trusted Supabase/service-role process.
 ADMIN_EMAIL_ALLOWLIST=admin@example.com
 
-# Pinata IPFS (server-side only; set this in the frontend app environment)
-PINATA_JWT=your_pinata_jwt_token
-# Optional: custom Pinata gateway domain
-# NEXT_PUBLIC_PINATA_GATEWAY=https://your-gateway.mypinata.cloud
+# Credential documents need no extra variables: they live in the private
+# Supabase Storage bucket `credential-documents`, created by the migrations.
 ```
 
 For contract deployment secrets, copy the contract example only when you are deploying:
@@ -689,7 +691,7 @@ STELLAR_SOURCE_ACCOUNT=deployer
 STELLAR_CONTRACT_ID=
 ```
 
-> **Production warning**: Keep `SUPABASE_SERVICE_ROLE_KEY`, `PINATA_JWT`, `VERIFICATION_LOG_HASH_SECRET`, and all Stellar secret keys server-only. Never put server secrets in `NEXT_PUBLIC_*` variables, browser code, screenshots, logs, or GitHub issues.
+> **Production warning**: Keep `SUPABASE_SERVICE_ROLE_KEY`, `VERIFICATION_LOG_HASH_SECRET`, and all Stellar secret keys server-only. Never put server secrets in `NEXT_PUBLIC_*` variables, browser code, screenshots, logs, or GitHub issues.
 
 ### Database Setup
 
@@ -803,7 +805,7 @@ Before deploying to production:
 - **Update Contract Addresses**: Ensure `NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT` and `NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT` are updated to your verified mainnet deployment IDs. (The app will fail to boot if it detects the known testnet contract on mainnet).
 - Use Stellar Public Network values only after contract review and a verified mainnet deployment.
 - Rotate any secret that was pasted into chat, screenshots, logs, browser code, or an issue.
-- Set server-only secrets (`SUPABASE_SERVICE_ROLE_KEY`, `PINATA_JWT`, `VERIFICATION_LOG_HASH_SECRET`, Stellar secret keys) only in the hosting provider's protected environment variables.
+- Set server-only secrets (`SUPABASE_SERVICE_ROLE_KEY`, `VERIFICATION_LOG_HASH_SECRET`, Stellar secret keys) only in the hosting provider's protected environment variables.
 - Configure Custom SMTP in Supabase (Gmail SMTP or dedicated provider) to avoid built-in ~3/hour send caps and spam filtering.
 - Confirm Supabase RLS is enabled and production policies come from `frontend/supabase/schema.sql`.
 - Verify contract IDs on Stellar Expert before pointing users at a production environment.
@@ -817,32 +819,12 @@ See `SECRETS_ROTATION.md` for the complete key-rotation runbook and pre-commit/C
 
 ### Getting API Keys
 
-#### Pinata IPFS Setup
-
-1. Visit [Pinata](https://pinata.cloud) and sign up for free (no credit card required)
-2. Go to **API Keys** → **New Key**
-3. Enable **all four** permissions the app uses — an under-scoped key fails at runtime:
-
-   | Permission | Used by |
-   |---|---|
-   | `pinFileToIPFS` | uploading credential documents |
-   | `pinJSONToIPFS` | uploading credential metadata |
-   | `unpin` | account erasure (GDPR right to erasure) |
-   | `pinList` | pin-keeper health checks / redundancy monitoring |
-
-4. Copy the **JWT** token
-5. Add it to your frontend `.env.local` as `PINATA_JWT=...` so only the server routes can use it.
-   Never name it `NEXT_PUBLIC_PINATA_JWT` — the app refuses to boot if a server secret is
-   exposed to the browser bundle.
-
-> **Free tier**: 1 GB storage, unlimited pins — more than enough for development and testing.
-
 #### Supabase Setup
 
 1. Create account at [Supabase](https://supabase.com)
 2. Create a new project
 3. Get your project URL and anon key from Settings > API
-4. Run `frontend/supabase/schema.sql` in the Supabase SQL Editor (safe to re-run at any time).
+4. Run `frontend/supabase/schema.sql` in the Supabase SQL Editor (safe to re-run at any time). It also creates the private `credential-documents` Storage bucket.
 
 #### Email Deliverability & Custom SMTP Configuration
 
@@ -957,14 +939,14 @@ that is the separate, owner-signed step below.
 5. Click "Issue Credential"
 6. Confirm wallet transaction
 7. Wait for confirmation
-8. Student receives NFT in their wallet
+8. The credential is recorded on-chain against the student's wallet, and the student can share it from their dashboard
 
 **Viewing Issued Credentials**
 
 1. Go to Dashboard > Issued Credentials tab
 2. View all credentials issued by your institution
 3. See blockchain transaction hashes
-4. Access IPFS metadata links
+4. Open each credential's document, checked against its recorded fingerprint
 
 ### For Students
 
@@ -1064,7 +1046,7 @@ frontend/
 │   ├── lib/
 │   │   ├── contracts.ts           # Smart contract interactions
 │   │   ├── credentialService.ts   # Credential issuance service
-│   │   ├── ipfs.ts                # IPFS upload utilities
+│   │   ├── credentialDocuments.ts # Private document storage rules
 │   │   ├── supabase.ts            # Supabase client
 │   │   ├── stellar.ts             # Stellar/Soroban configuration
 │   │   └── utils.ts               # Utility functions
@@ -1097,7 +1079,11 @@ credentials
 ├── token_id (bigint) - NFT token ID
 ├── student_id (uuid) - Reference to students
 ├── institution_id (uuid) - Reference to institutions
-├── ipfs_hash (text) - IPFS metadata hash
+├── share_token (uuid) - The holder's share link (/credentials/<share_token>)
+├── document_path (text) - Object path in the private credential-documents bucket
+├── document_sha256 (text) - SHA-256 of the document, also recorded in the credential
+├── expires_at (timestamp) - Optional expiry, fixed at issuance
+├── ipfs_hash (text) - Retired; null for every new credential
 ├── blockchain_hash (text) - Transaction hash
 ├── metadata (jsonb) - Credential details
 ├── metadata_schema_version (integer) - Canonical metadata schema version
@@ -1143,7 +1129,7 @@ Credential hashes are derived from a versioned canonical payload, not directly f
 
 Schema v1 hashes only the credential meaning needed for verification: name, description, image, student wallet/name, credential type, degree, major, GPA, issue date, institution name, and normalized subjects. Optional fields are represented as `null` or empty arrays, numeric-like values are converted to strings where the UI treats them as text, ISO date-times are normalized to `YYYY-MM-DD`, and object keys are serialized in sorted canonical order.
 
-Future metadata fields can be added to stored `metadata` or IPFS display metadata without changing old hashes. To make a new field part of the on-chain digest, add a new schema version and algorithm identifier, keep the v1 builder intact, add new fixed test vectors, store the new version on newly issued credentials, and keep verification dispatching by each row's stored `metadata_schema_version` and `hash_algorithm`.
+Future metadata fields can be added to stored `metadata` without changing old hashes. To make a new field part of the on-chain digest, add a new schema version and algorithm identifier, keep the v1 builder intact, add new fixed test vectors, store the new version on newly issued credentials, and keep verification dispatching by each row's stored `metadata_schema_version` and `hash_algorithm`.
 
 ---
 
@@ -1166,10 +1152,10 @@ Future metadata fields can be added to stored `metadata` or IPFS display metadat
 
 ### Data Privacy
 
-- **Student Control**: Students own their credential NFTs
-- **Selective Disclosure**: Share only what's necessary
-- **IPFS Storage**: Decentralized, censorship-resistant
-- **No PII on Blockchain**: Personal data only in IPFS/database
+- **Student Control**: Only people a student gives their share link to can see the credential's details and document
+- **Status-only lookups**: A token ID reveals only the issuer, dates and status
+- **Private Storage**: Documents are never public; they are served through short-lived signed links
+- **No PII on Blockchain**: Only hashes, wallet addresses and dates are on-chain
 
 ---
 
@@ -1224,7 +1210,7 @@ npm test
 - [ ] Institution can issue credential on Stellar Network
 - [ ] Transaction completes within 3-5 seconds
 - [ ] Student receives NFT in wallet
-- [ ] Metadata uploaded to IPFS successfully
+- [ ] Document stored privately and its SHA-256 recorded in the credential
 - [ ] Database record created with correct chain data
 - [ ] Subject-wise marks displayed correctly
 - [ ] Gas fees are minimal (< $0.01)
@@ -1254,7 +1240,7 @@ npm test
 
 - [x] Smart contract development
 - [x] NFT credential issuance
-- [x] IPFS metadata storage
+- [x] Private credential storage, anchored on-chain by hash
 - [x] Public verification page
 - [x] Subject-wise marks system
 
@@ -1311,12 +1297,11 @@ npm test
 - Ensure sufficient XLM balance for deployment
 - Check Soroban SDK version compatibility in Cargo.toml
 
-**Problem: IPFS upload timeout / failed**
+**Problem: Document upload fails**
 
-- Ensure `PINATA_JWT` is set in your frontend `.env.local`
-- Verify the JWT is valid at [app.pinata.cloud](https://app.pinata.cloud)
-- Check your internet connection and try again
-- Free tier is limited to 1 GB — check your Pinata dashboard usage
+- Ensure the migrations (or `frontend/supabase/schema.sql`) have run, so the private `credential-documents` bucket exists
+- Check `SUPABASE_SERVICE_ROLE_KEY` is set for the server
+- Documents must be PDF, JPEG or PNG, up to 10 MB
 
 **Problem: Verification page shows "not found"**
 
@@ -1327,8 +1312,7 @@ npm test
 **Problem: Subjects not displaying**
 
 - Solution: Clear browser cache and reload page
-- Ensure IPFS metadata contains subjects array
-- Check IPFS gateway is accessible
+- Ensure the stored credential contains a subjects array
 
 ## 📚 Documentation
 
@@ -1339,7 +1323,6 @@ Deeper documentation lives under [`docs/`](docs/):
 - **[Authentication & roles](docs/auth-flow.md)** — how sessions, role resolution, and route guards work.
 - **[Verifiable Credentials](docs/verifiable-credentials.md)** — the W3C VC / Open Badges 3.0 metadata schema, field mapping, and a third-party verification recipe.
 - **[Embeddable verify widget](docs/integrations/verify-widget.md)** — the partner integration guide: snippet, `data-token`, sizing and theming, what data the widget sends, the CSP a host site needs, and the widget's versioning and caching policy.
-- **[IPFS pin redundancy](docs/ops/pin-redundancy.md)** — the pin-keeper and the durability guarantee for issued credentials.
 - **[Operations runbook](docs/ops/runbook.md)** — signals, dashboards, alert thresholds, and triage.
 - **[Incident response & on-call](docs/ops/incident-response.md)** — roles, on-call and escalation, severity levels, the emergency contract levers and who may pull them (including `pause()`), user communication, and post-incident reviews ([exercises](docs/incidents/exercises/)).
 - **[Email configuration & deliverability](docs/ops/email-configuration.md)** — Supabase custom SMTP setup, sending limits, upgrade triggers, and fallback direct recovery links.
@@ -1369,13 +1352,11 @@ Built with amazing open-source technologies:
 
 - [Next.js](https://nextjs.org/) - React framework
 - [Stellar Network](https://stellar.org/) - Decentralized network for global financial infrastructure
-- [Pinata](https://pinata.cloud/) - Immutable IPFS file storage APIs
 - [Supabase](https://supabase.com/) - Open-source Firebase alternative
 - [Soroban SDK](https://stellar.org/soroban) - Native smart contracts platform for Stellar
 - [Tailwind CSS](https://tailwindcss.com/) - Utility-first CSS framework
 - [Radix UI](https://www.radix-ui.com/) - Accessible component primitives
 - [Lucide Icons](https://lucide.dev/) - Beautiful icon library
-- [IPFS](https://ipfs.io/) - Decentralized storage network
 
 ## 📞 Contact & Support
 

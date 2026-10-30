@@ -7,67 +7,63 @@ import {
     BlockchainUnavailableError,
 } from '@/lib/contractReads';
 
-const {
-    mockMaybeSingle,
-} = vi.hoisted(() => ({
-    mockMaybeSingle: vi.fn(),
-}));
-
 vi.mock('@/lib/serverAuth', () => ({
     getServiceRoleClient: () => ({
-        from: () => ({
+        from: (table: string) => ({
             select: () => ({
                 eq: () => ({
-                    maybeSingle: mockMaybeSingle,
+                    maybeSingle: async () => ({
+                        data:
+                            table === 'institutions'
+                                ? { name: 'ACREDIA' }
+                                : { id: 'cred-001', revoked_at: null, revocation_source: null },
+                        error: null,
+                    }),
                 }),
             }),
+            insert: async () => ({ error: null }),
         }),
     }),
 }));
 
 const {
-    mockGetCredential,
-    mockIsRevoked,
-    mockIsAuthorizedIssuer,
+    mockGetCredentialFromChain,
+    mockIsRevokedFromChain,
+    mockIsAuthorizedIssuerOnChain,
 } = vi.hoisted(() => ({
-    mockGetCredential: vi.fn(),
-    mockIsRevoked: vi.fn(),
-    mockIsAuthorizedIssuer: vi.fn(),
+    mockGetCredentialFromChain: vi.fn(),
+    mockIsRevokedFromChain: vi.fn(),
+    mockIsAuthorizedIssuerOnChain: vi.fn(),
 }));
 
 vi.mock('@/lib/contractReads', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/contractReads')>();
     return {
         ...actual,
-        getCredential: mockGetCredential,
-        isRevoked: mockIsRevoked,
-        isAuthorizedIssuer: mockIsAuthorizedIssuer,
+        getCredentialFromChain: mockGetCredentialFromChain,
+        isRevokedFromChain: mockIsRevokedFromChain,
+        isAuthorizedIssuerOnChain: mockIsAuthorizedIssuerOnChain,
     };
 });
 
-vi.mock('@/lib/credentialHash', () => ({
-    deriveCredentialHash: async () => 'derived-hash',
-}));
-
-vi.mock('@/lib/ipfsServer', () => ({
-    fetchJsonFromIpfs: async () => ({ ok: true, content: {} }),
-}));
+function verify(token = '123') {
+    return GET(new NextRequest(`http://localhost/api/verify/${token}`), {
+        params: Promise.resolve({ token }),
+    });
+}
 
 describe('verify route error handling and payload checks', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         resetRateLimitStore();
+        mockIsRevokedFromChain.mockResolvedValue(false);
+        mockIsAuthorizedIssuerOnChain.mockResolvedValue(true);
     });
 
-    it('returns 404 if the token does not exist in the database', async () => {
-        mockMaybeSingle.mockResolvedValue({
-            data: null,
-            error: null,
-        });
+    it('returns 404 if the token does not exist on the contract', async () => {
+        mockGetCredentialFromChain.mockResolvedValue(null);
 
-        const response = await GET(new NextRequest('http://localhost/api/verify/missing-token'), {
-            params: Promise.resolve({ token: 'missing-token' }),
-        });
+        const response = await verify('999');
 
         expect(response.status).toBe(404);
         const payload = await response.json();
@@ -78,33 +74,11 @@ describe('verify route error handling and payload checks', () => {
     });
 
     it('returns 500 when ContractConfigurationError is thrown', async () => {
-        mockMaybeSingle.mockResolvedValue({
-            data: {
-                id: 'cred-001',
-                token_id: 'token-123',
-                issued_at: '2026-01-01T00:00:00.000Z',
-                revoked: false,
-                revoked_at: null,
-                metadata: {
-                    credentialData: {
-                        institutionName: 'ACREDIA',
-                    },
-                },
-                metadata_schema_version: 1,
-                hash_algorithm: 'sha256',
-                ipfs_hash: 'cid-123',
-                student_wallet_address: 'GStudent',
-                issuer_wallet_address: 'GIssuer',
-                institution: { name: 'ACREDIA' },
-            },
-            error: null,
-        });
+        mockGetCredentialFromChain.mockRejectedValue(
+            new ContractConfigurationError('Missing contract configuration'),
+        );
 
-        mockGetCredential.mockRejectedValue(new ContractConfigurationError('Missing contract configuration'));
-
-        const response = await GET(new NextRequest('http://localhost/api/verify/token-123'), {
-            params: Promise.resolve({ token: 'token-123' }),
-        });
+        const response = await verify();
 
         expect(response.status).toBe(500);
         const payload = await response.json();
@@ -115,33 +89,11 @@ describe('verify route error handling and payload checks', () => {
     });
 
     it('returns 503 when BlockchainUnavailableError is thrown', async () => {
-        mockMaybeSingle.mockResolvedValue({
-            data: {
-                id: 'cred-001',
-                token_id: 'token-123',
-                issued_at: '2026-01-01T00:00:00.000Z',
-                revoked: false,
-                revoked_at: null,
-                metadata: {
-                    credentialData: {
-                        institutionName: 'ACREDIA',
-                    },
-                },
-                metadata_schema_version: 1,
-                hash_algorithm: 'sha256',
-                ipfs_hash: 'cid-123',
-                student_wallet_address: 'GStudent',
-                issuer_wallet_address: 'GIssuer',
-                institution: { name: 'ACREDIA' },
-            },
-            error: null,
-        });
+        mockGetCredentialFromChain.mockRejectedValue(
+            new BlockchainUnavailableError('Blockchain verification unavailable'),
+        );
 
-        mockGetCredential.mockRejectedValue(new BlockchainUnavailableError('Blockchain verification unavailable'));
-
-        const response = await GET(new NextRequest('http://localhost/api/verify/token-123'), {
-            params: Promise.resolve({ token: 'token-123' }),
-        });
+        const response = await verify();
 
         expect(response.status).toBe(503);
         const payload = await response.json();
@@ -151,50 +103,39 @@ describe('verify route error handling and payload checks', () => {
         });
     });
 
-    it('verifies credential successfully and removes databaseMatch from payload', async () => {
-        mockMaybeSingle.mockResolvedValue({
-            data: {
-                id: 'cred-001',
-                token_id: 'token-123',
-                issued_at: '2026-01-01T00:00:00.000Z',
-                revoked: false,
-                revoked_at: null,
-                metadata: {
-                    credentialData: {
-                        institutionName: 'ACREDIA',
-                        credentialType: 'Degree',
-                    },
-                },
-                metadata_schema_version: 1,
-                hash_algorithm: 'sha256',
-                ipfs_hash: 'cid-123',
-                student_wallet_address: 'GStudent',
-                issuer_wallet_address: 'GIssuer',
-                institution: { name: 'ACREDIA' },
-            },
-            error: null,
-        });
+    it('returns 500 without details for an unexpected error', async () => {
+        mockGetCredentialFromChain.mockRejectedValue(new Error('boom: secret detail'));
 
-        mockGetCredential.mockResolvedValue({
-            issuer: 'GIssuer',
+        const response = await verify();
+
+        expect(response.status).toBe(500);
+        await expect(response.json()).resolves.toEqual({
+            success: false,
+            error: 'Internal server error',
+        });
+    });
+
+    it('verifies a credential without the retired database or IPFS checks in the payload', async () => {
+        mockGetCredentialFromChain.mockResolvedValue({
+            tokenId: '123',
             student: 'GStudent',
+            issuer: 'GIssuer',
             hash: 'derived-hash',
-            uri: 'ipfs://cid-123',
+            issuedAt: 1_770_000_000,
+            expiresAt: null,
+            revoked: false,
         });
-        mockIsRevoked.mockResolvedValue(false);
-        mockIsAuthorizedIssuer.mockResolvedValue(true);
 
-        const response = await GET(new NextRequest('http://localhost/api/verify/token-123'), {
-            params: Promise.resolve({ token: 'token-123' }),
-        });
+        const response = await verify();
 
         expect(response.status).toBe(200);
         const payload = await response.json();
         expect(payload.success).toBe(true);
         expect(payload.verification.verified).toBe(true);
-        expect(payload.verification.databaseMatch).toBeUndefined();
-        expect(payload.verification.onChainMatch).toBe(true);
         expect(payload.verification.onChainFound).toBe(true);
         expect(payload.verification.issuerAuthorized).toBe(true);
+        expect(payload.verification.databaseMatch).toBeUndefined();
+        expect(payload.verification.onChainMatch).toBeUndefined();
+        expect(payload.verification.integrity).toBeUndefined();
     });
 });

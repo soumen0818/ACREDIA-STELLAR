@@ -17,7 +17,10 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { revokeCredentialById } from '@/lib/credentialService';
-import { getIPFSUrl } from '@/lib/ipfs';
+import { CredentialDocumentCheck } from '@/components/student/CredentialDocumentCheck';
+import { getCredentialDocumentUrl } from '@/lib/credentialDocumentAccess';
+import { formatValidThrough } from '@/lib/credentialStatus';
+import { getExplorerTxUrl } from '@/lib/stellar';
 import {
     ExternalLink,
     Search,
@@ -42,7 +45,9 @@ interface IssuedCredentialsListProps {
 interface Credential {
     id: string;
     token_id: string;
-    ipfs_hash: string;
+    /** SHA-256 of the private document, when one was attached (review §3.11). */
+    document_sha256?: string | null;
+    expires_at?: string | null;
     blockchain_hash: string;
     metadata: {
         credentialData?: {
@@ -434,9 +439,10 @@ function CredentialCard({
     onRevoke: (credential: Credential) => void;
 }) {
     const metadata = credential.metadata?.credentialData || {};
-    const ipfsUrl = credential.ipfs_hash ? getIPFSUrl(credential.ipfs_hash) : null;
+    const expired =
+        !credential.revoked && !!credential.expires_at && Date.now() >= Date.parse(credential.expires_at);
     const blockchainUrl = credential.blockchain_hash
-        ? `https://stellar.expert/explorer/testnet/tx/${credential.blockchain_hash}`
+        ? getExplorerTxUrl(credential.blockchain_hash)
         : null;
 
     return (
@@ -448,6 +454,8 @@ function CredentialCard({
                         <h3 className="font-semibold text-foreground">{metadata.credentialType || 'Credential'}</h3>
                         {credential.revoked ? (
                             <Badge variant="destructive">Revoked</Badge>
+                        ) : expired ? (
+                            <Badge className="border-warning/25 bg-warning/10 text-warning">Expired</Badge>
                         ) : (
                             <Badge className="border-success/25 bg-success/10 text-success">Active</Badge>
                         )}
@@ -474,16 +482,22 @@ function CredentialCard({
                             </span>
                         </div>
                     </div>
+                    {credential.expires_at && (
+                        <div className="text-sm text-muted-foreground">
+                            Valid through {formatValidThrough(credential.expires_at)} (UTC)
+                        </div>
+                    )}
                     <div className="text-xs text-muted-foreground font-mono">Token ID: {credential.token_id || 'Pending...'}</div>
+                    {credential.document_sha256 && (
+                        <CredentialDocumentCheck
+                            loadUrl={() => getCredentialDocumentUrl(credential.id)}
+                            sha256={credential.document_sha256}
+                            tokenId={credential.token_id}
+                            anchored={false}
+                        />
+                    )}
                 </div>
                 <div className="flex flex-col space-y-2">
-                    {ipfsUrl && (
-                        <a href={ipfsUrl} target="_blank" rel="noopener noreferrer">
-                            <Button variant="outline" size="sm">
-                                <ExternalLink className="h-4 w-4 mr-1" />IPFS
-                            </Button>
-                        </a>
-                    )}
                     {blockchainUrl && (
                         <a href={blockchainUrl} target="_blank" rel="noopener noreferrer">
                             <Button variant="outline" size="sm">

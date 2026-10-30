@@ -6,6 +6,7 @@ import { debugWarn } from './debug';
 export const VERIFICATION_RESULT_TYPES = [
     'verified',
     'revoked',
+    'expired',
     'not_found',
     'chain_unavailable',
     'mismatch',
@@ -34,17 +35,6 @@ type VerificationAuditLog = {
         revoked?: boolean;
         match?: boolean;
     };
-    /**
-     * End-to-end CID/hash integrity result (ACREDIA-STELLAR#163): whether the
-     * document actually fetched from the on-chain IPFS CID hashes to the
-     * on-chain `credential_hash`. Already reduced to an enum + boolean before
-     * it gets here, so — like the rest of this log — it carries no document
-     * content or other identifying data.
-     */
-    integrity?: {
-        status: 'match' | 'mismatch' | 'unavailable';
-        cidResolved: boolean;
-    };
     mismatchReasons?: string[];
     errorCategory?: string;
     apiKeyContext?: { id: string; name: string } | null;
@@ -65,14 +55,15 @@ export function hashAuditValue(value: string | null | undefined): string | null 
 
 function buildVerificationResult(log: VerificationAuditLog) {
     return {
-        schema_version: 2,
+        // 3: results come from the contract only, and 'expired' exists;
+        // the IPFS `integrity` field is gone (review §3.11).
+        schema_version: 3,
         result_type: log.resultType,
         status_code: log.statusCode,
         token_hash: hashAuditValue(log.token),
         ip_hash: hashAuditValue(getClientIp(log.request)),
         user_agent_hash: hashAuditValue(log.request.headers.get('user-agent')),
         chain: log.chain ?? null,
-        integrity: log.integrity ?? null,
         mismatch_reasons: log.mismatchReasons ?? [],
         error_category: log.errorCategory ?? null,
     };

@@ -16,7 +16,7 @@ graph TD
     API["Next.js API Routes (server)"]
     AUTH["Supabase Auth"]
     DB[("Supabase Postgres + RLS")]
-    IPFS[("IPFS via Pinata")]
+    ST[("Supabase Storage (private)")]
     SC["AcrediaCredential (Soroban)"]
     L[("Stellar Ledger")]
 
@@ -27,7 +27,8 @@ graph TD
     FE -->|"read / verify (RPC)"| SC
     FW -->|"sign issue / revoke tx"| SC
     API --> DB
-    API --> IPFS
+    API --> ST
+    API -->|"status reads (RPC)"| SC
     SC --> L
 ```
 
@@ -38,7 +39,7 @@ graph TD
 | **Wallet** | Stellar Wallets Kit (`@creit.tech/stellar-wallets-kit`) | Connects any of nine registered Stellar wallets and signs `issue_credential` / `revoke_credential` transactions. See [§7 Wallet integration](#7-wallet-integration). |
 | **Smart contract** | Rust + Soroban SDK (`AcrediaCredential`) | On-chain source of truth: issuance, issuer authorization, revocation, TTL/persistence, events. |
 | **Ledger / RPC** | Stellar (testnet), Soroban RPC, Horizon | Transaction settlement and contract reads. |
-| **Storage** | IPFS via Pinata | Stores the credential document + metadata (public today; encryption is on the roadmap). |
+| **Storage** | Supabase Storage (private bucket `credential-documents`) | Credential documents, served only through short-lived signed URLs. The credential itself is stored in Postgres. |
 | **Database** | Supabase Postgres + Row Level Security | Off-chain index for fast reads, filtering, pagination, and analytics; stores profiles, institution/student records, credential index, and privacy-safe verification logs. |
 
 ---
@@ -46,9 +47,9 @@ graph TD
 ## 2. Layers
 
 1. **Presentation** — one role-aware console (`ConsoleShell` + `src/lib/consoleNav.ts`) serving students, institutions, and admins, plus a public verify page. Design system built on Tailwind v4 tokens + Radix primitives. Admins have a single console at `/admin`; `/dashboard` redirects them there — see [decisions/0001](decisions/0001-single-admin-console.md).
-2. **Application** — Next.js API routes handle privileged work server-side: student/institution provisioning, wallet linking, admin stats, IPFS pinning, and verification logging. Server-only secrets never reach the client bundle.
+2. **Application** — Next.js API routes handle privileged work server-side: student/institution provisioning, wallet linking, admin stats, document storage and signed URLs, status checks and share pages, and verification logging. Server-only secrets never reach the client bundle.
 3. **Blockchain** — the `AcrediaCredential` Soroban contract is the authoritative record. It gates issuance behind owner-approved issuer authorization and keeps credentials persistent via explicit TTL extension.
-4. **Storage** — documents/metadata are content-addressed on IPFS; only a hash + IPFS URI are anchored on-chain.
+4. **Storage** — the credential and its document are stored privately; only the credential's hash (plus wallets and dates) is anchored on-chain, with no pointer to the content. The document's SHA-256 is recorded inside the credential, so the on-chain hash covers it.
 5. **Data** — Postgres mirrors on-chain state for querying, protected by Row Level Security so users can only read their own rows (with admin policies for oversight).
 
 ---
@@ -69,13 +70,14 @@ Acredia manages the PostgreSQL schema, seed data, and backups using the **Supaba
 
 ## 3. Trust & security model
 
-- **On-chain is the source of truth.** The database is a convenience index; verification ultimately rests on the contract + hash.
-- **Only a hash goes on-chain** — no PII. The SHA-256 hash is computed over the canonical credential payload; verification recomputes and compares it.
+- **On-chain is the source of truth.** The database is a convenience index. Status checks read the contract directly, and the share page re-hashes the stored credential and compares it with the on-chain hash, so editing a database row cannot make a credential verify.
+- **Only a hash goes on-chain** — no PII and no pointer to it. The SHA-256 hash is computed over the canonical credential payload.
+- **A token ID shows status only.** The holder's name, the credential's content and its document are visible only through the holder's share link (`/credentials/<share_token>`).
 - **Issuer authorization is owner-gated.** Only the contract owner can `authorize_issuer`; only authorized addresses can issue; only the issuing address can revoke its own credentials.
 - **Role resolution is server-side.** UI role never grants privilege on its own; API routes and Postgres RLS enforce access.
-- **Server secrets stay server-side.** Service-role key, Pinata JWT, and the verification-log hash secret are never exposed as `NEXT_PUBLIC_*`.
+- **Server secrets stay server-side.** The service-role key and the verification-log hash secret are never exposed as `NEXT_PUBLIC_*`.
 
-See the [roadmap backlog](../ISSUE_DRAFTS.md) for planned hardening: encrypting IPFS payloads, distributed rate limiting, an off-chain event indexer, and an independent contract audit.
+See the [roadmap backlog](../ISSUE_DRAFTS.md) and the codebase review (`docs/reviews/2026-10-29-codebase-review.md`) for planned hardening.
 
 ---
 
@@ -84,21 +86,26 @@ See the [roadmap backlog](../ISSUE_DRAFTS.md) for planned hardening: encrypting 
 ### 4.1 Issue a credential
 1. A **verified institution** connects its Stellar wallet (any [supported wallet](#7-wallet-integration)), which is linked to the institution profile.
 2. The registrar fills the issuance form (student wallet, degree, subjects, document).
-3. The document + metadata are **pinned to IPFS** (via a server API route using the Pinata JWT), returning an IPFS URI/CID.
+3. The document is **uploaded to the private bucket** (`POST /api/institution/documents`), which returns its path and SHA-256. The SHA-256 goes into the credential (a W3C VC / Open Badges 3.0 document) as its evidence id.
 4. A **SHA-256 hash** is computed over the canonical credential payload.
-5. The issuer **signs `issue_credential(student, issuer, credential_hash, ipfs_uri)`**; the contract verifies the issuer is authorized, rejects duplicate hashes, assigns a `token_id`, stores the credential in persistent storage, extends its TTL, and emits a `cred_iss` event.
-6. The credential is **indexed in Postgres** for the student's and institution's dashboards.
+5. The issuer **signs `issue_credential(student, issuer, credential_hash, expires_at)`**; the contract verifies the issuer is authorized, rejects duplicate hashes, assigns a `token_id`, stores the credential in persistent storage, extends its TTL, and emits a `credential_issued` event.
+6. The credential, its document path and a random **share token** are **stored in Postgres**. The indexer also inserts a status-only row from the event if the app's write has not arrived; the app's write completes it.
 
 ### 4.2 Verify a credential
+**By token ID (status only).**
 1. Anyone opens `/verify` with a token ID (typed, from a link, or scanned QR) — **no login required**.
-2. The app **reads the credential from the contract** via Soroban RPC (`get_credential` / `verify_credential`).
-3. It presents **authenticity + revocation status** and the credential details.
+2. The app **reads the contract** via Soroban RPC: `get_credential`, `is_revoked` and `is_authorized_issuer`.
+3. It presents the issuer, issue and expiry dates, and **valid / revoked / expired**. Nothing about the holder.
 4. A **privacy-safe entry** (hashed identifiers) is recorded in `verification_logs`.
-5. *(Roadmap)* an explicit **integrity check** recomputes the hash of the retrieved payload and confirms the IPFS CID matches the on-chain record.
+
+**By share link (details).**
+1. The holder shares `/credentials/<share_token>`.
+2. The server reads the on-chain status and hash, re-hashes the stored credential, and checks that it names the on-chain holder. Only then are the details shown, taken from the canonical payload the hash covers.
+3. The viewer's browser downloads the document through a 5-minute signed URL and checks its SHA-256 against the anchored one.
 
 ### 4.3 Revoke a credential
 1. The **original issuing institution** connects the same wallet that issued the credential.
-2. It **signs `revoke_credential(token_id, issuer)`**; the contract confirms the caller is the issuer and flags the credential `revoked` (the record stays readable so verifiers see **"revoked"**, not "missing"), emitting a `cred_rev` event.
+2. It **signs `revoke_credential(token_id, issuer)`**; the contract confirms the caller is the issuer and flags the credential `revoked` (the record stays readable so verifiers see **"revoked"**, not "missing"), emitting a `credential_revoked` event.
 3. The **index is updated**, and the credential shows as revoked everywhere.
 
 ---
@@ -107,17 +114,17 @@ See the [roadmap backlog](../ISSUE_DRAFTS.md) for planned hardening: encrypting 
 
 `AcrediaCredential` (see [`contracts/`](../contracts/) and [`contracts/README.md`](../contracts/README.md)) provides:
 
-- **Ownership & governance:** `initialize`, `transfer_owner` / `accept_owner` (two-step), `upgrade`, `migrate`, `get_storage_version`.
+- **Ownership & governance:** the owner is set atomically at deployment (`__constructor`), `transfer_owner` / `accept_owner` (two-step), timelocked `propose_upgrade` / `upgrade`, `migrate`, `get_storage_version`, `pause` / `unpause`.
 - **Issuer authorization:** `authorize_issuer`, `revoke_issuer`, `is_authorized_issuer` (persistent storage with migration from legacy instance storage).
-- **Credentials:** `issue_credential`, `revoke_credential`, `get_credential`, `verify_credential` (by hash), `is_revoked`, `total_credentials`.
+- **Credentials:** `issue_credential` / `batch_issue_credential` (hash and optional expiry), `revoke_credential`, `admin_revoke_credential`, `get_credential`, `verify_credential` (by hash), `is_revoked`, `credential_status` (valid / revoked / expired / not found), `total_credentials`.
 - **Persistence:** explicit TTL extension on every read/write plus a permissionless `bump_credential` so anyone (or a keeper) can keep a credential alive without issuer authority.
-- **Events:** `cred_iss`, `cred_rev`, `iss_auth`, `iss_rev`, and ownership events — the basis for the planned off-chain indexer.
+- **Events:** typed `#[contractevent]` events — `credential_issued`, `credential_revoked`, `credential_revoked_by_owner`, `issuer_authorized`, `issuer_revoked`, and ownership, upgrade and pause events — read by the off-chain indexer (`frontend/src/lib/indexerEvent.ts`).
 
 ---
 
 ## 6. Environments & configuration
 
-Network selection and endpoints are driven by environment variables and validated at boot (`frontend/src/lib/runtimeConfig.ts`). Key public config: `NEXT_PUBLIC_STELLAR_NETWORK`, contract addresses, Supabase URL/anon key, Pinata gateway. Server-only: `SUPABASE_SERVICE_ROLE_KEY`, `PINATA_JWT`, `VERIFICATION_LOG_HASH_SECRET`, `ADMIN_EMAIL_ALLOWLIST`. See the README's **Environment Setup** for the full list.
+Network selection and endpoints are driven by environment variables and validated at boot (`frontend/src/lib/runtimeConfig.ts`). Key public config: `NEXT_PUBLIC_STELLAR_NETWORK`, contract addresses, Supabase URL/anon key. Server-only: `SUPABASE_SERVICE_ROLE_KEY`, `VERIFICATION_LOG_HASH_SECRET`, `ADMIN_EMAIL_ALLOWLIST`. See the README's **Environment Setup** for the full list.
 
 **Testnet now / mainnet later:** switching networks is a config change (network + contract addresses); misconfiguration is rejected at build/boot.
 

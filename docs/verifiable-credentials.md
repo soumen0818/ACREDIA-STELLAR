@@ -16,7 +16,7 @@ app's own UI, but nothing outside Acredia — LinkedIn, an ATS, another wallet
 Every credential issued now is instead modeled as a **W3C Verifiable
 Credential (VC Data Model 1.1)** that also conforms to the **1EdTech Open
 Badges 3.0 `OpenBadgeCredential` profile**. It's the same JSON document that
-gets uploaded to IPFS and canonically hashed on-chain — there is no separate
+is stored privately and canonically hashed on-chain — there is no separate
 "export format"; what you download *is* what was anchored.
 
 ## 2. Where this lives in code
@@ -26,7 +26,7 @@ gets uploaded to IPFS and canonically hashed on-chain — there is no separate
 | Builds the VC/OBv3 document | `src/lib/verifiableCredential.ts` (`buildAcrediaVerifiableCredential`) |
 | Validates the document shape | `src/lib/schemas.ts` (`VerifiableCredentialSchema` / `validateVerifiableCredential`) |
 | Canonicalizes + hashes for on-chain anchoring | `src/lib/credentialHash.ts` (`buildCanonicalCredentialPayloadV2`, `generateCanonicalCredentialHash`, `deriveCredentialHash`) |
-| Issues the credential (builds → validates → uploads → hashes → anchors) | `src/lib/credentialService.ts` (`issueCredential`) |
+| Issues the credential (stores the document → builds → validates → hashes → anchors) | `src/lib/credentialService.ts` (`issueCredential`) |
 | Builds the downloadable export (adds the on-chain anchor block) | `src/lib/standardsExport.ts` (`buildStandardsExportDocument`) |
 | "Download VC (.json)" UI | Student dashboard (`StudentCredentialsList.tsx`) and the public showcase page (`PublicCredentialCard.tsx`) |
 
@@ -43,7 +43,7 @@ gets uploaded to IPFS and canonically hashed on-chain — there is no separate
   "type": ["VerifiableCredential", "OpenBadgeCredential"],
   "name": "degree - Ada Lovelace",
   "description": "Academic credential issued by Acredia Academy to Ada Lovelace",
-  "image": "https://gateway.pinata.cloud/ipfs/<file-cid>",
+  "image": null,
   "issuer": {
     "id": "https://stellar.expert/explorer/testnet/account/GISSUER...",
     "type": ["Profile"],
@@ -66,10 +66,10 @@ gets uploaded to IPFS and canonically hashed on-chain — there is no separate
   },
   "evidence": [
     {
-      "id": "https://gateway.pinata.cloud/ipfs/<file-cid>",
+      "id": "urn:sha256:<64 hex characters>",
       "type": ["Evidence"],
       "name": "Original credential document",
-      "description": "Source document uploaded by Acredia Academy at issuance."
+      "description": "SHA-256 of the source document uploaded by Acredia Academy at issuance. The document is held privately by Acredia."
     }
   ],
   "credentialData": {
@@ -120,14 +120,14 @@ of the hashed/anchored core (see §5):
 | Subject | `credentialSubject.id` / `.name` | Student's Stellar wallet (resolvable account URL) / student name |
 | Achievement | `credentialSubject.achievement` | Degree/credential type, mapped `achievementType` (`Degree`, `Diploma`, `Certificate`, `Transcript`, `Achievement` — the 1EdTech controlled vocabulary) |
 | Issuance date | `issuanceDate` | Form `issueDate`, normalized to a full ISO 8601 datetime |
-| Evidence | `evidence[0]` | IPFS URL of the uploaded source document (transcript/diploma scan) |
+| Evidence | `evidence[0]` | `urn:sha256:<hex>`: the SHA-256 of the uploaded source document (transcript/diploma scan). The document itself is private; the digest lets anyone holding it prove it is the one issued. |
 | Result | `credentialSubject.result` | GPA, when provided |
 | Legacy internal fields | `credentialData` | Kept so existing dashboards/search continue to work — not a VC/OBv3 standard property, but a properly namespaced JSON-LD extension (see `@context`) |
 
 ## 5. Canonicalization & the on-chain hash
 
-`issue_credential` on the Soroban contract stores a SHA-256 hash and an IPFS
-URI — not the document itself. The hash must be reproducible by anyone who
+`issue_credential` on the Soroban contract stores a SHA-256 hash (plus the
+holder, issuer and an optional expiry) — no document and no pointer to one. The hash must be reproducible by anyone who
 has the document, so it's computed over a **canonical** form, not raw
 `JSON.stringify` (key order and incidental fields would otherwise change the
 hash for byte-identical *meaning*).
@@ -157,24 +157,30 @@ approximating it.
 
 ## 6. Verification recipe (for third parties)
 
-Given a token ID (from a QR code, a shared link, or the exported JSON's
-`onChainAnchor.tokenId`):
+A token ID alone answers **status only**. To check what a credential says,
+you need its JSON document, which the holder shares: either the share link
+(`/credentials/<share-token>`, which also offers **Download Verifiable
+Credential (.json)**) or a file they send you.
 
 1. **Read the on-chain record.** Call the `AcrediaCredential` contract's
-   `get_credential(token_id)` (via Soroban RPC, or the convenience endpoint
-   `GET /api/verify/{token}` on this app, which does this for you and also
-   checks issuer authorization and revocation). This returns the credential's
-   `credential_hash` (32 bytes) and `ipfs_uri`.
-2. **Fetch the document.** Resolve `ipfs_uri` via any IPFS gateway
-   (`https://<gateway>/ipfs/<cid>`).
-3. **Recompute the hash.** Run the fetched document through the same
+   `get_credential(token_id)` via Soroban RPC. It returns the
+   `credential_hash` (32 bytes), `student`, `issuer`, `issued_at` and
+   `expires_at`. `credential_status(token_id)` returns `Valid`, `Revoked`,
+   `Expired` or `NotFound`. The convenience endpoint `GET /api/verify/{token}`
+   on this app reads the same contract functions for you, but it compares no
+   hash: it has no document to compare.
+2. **Recompute the hash.** Run the shared document through the same
    canonicalization as §5 (`buildCanonicalCredentialPayloadV2` +
-   `canonicalJson`, SHA-256) — **excluding** `credentialStatus` and
-   `onChainAnchor` if your copy has them attached (e.g. a downloaded export;
-   the IPFS-hosted document itself never has them).
-4. **Compare.** The recomputed hash must equal the on-chain `credential_hash`
-   from step 1. If it doesn't, or the token doesn't exist, or
-   `is_revoked(token_id)` is `true`, do not trust the credential.
+   `canonicalJson`, SHA-256), **excluding** `credentialStatus` and
+   `onChainAnchor` if your copy has them attached (the downloaded export
+   does; they are never part of the hash).
+3. **Compare.** The recomputed hash must equal the on-chain
+   `credential_hash`, and the document's `credentialData.studentWallet` must
+   equal the on-chain `student`. If either differs, or the status is not
+   `Valid`, do not trust the credential.
+4. **Check the document (if you have it).** Its SHA-256 must equal the hex
+   in `evidence[0].id` (`urn:sha256:<hex>`). Because the evidence id is part
+   of the hashed document, this ties the file to the on-chain record.
 5. **Check issuer standing (optional but recommended).** `is_authorized_issuer(issuer)`
    tells you whether the issuing institution is *currently* authorized — a
    credential issued by a since-deauthorized issuer is still valid/immutable,
@@ -194,15 +200,12 @@ async function verify(document: unknown, onChainHashHex: string): Promise<boolea
 }
 ```
 
-Or, more simply, trust this app's own `GET /api/verify/{token}` endpoint,
-which performs exactly steps 2–3 server-side (fetching the document from the
-CID the contract actually points to, not a cached copy) and returns the
-result as `verification.integrity.status` — `'match'`, `'mismatch'`, or
-`'unavailable'` if the CID couldn't be resolved just now. This is distinct
-from `verification.onChainMatch` / `verification.verified`, which check the
-*database's* cached metadata against the chain, not the live IPFS content —
-see `src/app/api/verify/[token]/route.ts`'s `checkIntegrity` and the "Document
-Integrity" card on `/verify`.
+Display only fields the hash covers: the canonicalisation normalises some
+values (for example it keeps only the `YYYY-MM-DD` part of `issueDate`) and
+ignores keys outside its allowlist, so an edited copy can hash the same while
+showing different text. The share page does exactly this server-side
+(`GET /api/credentials/share/{token}`, see `src/lib/sharedCredential.ts`) and
+lets the viewer's browser check the document's SHA-256.
 
 ### Legacy (schema v1) credentials
 
@@ -212,8 +215,9 @@ canonical form (`hash_algorithm: "sha256:canonical-json:v1"`,
 VC/OBv3 document for interoperability, but
 `onChainAnchor.hashCoversThisDocument` will be `false` — the on-chain hash for
 those tokens covers the *original* stored metadata shape, not the
-reconstructed VC. Verify legacy credentials via `GET /api/verify/{token}`
-rather than recomputing a hash from the downloaded VC.
+reconstructed VC. Schema v1 credentials belonged to the previous contract,
+which the 2026-10-30 testnet redeploy retired; the share page accepts only
+schema v2.
 
 ## 7. Exporting from the app
 

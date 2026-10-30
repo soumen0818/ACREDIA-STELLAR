@@ -38,9 +38,9 @@ export default function InstitutionsSolutionPage() {
                 },
                 {
                     icon: Database,
-                    title: 'IPFS storage',
+                    title: 'Private document storage',
                     description:
-                        'Credential documents are pinned to IPFS for durable, decentralized storage.',
+                        'Credential documents are stored privately, with their fingerprint anchored on-chain.',
                 },
                 {
                     icon: ShieldCheck,

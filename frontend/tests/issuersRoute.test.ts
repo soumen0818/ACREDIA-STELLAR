@@ -13,13 +13,11 @@ vi.mock('@/lib/runtimeConfig', () => ({
         isProduction: false,
         stellar: {},
         contracts: {},
-        ipfs: { gatewayUrl: '' },
         debug: { enableLogs: false },
     },
     serverRuntimeConfig: {
         admin: { emailAllowlist: [] },
         auth: { serviceRoleKey: '' },
-        ipfs: { jwt: '' },
         verification: { hashSecret: '' },
         debug: { enableLogs: false },
     },

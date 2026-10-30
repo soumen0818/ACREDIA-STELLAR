@@ -23,7 +23,11 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import QRCodeModal from './QRCodeModal';
-import { getIPFSUrl } from '@/lib/ipfs';
+import { CredentialDocumentCheck } from './CredentialDocumentCheck';
+import { getCredentialDocumentUrl } from '@/lib/credentialDocumentAccess';
+import { formatValidThrough } from '@/lib/credentialStatus';
+import { shareUrl } from '@/lib/sharedCredential';
+import { getExplorerTxUrl } from '@/lib/stellar';
 import { buildStandardsExportDocument, downloadJsonFile } from '@/lib/standardsExport';
 import { debugLog, captureException } from '@/lib/debug';
 import { supabase } from '@/lib/supabase';
@@ -31,7 +35,11 @@ import { supabase } from '@/lib/supabase';
 interface Credential {
     id: string;
     token_id: string;
-    ipfs_hash: string;
+    /** The holder's share link token (review §3.11b). */
+    share_token: string | null;
+    /** SHA-256 of the private document, when one was attached. */
+    document_sha256: string | null;
+    expires_at: string | null;
     blockchain_hash: string;
     metadata: {
         name: string;
@@ -346,17 +354,25 @@ export default function StudentCredentialsList({ studentId }: StudentCredentials
 
 function CredentialCard({ credential }: { credential: Credential }) {
     const metadata = credential.metadata?.credentialData || {};
-    const ipfsUrl = credential.ipfs_hash ? getIPFSUrl(credential.ipfs_hash) : null;
+    const expired =
+        !credential.revoked && credential.expires_at !== null && Date.now() >= Date.parse(credential.expires_at);
+    // The share link shows the details and document; without one, only the
+    // status check by token ID is available.
+    const showcasePath = credential.share_token
+        ? `/credentials/${credential.share_token}`
+        : `/verify?token=${credential.token_id}`;
     const blockchainUrl = credential.blockchain_hash
-        ? `https://stellar.expert/explorer/testnet/tx/${credential.blockchain_hash}`
+        ? getExplorerTxUrl(credential.blockchain_hash)
         : null;
 
     const [showQRModal, setShowQRModal] = useState(false);
     const [downloading, setDownloading] = useState(false);
 
     const handleShare = () => {
-        const shareUrl = `${window.location.origin}/verify?token=${credential.token_id}`;
-        navigator.clipboard.writeText(shareUrl);
+        const link = credential.share_token
+            ? shareUrl(window.location.origin, credential.share_token)
+            : `${window.location.origin}/verify?token=${credential.token_id}`;
+        navigator.clipboard.writeText(link);
         alert('Share link copied to clipboard!');
     };
 
@@ -365,6 +381,7 @@ function CredentialCard({ credential }: { credential: Credential }) {
         try {
             const document = await buildStandardsExportDocument({
                 tokenId: credential.token_id,
+                shareToken: credential.share_token,
                 metadata: credential.metadata,
                 metadataSchemaVersion: credential.metadata_schema_version,
                 hashAlgorithm: credential.hash_algorithm,
@@ -390,6 +407,8 @@ function CredentialCard({ credential }: { credential: Credential }) {
                             <h3 className="font-semibold text-foreground">{metadata.credentialType || 'Credential'}</h3>
                             {credential.revoked ? (
                                 <Badge variant="destructive">Revoked</Badge>
+                            ) : expired ? (
+                                <Badge className="border-warning/25 bg-warning/10 text-warning">Expired</Badge>
                             ) : (
                                 <Badge className="border-success/25 bg-success/10 text-success">Active</Badge>
                             )}
@@ -428,14 +447,27 @@ function CredentialCard({ credential }: { credential: Credential }) {
                                 </span>
                             </div>
                         </div>
+                        {credential.expires_at && (
+                            <div className="text-sm text-muted-foreground">
+                                Valid through {formatValidThrough(credential.expires_at)} (UTC)
+                            </div>
+                        )}
                         <div className="font-mono text-xs text-muted-foreground">Token ID: {credential.token_id || 'Pending...'}</div>
+                        {credential.document_sha256 && (
+                            <CredentialDocumentCheck
+                                loadUrl={() => getCredentialDocumentUrl(credential.id)}
+                                sha256={credential.document_sha256}
+                                tokenId={credential.token_id}
+                                anchored={false}
+                            />
+                        )}
                     </div>
                     <div className="ml-4 flex flex-col space-y-2">
                         <Button onClick={() => setShowQRModal(true)} variant="outline" size="sm">
                             <QrCode className="mr-1 h-4 w-4" />QR Code
                         </Button>
                         <Button asChild variant="default" size="sm">
-                            <Link href={`/credentials/${credential.token_id}`}>
+                            <Link href={showcasePath}>
                                 <Share2 className="mr-1 h-4 w-4" />Public Showcase
                             </Link>
                         </Button>
@@ -446,13 +478,6 @@ function CredentialCard({ credential }: { credential: Credential }) {
                             <Download className="mr-1 h-4 w-4" />
                             {downloading ? 'Preparing...' : 'Download VC (.json)'}
                         </Button>
-                        {ipfsUrl && (
-                            <a href={ipfsUrl} target="_blank" rel="noopener noreferrer">
-                                <Button variant="outline" size="sm" className="w-full">
-                                    <ExternalLink className="mr-1 h-4 w-4" />IPFS
-                                </Button>
-                            </a>
-                        )}
                         {blockchainUrl && (
                             <a href={blockchainUrl} target="_blank" rel="noopener noreferrer">
                                 <Button variant="outline" size="sm" className="w-full">

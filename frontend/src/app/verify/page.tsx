@@ -30,8 +30,6 @@ function VerifyContent() {
         loading,
         credential,
         error,
-        integrityStatus,
-        verificationDetail,
         manualToken,
         setManualToken,
         scanMode,
@@ -118,12 +116,7 @@ function VerifyContent() {
 
     return (
         <VerificationPageShell lede={`Token ID #${credential.token_id}`}>
-            <VerificationReport
-                credential={credential}
-                integrityStatus={integrityStatus}
-                detail={verificationDetail}
-                checkedAt={checkedAt}
-            />
+            <VerificationReport credential={credential} checkedAt={checkedAt} />
 
             {/*
               A credential can be issued to a wallet before its student has an

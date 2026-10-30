@@ -23,24 +23,21 @@ const REQUIRED_DIRECTIVES = [
     'upgrade-insecure-requests',
 ] as const;
 
-const STELLAR_ENDPOINTS = [
-    'horizon-testnet.stellar.org',
-    'soroban-testnet.stellar.org',
-    'horizon.stellar.org',
-    'mainnet.sorobanrpc.com',
-];
+const MAINNET = {
+    supabaseUrl: 'https://abcd.supabase.co',
+    horizonUrl: 'https://horizon.stellar.org',
+    sorobanRpcUrl: 'https://mainnet.sorobanrpc.com',
+};
 
-const IMAGE_DOMAINS = [
-    'tse1.mm.bing.net',
-    'tse3.mm.bing.net',
-    'tse4.mm.bing.net',
-    'www.scholarshipregion.com',
-    'gateway.pinata.cloud',
+/** Domains that were allowed before review §3.7 and must not come back. */
+const RETIRED_DOMAINS = [
+    'bing.net',
+    'scholarshipregion.com',
+    'pinata.cloud',
     'ipfs.io',
-    'res.cloudinary.com',
+    'ipfs.dweb.link',
+    'cloudinary.com',
 ];
-
-const IPFS_DOMAINS = ['gateway.pinata.cloud', 'ipfs.io', '*.ipfs.dweb.link'];
 
 describe('CSP directives', () => {
     it('includes all required directives', () => {
@@ -131,55 +128,61 @@ describe('img-src', () => {
         expect(value).toContain('blob:');
     });
 
-    it('allows all known image CDNs', () => {
-        const value = buildCspDirectives(NONCE, true)['img-src'];
-        for (const domain of IMAGE_DOMAINS) {
-            expect(value).toContain(domain);
-        }
-    });
-
-    it('allows IPFS gateways', () => {
-        const value = buildCspDirectives(NONCE, true)['img-src'];
-        for (const domain of IPFS_DOMAINS) {
-            expect(value).toContain(domain);
+    it('allows no third-party content hosts (review §3.7)', () => {
+        const directives = buildCspDirectives(NONCE, true, MAINNET);
+        for (const directive of ['img-src', 'media-src', 'connect-src']) {
+            for (const domain of RETIRED_DOMAINS) {
+                expect(directives[directive]).not.toContain(domain);
+            }
         }
     });
 });
 
 describe('media-src', () => {
-    it('allows self and IPFS gateways', () => {
-        const value = buildCspDirectives(NONCE, true)['media-src'];
-        expect(value).toContain("'self'");
-        for (const domain of IPFS_DOMAINS) {
-            expect(value).toContain(domain);
-        }
-    });
-
-    it('allows res.cloudinary.com for hero video', () => {
-        expect(buildCspDirectives(NONCE, true)['media-src']).toContain('res.cloudinary.com');
+    it('allows only self', () => {
+        expect(buildCspDirectives(NONCE, true)['media-src']).toBe("'self'");
     });
 });
 
-describe('connect-src', () => {
-    it('allows self and Supabase', () => {
-        const value = buildCspDirectives(NONCE, true)['connect-src'];
-        expect(value).toContain("'self'");
-        expect(value).toContain('*.supabase.co');
+describe('connect-src (review §3.7)', () => {
+    it('allows the configured Supabase project, over https and wss, and no other', () => {
+        const value = buildCspDirectives(NONCE, true, MAINNET)['connect-src'];
+        expect(value.split(' ')).toEqual(
+            expect.arrayContaining(["'self'", 'https://abcd.supabase.co', 'wss://abcd.supabase.co']),
+        );
+        expect(value).not.toContain('*.supabase.co');
     });
 
-    it('allows all Stellar endpoints', () => {
-        const value = buildCspDirectives(NONCE, true)['connect-src'];
-        for (const endpoint of STELLAR_ENDPOINTS) {
-            expect(value).toContain(endpoint);
-        }
+    it('allows only the active network’s Stellar endpoints', () => {
+        const mainnet = buildCspDirectives(NONCE, true, MAINNET)['connect-src'];
+        expect(mainnet).toContain('https://horizon.stellar.org');
+        expect(mainnet).toContain('https://mainnet.sorobanrpc.com');
+        expect(mainnet).not.toContain('testnet');
+
+        const testnet = buildCspDirectives(NONCE, true, {
+            ...MAINNET,
+            horizonUrl: 'https://horizon-testnet.stellar.org',
+            sorobanRpcUrl: 'https://soroban-testnet.stellar.org/',
+        })['connect-src'];
+        expect(testnet).toContain('https://soroban-testnet.stellar.org');
+        expect(testnet).not.toContain('mainnet.sorobanrpc.com');
     });
 
-    it('allows IPFS gateways and Pinata API', () => {
-        const value = buildCspDirectives(NONCE, true)['connect-src'];
-        // *.ipfs.dweb.link is for media/img, not connect; only explicit gateway domains go here.
-        for (const domain of ['gateway.pinata.cloud', 'ipfs.io', 'api.pinata.cloud']) {
-            expect(value).toContain(domain);
-        }
+    it('uses origins only, and skips a missing or malformed endpoint', () => {
+        const value = buildCspDirectives(NONCE, true, {
+            supabaseUrl: '',
+            horizonUrl: 'https://horizon.stellar.org/some/path',
+            sorobanRpcUrl: 'not a url',
+        })['connect-src'];
+        expect(value).toContain('https://horizon.stellar.org');
+        expect(value).not.toContain('/some/path');
+        expect(value).not.toContain('not a url');
+        expect(value).not.toMatch(/\bnull\b|undefined/);
+    });
+
+    it('defaults to the runtime config', () => {
+        // Under test, runtimeConfig is the testnet profile.
+        expect(buildCspDirectives(NONCE, true)['connect-src']).toContain('soroban-testnet.stellar.org');
     });
 });
 

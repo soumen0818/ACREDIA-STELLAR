@@ -83,7 +83,7 @@ export default function StudentsSolutionPage() {
                     icon: ShieldCheck,
                     title: 'Never lose a credential',
                     description:
-                        'Stored immutably on-chain and pinned to IPFS — impossible to lose or forge.',
+                        'Anchored immutably on-chain and shared only through your own link — impossible to forge.',
                 },
                 {
                     icon: Zap,

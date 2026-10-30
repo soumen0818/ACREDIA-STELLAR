@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Building2, ExternalLink, Search, ShieldCheck, AlertCircle } from 'lucide-react';
 import { SiteNavbar } from '@/components/marketing/SiteNavbar';
 import { SiteFooter } from '@/components/marketing/SiteFooter';
+import { getExplorerAddressUrl, getExplorerTxUrl } from '@/lib/stellar';
 
 type Issuer = {
     id: string;
@@ -15,8 +16,6 @@ type Issuer = {
 };
 
 function IssuerCard({ issuer }: { issuer: Issuer }) {
-    const explorerBase = 'https://stellar.expert/explorer/testnet/account';
-    const txExplorerBase = 'https://stellar.expert/explorer/testnet/tx';
     const shortAddr = issuer.wallet_address
         ? `${issuer.wallet_address.slice(0, 8)}…${issuer.wallet_address.slice(-6)}`
         : null;
@@ -55,7 +54,7 @@ function IssuerCard({ issuer }: { issuer: Issuer }) {
                         <dt className="text-muted-foreground">Wallet address</dt>
                         <dd>
                             <a
-                                href={`${explorerBase}/${issuer.wallet_address}`}
+                                href={getExplorerAddressUrl(issuer.wallet_address)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline"
@@ -72,7 +71,7 @@ function IssuerCard({ issuer }: { issuer: Issuer }) {
                         <dt className="text-muted-foreground">On-chain authorization</dt>
                         <dd>
                             <a
-                                href={`${txExplorerBase}/${issuer.authorization_tx_hash}`}
+                                href={getExplorerTxUrl(issuer.authorization_tx_hash)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline"

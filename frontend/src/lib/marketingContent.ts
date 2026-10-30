@@ -23,7 +23,7 @@ export const ABOUT_HIGHLIGHTS = [
     },
     {
         title: 'Built for global recognition',
-        description: 'Acredia combines blockchain, IPFS, and verification in one experience.',
+        description: 'Acredia combines blockchain anchoring, private storage, and verification in one experience.',
     },
     {
         title: 'Open-source friendly',

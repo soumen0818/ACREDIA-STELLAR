@@ -34,7 +34,7 @@ type Phase = 'select' | 'preview' | 'issuing' | 'summary';
 
 const PHASE_LABEL: Record<BatchIssuanceProgress['phase'], string> = {
     validating: 'Validating rows',
-    'uploading-ipfs': 'Uploading metadata to IPFS',
+    preparing: 'Preparing credentials',
     signing: 'Signing batch transaction',
     'saving-db': 'Saving to database',
 };
@@ -325,12 +325,12 @@ function BatchProgressView({ progress }: { progress: BatchIssuanceProgress | nul
             </p>
             {progress && (
                 <div className="mx-auto max-w-sm space-y-1">
-                    {progress.phase === 'uploading-ipfs' && (
+                    {progress.phase === 'preparing' && (
                         <p className="text-xs text-muted-foreground">
                             {progress.processedRows} / {progress.totalRows} rows prepared
                         </p>
                     )}
-                    {progress.totalChunks > 0 && progress.phase !== 'uploading-ipfs' && (
+                    {progress.totalChunks > 0 && progress.phase !== 'preparing' && (
                         <p className="text-xs text-muted-foreground">
                             Batch {progress.currentChunk} of {progress.totalChunks}
                         </p>

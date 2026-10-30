@@ -21,9 +21,6 @@ type RuntimeConfig = {
     };
     stellar: StellarNetworkConfig;
     contracts: Record<ContractName, string>;
-    ipfs: {
-        gatewayUrl: string;
-    };
     debug: {
         enableLogs: boolean;
     };
@@ -51,22 +48,6 @@ type ServerRuntimeConfig = {
     };
     auth: {
         serviceRoleKey: string;
-    };
-    ipfs: {
-        jwt: string;
-    };
-    /**
-     * Second, independent IPFS pinning provider (issue #164). Any provider
-     * implementing the IPFS Pinning Services API spec
-     * (https://ipfs.github.io/pinning-services-api-spec/) works — e.g.
-     * Filebase, Crust Network, Temporal, or a self-hosted ipfs-cluster.
-     * Both fields empty means redundancy is not configured; the pin-keeper
-     * records this honestly as `not_configured` rather than `failed`.
-     */
-    pinning: {
-        secondaryEndpoint: string;
-        secondaryToken: string;
-        secondaryProviderName: string;
     };
     verification: {
         hashSecret: string;
@@ -119,6 +100,8 @@ const networkKindSchema = z.enum(['testnet', 'mainnet', 'custom']);
 const debugFlagSchema = z.enum(['true', 'false']).optional().transform((value) => value === 'true');
 const PUBLIC_SECRET_ENV_NAMES = [
     'NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY',
+    // IPFS is retired (review §3.11), but a leftover public Pinata JWT
+    // would still be a leaked secret.
     'NEXT_PUBLIC_PINATA_JWT',
     'NEXT_PUBLIC_VERIFICATION_LOG_HASH_SECRET',
     'NEXT_PUBLIC_STELLAR_SECRET_KEY',
@@ -164,8 +147,6 @@ function readRawEnv(name: string): string | undefined {
             return process.env.NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT;
         case 'NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT':
             return process.env.NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT;
-        case 'NEXT_PUBLIC_PINATA_GATEWAY':
-            return process.env.NEXT_PUBLIC_PINATA_GATEWAY;
         case 'NEXT_PUBLIC_ENABLE_DEBUG_LOGS':
             return process.env.NEXT_PUBLIC_ENABLE_DEBUG_LOGS;
         case 'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID':
@@ -382,6 +363,7 @@ function readContractId(name: ContractName, envName: string, isProduction: boole
     const KNOWN_TESTNET_CONTRACTS = new Set([
         'CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK',
         'CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH',
+        'CD3NAUTBD5JXFNJVB7DGJW2ALLLEEYBYC5PQ3IQIL7JSSGBDL2VZOY4U',
     ]);
     if (networkKind === 'mainnet' && KNOWN_TESTNET_CONTRACTS.has(value)) {
         // Unsafe, not merely invalid: booting past this would issue and verify
@@ -441,12 +423,6 @@ function buildRuntimeConfig(): RuntimeConfig {
                 stellar.kind
             ),
         },
-        ipfs: {
-            gatewayUrl: parseHttpUrl(
-                'NEXT_PUBLIC_PINATA_GATEWAY',
-                readEnv('NEXT_PUBLIC_PINATA_GATEWAY') || 'https://gateway.pinata.cloud',
-            ),
-        },
         debug: {
             enableLogs: debugFlag.success ? debugFlag.data : false,
         },
@@ -463,7 +439,6 @@ function buildRuntimeConfig(): RuntimeConfig {
 
 function buildServerRuntimeConfig(): ServerRuntimeConfig {
     const serviceRoleKey = readEnv('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    const pinataJwt = readEnv('PINATA_JWT') ?? '';
 
     return {
         admin: {
@@ -471,14 +446,6 @@ function buildServerRuntimeConfig(): ServerRuntimeConfig {
         },
         auth: {
             serviceRoleKey,
-        },
-        ipfs: {
-            jwt: pinataJwt,
-        },
-        pinning: {
-            secondaryEndpoint: (readEnv('SECONDARY_PINNING_ENDPOINT') ?? '').replace(/\/$/, ''),
-            secondaryToken: readEnv('SECONDARY_PINNING_TOKEN') ?? '',
-            secondaryProviderName: readEnv('SECONDARY_PINNING_PROVIDER_NAME') ?? 'secondary',
         },
         verification: {
             hashSecret:
@@ -539,9 +506,6 @@ function buildFallbackRuntimeConfig(): RuntimeConfig {
         contracts: {
             CREDENTIAL_NFT: readEnv('NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT') ?? '',
             CREDENTIAL_REGISTRY: readEnv('NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT') ?? '',
-        },
-        ipfs: {
-            gatewayUrl: safeUrl('NEXT_PUBLIC_PINATA_GATEWAY', 'https://gateway.pinata.cloud'),
         },
         debug: {
             enableLogs: false,

@@ -35,7 +35,13 @@ export interface Credential {
     student_id: string;
     institution_id: string;
     token_id: string;
-    ipfs_hash: string;
+    /** Retired with IPFS (review §3.11); null for every new credential. */
+    ipfs_hash: string | null;
+    /** The holder's share link token: `/credentials/<share_token>`. */
+    share_token: string;
+    document_path: string | null;
+    document_sha256: string | null;
+    expires_at: string | null;
     blockchain_hash: string;
     metadata: CredentialMetadata;
     metadata_schema_version: number;

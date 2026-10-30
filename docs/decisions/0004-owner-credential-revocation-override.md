@@ -4,6 +4,8 @@
 **Date:** 2026-09-30  
 **Issue:** [#288](https://github.com/soumen0818/ACREDIA-STELLAR/issues/288)
 
+> **Event names changed on 2026-10-30** (codebase review §3.8, typed `#[contractevent]` events): `cred_rev_owner` is now `credential_revoked_by_owner` and `cred_rev` is now `credential_revoked`. The decision below is unchanged.
+
 ---
 
 ## Context

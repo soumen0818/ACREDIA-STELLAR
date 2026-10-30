@@ -12,8 +12,7 @@ const {
     mockVerificationLogInsert,
     mockSupabaseMaybeSingle,
     mockRequireInstitutionRequest,
-    mockPinFileToPinata,
-    mockPinJsonToPinata,
+    mockStorageUpload,
     mockRequireAdminRequest,
 } = vi.hoisted(() => ({
     mockIssueCredentialOnStellar: vi.fn(),
@@ -24,26 +23,8 @@ const {
     mockVerificationLogInsert: vi.fn(),
     mockSupabaseMaybeSingle: vi.fn(),
     mockRequireInstitutionRequest: vi.fn(),
-    mockPinFileToPinata: vi.fn(),
-    mockPinJsonToPinata: vi.fn(),
+    mockStorageUpload: vi.fn(),
     mockRequireAdminRequest: vi.fn(),
-}));
-
-vi.mock('../src/lib/ipfs', () => ({
-    uploadToIPFS: vi.fn(async () => 'mocked-file-cid'),
-    uploadJSONToIPFS: vi.fn(async () => 'mocked-metadata-path'),
-    getIPFSUrl: vi.fn((cid) => `ipfs://${cid}`),
-}));
-
-vi.mock('../src/lib/ipfsServer', () => ({
-    pinFileToPinata: mockPinFileToPinata,
-    pinJsonToPinata: mockPinJsonToPinata,
-    validatePinataFile: vi.fn(() => null),
-    validatePinataJson: vi.fn(() => null),
-    fetchJsonFromIpfs: vi.fn(async () => ({
-        ok: true,
-        content: { credentialData: { studentName: 'Ada Lovelace', credentialType: 'diploma' } },
-    })),
 }));
 
 vi.mock('../src/lib/contracts', () => ({
@@ -63,9 +44,9 @@ vi.mock('../src/lib/contractReads', () => ({
     ContractConfigurationError: class ContractConfigurationError extends Error {},
     BlockchainUnavailableError: class BlockchainUnavailableError extends Error {},
     CredentialNotFoundError: class CredentialNotFoundError extends Error {},
-    getCredential: mockGetCredential,
-    isRevoked: mockIsRevoked,
-    isAuthorizedIssuer: vi.fn().mockResolvedValue(true),
+    getCredentialFromChain: mockGetCredential,
+    isRevokedFromChain: mockIsRevoked,
+    isAuthorizedIssuerOnChain: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../src/lib/supabase', () => ({
@@ -82,8 +63,7 @@ vi.mock('../src/lib/supabase', () => ({
 }));
 
 import { GET as verifyGET } from '../src/app/api/verify/[token]/route';
-import { POST as postFile } from '../src/app/api/ipfs/file/route';
-import { POST as postJson } from '../src/app/api/ipfs/json/route';
+import { POST as postDocument } from '../src/app/api/institution/documents/route';
 
 function percentile(values: number[], quantile: number): number {
     const sorted = [...values].sort((left, right) => left - right);
@@ -119,28 +99,17 @@ function createVerifyRequest(token: string, index = 0) {
     });
 }
 
-function createFileRequest(index = 0) {
+function createDocumentRequest(index = 0) {
     const file = new File([new Uint8Array(64)], 'credential.pdf', { type: 'application/pdf' });
     const formData = new FormData();
     formData.append('file', file, file.name);
 
-    return new NextRequest('http://localhost:3000/api/ipfs/file', {
+    return new NextRequest('http://localhost:3000/api/institution/documents', {
         method: 'POST',
         headers: {
             'x-forwarded-for': `203.0.113.${11 + index}`,
         },
         body: formData,
-    });
-}
-
-function createJsonRequest(index = 0) {
-    return new NextRequest('http://localhost:3000/api/ipfs/json', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-forwarded-for': `203.0.114.${12 + index}`,
-        },
-        body: JSON.stringify({ content: { credential: 'metadata' } }),
     });
 }
 
@@ -176,17 +145,18 @@ describe('endpoint load baselines', () => {
             error: null,
         });
         mockGetCredential.mockResolvedValue({
+            tokenId: '123',
             student: 'gstudentaddress123456789012345678901234567890123456789',
             issuer: 'ginstitutionaddress12345678901234567890123456789',
             hash: '850e0cdb283df84c2f61e80821d3e80821d3e80821d3e80821d3e80821d3e808',
-            uri: 'ipfs://mocked-metadata-path',
-            issued_at: 1717146000,
+            issuedAt: 1717146000,
+            expiresAt: null,
+            revoked: false,
         });
         mockIsRevoked.mockResolvedValue(false);
         mockRequireInstitutionRequest.mockResolvedValue({ ok: true, userId: 'institution-user', institutionId: 'institution-1' });
         mockRequireAdminRequest.mockResolvedValue({ ok: true, userId: 'admin-user' });
-        mockPinFileToPinata.mockResolvedValue('file-cid');
-        mockPinJsonToPinata.mockResolvedValue('json-cid');
+        mockStorageUpload.mockResolvedValue({ data: {}, error: null });
         mockVerificationLogInsert.mockResolvedValue({ error: null });
         mockGetServiceRoleClient.mockReturnValue({
             from: (table: string) => {
@@ -204,6 +174,7 @@ describe('endpoint load baselines', () => {
                     }),
                 };
             },
+            storage: { from: () => ({ upload: mockStorageUpload }) },
         });
     });
 
@@ -219,28 +190,15 @@ describe('endpoint load baselines', () => {
         expect(summary.p95).toBeLessThanOrEqual(50);
     });
 
-    it('records an IPFS file upload baseline', async () => {
-        const summary = await measure('ipfs-file', 25, async (index) => {
+    it('records a credential document upload baseline', async () => {
+        const summary = await measure('document-upload', 25, async (index) => {
             mockRequireInstitutionRequest.mockResolvedValueOnce({
                 ok: true,
                 userId: `institution-user-${index}`,
                 institutionId: 'institution-1',
+                memberRole: 'issuer',
             });
-            const response = await postFile(createFileRequest(index));
-            expect(response.status, await response.text()).toBe(200);
-        });
-
-        expect(summary.p95).toBeLessThanOrEqual(50);
-    });
-
-    it('records an IPFS json upload baseline', async () => {
-        const summary = await measure('ipfs-json', 25, async (index) => {
-            mockRequireInstitutionRequest.mockResolvedValueOnce({
-                ok: true,
-                userId: `institution-user-${index}`,
-                institutionId: 'institution-1',
-            });
-            const response = await postJson(createJsonRequest(index));
+            const response = await postDocument(createDocumentRequest(index));
             expect(response.status, await response.text()).toBe(200);
         });
 

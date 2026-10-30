@@ -9,63 +9,47 @@ const state = vi.hoisted(() => ({
 
 vi.mock('@/lib/serverAuth', () => ({
     getServiceRoleClient: () => ({
-        from: () => ({
+        from: (table: string) => ({
             select: () => ({
                 eq: () => ({
-                    maybeSingle: async () => ({ data: state.credential, error: null }),
+                    maybeSingle: async () => ({
+                        data: table === 'institutions' ? { name: 'ACREDIA' } : state.credential,
+                        error: null,
+                    }),
                 }),
             }),
+            insert: async () => ({ error: null }),
         }),
     }),
 }));
 
 vi.mock('@/lib/contractReads', () => ({
-    getCredential: async () => ({
-        issuer: 'GIssuer',
+    getCredentialFromChain: async () => ({
+        tokenId: '123',
         student: 'GStudent',
+        issuer: 'GIssuer',
         hash: 'derived-hash',
-        uri: 'ipfs://cid-123',
+        issuedAt: 1_770_000_000,
+        expiresAt: null,
+        revoked: state.onChainRevoked,
     }),
-    isRevoked: async () => state.onChainRevoked,
-    isAuthorizedIssuer: async () => true,
+    isRevokedFromChain: async () => state.onChainRevoked,
+    isAuthorizedIssuerOnChain: async () => true,
 }));
 
-vi.mock('@/lib/credentialHash', () => ({
-    deriveCredentialHash: async () => 'derived-hash',
-}));
-
-vi.mock('@/lib/ipfsServer', () => ({
-    fetchJsonFromIpfs: async () => ({ ok: true, content: {} }),
-}));
-
+/** The database row only labels which on-chain event revoked the credential. */
 function baseCredential(overrides: Record<string, unknown>) {
     return {
         id: 'cred-001',
-        token_id: 'token-123',
-        issued_at: '2026-01-01T00:00:00.000Z',
-        revoked: false,
         revoked_at: null,
         revocation_source: null,
-        metadata: {
-            credentialData: {
-                institutionName: 'ACREDIA',
-                credentialType: 'Degree',
-            },
-        },
-        metadata_schema_version: 1,
-        hash_algorithm: 'sha256',
-        ipfs_hash: 'cid-123',
-        blockchain_hash: 'derived-hash',
-        student_wallet_address: 'GStudent',
-        issuer_wallet_address: 'GIssuer',
-        institution: { name: 'ACREDIA' },
         ...overrides,
     };
 }
 
 async function verify() {
-    const response = await GET(new Request('http://localhost/api/verify/token-123') as never, {
-        params: Promise.resolve({ token: 'token-123' }),
+    const response = await GET(new Request('http://localhost/api/verify/123') as never, {
+        params: Promise.resolve({ token: '123' }),
     });
     return { response, payload: await response.json() };
 }
@@ -77,6 +61,7 @@ describe('verify route revocation source', () => {
     });
 
     it('reports an issuer revocation distinctly', async () => {
+        state.onChainRevoked = true;
         state.credential = baseCredential({
             revoked: true,
             revoked_at: '2026-02-01T00:00:00.000Z',
@@ -92,6 +77,7 @@ describe('verify route revocation source', () => {
     });
 
     it('reports a platform (owner override) revocation distinctly', async () => {
+        state.onChainRevoked = true;
         state.credential = baseCredential({
             revoked: true,
             revoked_at: '2026-02-01T00:00:00.000Z',
@@ -116,6 +102,7 @@ describe('verify route revocation source', () => {
     });
 
     it('falls back to null when a revoked credential has no recorded source', async () => {
+        state.onChainRevoked = true;
         state.credential = baseCredential({
             revoked: true,
             revoked_at: '2026-02-01T00:00:00.000Z',

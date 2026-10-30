@@ -4,10 +4,6 @@ import type { BatchIssueOutcome } from '../src/lib/contracts';
 import { Keypair } from '@stellar/stellar-sdk';
 import { createKeypairSigner } from '../src/lib/stellarSigner';
 
-vi.mock('../src/lib/ipfs', () => ({
-    uploadJSONToIPFS: vi.fn().mockResolvedValue('mock-cid'),
-}));
-
 vi.mock('../src/lib/contracts', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../src/lib/contracts')>();
     return {
@@ -56,7 +52,7 @@ function stubSupabase(options: { insertError?: unknown } = {}) {
             return { select: vi.fn().mockReturnValue({ in: inMock }) };
         }
         if (table === 'credentials') {
-            return { insert: insertMock };
+            return { upsert: insertMock };
         }
         throw new Error(`Unexpected table in test: ${table}`);
     });
@@ -71,12 +67,7 @@ describe('issueBatchCredentials', () => {
 
     it('issues all valid rows in one chunk and reports success with token IDs', async () => {
         const { supabase } = await import('../src/lib/supabase');
-        const { batchIssueCredentialOnStellar, uploadJSONToIPFS } = await import('../src/lib/contracts').then(
-            async (contracts) => ({
-                batchIssueCredentialOnStellar: contracts.batchIssueCredentialOnStellar,
-                uploadJSONToIPFS: (await import('../src/lib/ipfs')).uploadJSONToIPFS,
-            }),
-        );
+        const { batchIssueCredentialOnStellar } = await import('../src/lib/contracts');
         const { issueBatchCredentials } = await import('../src/lib/batchCredentialService');
 
         const { fromMock, insertMock } = stubSupabase();
@@ -99,16 +90,46 @@ describe('issueBatchCredentials', () => {
         expect(summary.failed).toBe(0);
         expect(summary.remainingRows).toEqual([]);
         expect(summary.rows.map((r) => r.tokenId)).toEqual(['1', '2']);
-        expect(uploadJSONToIPFS).toHaveBeenCalledTimes(2);
         expect(batchIssueCredentialOnStellar).toHaveBeenCalledTimes(1);
+        // Only the hash and optional expiry go on-chain (review §3.11).
+        const items = (batchIssueCredentialOnStellar as ReturnType<typeof vi.fn>).mock.calls[0][0];
+        expect(items).toEqual([
+            { studentAddress: WALLET, credentialHash: 'a'.repeat(64), expiresAt: null },
+            { studentAddress: WALLET, credentialHash: 'a'.repeat(64), expiresAt: null },
+        ]);
         expect(insertMock).toHaveBeenCalledTimes(1);
         expect(insertMock.mock.calls[0][0]).toHaveLength(2);
+        expect(insertMock.mock.calls[0][0][0]).toMatchObject({ ipfs_hash: null, expires_at: null });
+        // Completes rows the indexer may have written first (review §3.11c).
+        expect(insertMock.mock.calls[0][1]).toEqual({ onConflict: 'token_id' });
     });
 
-    it('never uploads to IPFS or calls the contract for rows that fail pre-validation', async () => {
+    it('passes a row expiry to the contract as Unix seconds and stores it', async () => {
         const { supabase } = await import('../src/lib/supabase');
         const { batchIssueCredentialOnStellar } = await import('../src/lib/contracts');
-        const { uploadJSONToIPFS } = await import('../src/lib/ipfs');
+        const { issueBatchCredentials } = await import('../src/lib/batchCredentialService');
+
+        const { fromMock, insertMock } = stubSupabase();
+        vi.mocked(supabase.from).mockImplementation(fromMock as never);
+        vi.mocked(batchIssueCredentialOnStellar).mockResolvedValue({
+            transactionHash: 'tx-1',
+            results: [{ index: 0, success: true, tokenId: '1', errorCode: null }],
+        });
+
+        // Valid through 2099-12-31 (UTC) => expires at 2100-01-01T00:00:00Z.
+        await issueBatchCredentials([makeRow({ expiresAt: '2099-12-31' })], context);
+
+        const expiresAt = Date.UTC(2100, 0, 1) / 1000;
+        const items = (batchIssueCredentialOnStellar as ReturnType<typeof vi.fn>).mock.calls[0][0];
+        expect(items[0].expiresAt).toBe(expiresAt);
+        expect(insertMock.mock.calls[0][0][0]).toMatchObject({
+            expires_at: '2100-01-01T00:00:00.000Z',
+        });
+    });
+
+    it('never calls the contract for rows that fail pre-validation', async () => {
+        const { supabase } = await import('../src/lib/supabase');
+        const { batchIssueCredentialOnStellar } = await import('../src/lib/contracts');
         const { issueBatchCredentials } = await import('../src/lib/batchCredentialService');
 
         const { fromMock } = stubSupabase();
@@ -129,8 +150,7 @@ describe('issueBatchCredentials', () => {
         const failedRow = summary.rows.find((r) => r.rowNumber === 1);
         expect(failedRow?.status).toBe('failed');
         expect(failedRow?.errorMessage).toContain('Please enter student name');
-        // Only the valid row should have reached IPFS/the contract.
-        expect(uploadJSONToIPFS).toHaveBeenCalledTimes(1);
+        // Only the valid row should have reached the contract.
         expect(batchIssueCredentialOnStellar).toHaveBeenCalledTimes(1);
         expect((batchIssueCredentialOnStellar as ReturnType<typeof vi.fn>).mock.calls[0][0]).toHaveLength(1);
     });

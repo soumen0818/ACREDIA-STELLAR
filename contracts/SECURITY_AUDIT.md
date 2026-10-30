@@ -29,14 +29,14 @@
 
 | ID | Severity | Title | Status |
 |----|----------|-------|--------|
-| F-1 | Medium | `initialize()` auth fixed; deploy-time owner race remains | **Partial — constructor required before mainnet** |
+| F-1 | Medium | `initialize()` auth fixed; deploy-time owner race remains | **Fixed (2026-10-30)** — owner set by `__constructor` at deploy; `initialize` removed |
 | F-2 | Low | `upgrade()` emitted no event | **Fixed** |
 | F-3 | Low | `migrate()` emitted no event | **Fixed** |
 | F-4 | Info | `initialize()` emitted no event | **Fixed** |
 | F-5 | Medium | No owner override for `revoke_credential` | **Fixed** — distinct owner override |
 | F-6 | Low | `revoke_issuer` on a never-authorized address is a silent no-op that still emits `iss_rev` | **Fixed** |
-| F-7 | Info | No length cap on `ipfs_uri` | **Fixed** — 256-byte cap, error 17 |
-| F-8 | Info | `read_owner()` uses `.unwrap()`, relying on an invariant rather than a typed error | **Accepted (safe today)** |
+| F-7 | Info | No length cap on `ipfs_uri` | **Superseded (2026-10-30)** — the URI was removed; error 17 retired |
+| F-8 | Info | `read_owner()` uses `.unwrap()`, relying on an invariant rather than a typed error | **Fixed (2026-10-30)** — `panic_with_error!(NotInitialized)` |
 | F-9 | Info | Dependency hygiene (`cargo audit` & `cargo deny`) | **Fixed — Automated CI Gate** |
 | F-10 | Info | Re-entrancy | **Reviewed, not applicable** |
 
@@ -68,6 +68,15 @@ owner-setting `__constructor` that runs during deployment. Treat any unexpected
 `init` event as a compromised deployment and discard that instance.
 
 **Test coverage**: `test_initialize_requires_owner_auth`.
+
+> **Update 2026-10-30 — fixed.** `initialize` is gone. The owner is set by
+> `__constructor(owner)`, which runs atomically inside the deploy transaction, so there is no
+> window in which another account can claim ownership. The constructor deliberately does not
+> call `owner.require_auth()`: the owner is a multisig account, and requiring its signature would
+> mean collecting multisig signatures on the deploy itself. The deploy runbook instead verifies
+> `get_owner()` immediately after deploying; a wrong owner is fixed by redeploying, which is free
+> before anything is issued. Covered by `test_constructor_sets_owner_and_emits_initialized`.
+> (Codebase review §3.8.)
 
 ### F-2 / F-3 / F-4 — Missing events on `upgrade`, `migrate`, `initialize`
 
@@ -181,6 +190,12 @@ for callers issuing within the limit.
 `test_batch_issue_rejects_oversized_ipfs_uri_row_others_succeed` (batch path, at the limit and a
 mixed batch where the oversized row fails while a valid row still succeeds).
 
+> **Update 2026-10-30 — superseded.** Credentials no longer carry a URI at all: only the
+> credential hash is stored on-chain, and the content is held privately off-chain (codebase
+> review §3.11). `MAX_IPFS_URI_LEN` and its tests were removed, and code 17 is retired (never
+> reused). A new per-row/whole-call error, `InvalidExpiry` (18), validates the optional
+> `expires_at` instead.
+
 ### F-8 (Info) — `read_owner()` relies on an invariant instead of a typed error
 
 ```rust
@@ -196,6 +211,12 @@ two. Not changed here: `read_owner` returns a bare `Address` and is called from 
 functions (`authorize_issuer`, `revoke_issuer`, `upgrade`); converting it to return
 `Result<Address, ContractError>` would ripple into those functions' on-chain signatures, which
 is a larger, deliberate ABI change out of proportion to the actual risk.
+
+> **Update 2026-10-30 — fixed.** With the constructor, `Initialized` no longer exists and
+> `read_owner` fails with `panic_with_error!(env, ContractError::NotInitialized)` instead of an
+> opaque `unwrap`, without changing any signature. `authorize_issuer` and `revoke_issuer` now
+> return `Result` like the other entrypoints (idempotent: repeating either succeeds and emits no
+> second event).
 
 ### F-9 (Info) — Dependency hygiene
 

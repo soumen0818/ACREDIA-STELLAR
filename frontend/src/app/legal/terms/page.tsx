@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     description: 'Terms and conditions governing use of the Acredia academic credential platform.',
 };
 
-const LAST_UPDATED = '8 August 2026';
+const LAST_UPDATED = '30 October 2026';
 
 export default function TermsOfServicePage() {
     return (
@@ -57,7 +57,8 @@ export default function TermsOfServicePage() {
                             Acredia is a blockchain-based academic credential platform running on the Stellar
                             network. It allows verified institutions to issue tamper-proof credentials to
                             students, who may share them with verifiers. Credential hashes are anchored
-                            on-chain; documents are stored on IPFS.
+                            on-chain; credential content and documents are held in private storage and
+                            shared by their holders through a share link.
                         </p>
                     </section>
 
@@ -99,8 +100,9 @@ export default function TermsOfServicePage() {
                             immutability by using the issuance feature.
                         </p>
                         <p className="mt-3 leading-7 text-muted-foreground">
-                            Credential documents stored on IPFS are encrypted and will be unpinned on
-                            account deletion, rendering them inaccessible. The on-chain hash will remain.
+                            Credential documents are held in private storage as part of the issued
+                            credential. Issued credentials are retained after account deletion, as described
+                            in the Privacy Policy, and the on-chain hash will remain.
                         </p>
                     </section>
 
@@ -118,7 +120,7 @@ export default function TermsOfServicePage() {
                         <p className="mt-4 leading-7 text-muted-foreground">
                             The Service is provided "as is" without warranty of any kind. Acredia does not
                             guarantee uninterrupted availability, and is not liable for any loss arising from
-                            blockchain network outages, IPFS gateway downtime, or Stellar network fees.
+                            blockchain network outages, storage provider downtime, or Stellar network fees.
                         </p>
                     </section>
 

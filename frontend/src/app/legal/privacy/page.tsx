@@ -8,7 +8,7 @@ export const metadata: Metadata = {
         'How Acredia collects, uses, and protects your personal data, your GDPR rights, and how on-chain immutability is handled.',
 };
 
-const LAST_UPDATED = '29 October 2026';
+const LAST_UPDATED = '30 October 2026';
 
 export default function PrivacyPolicyPage() {
     return (
@@ -85,7 +85,7 @@ export default function PrivacyPolicyPage() {
                                         <td className="px-4 py-3 font-medium text-foreground">Credential metadata</td>
                                         <td className="px-4 py-3">Student name, degree, grade, institution name (in JSONB metadata field)</td>
                                         <td className="px-4 py-3">Contract</td>
-                                        <td className="px-4 py-3">Supabase DB + encrypted IPFS (Pinata)</td>
+                                        <td className="px-4 py-3">Supabase DB; uploaded credential documents in private Supabase Storage</td>
                                     </tr>
                                     <tr>
                                         <td className="px-4 py-3 font-medium text-foreground">Verification logs</td>
@@ -101,7 +101,7 @@ export default function PrivacyPolicyPage() {
                                     </tr>
                                     <tr>
                                         <td className="px-4 py-3 font-medium text-foreground">On-chain record</td>
-                                        <td className="px-4 py-3">SHA-256 hash of credential metadata + IPFS CID pointer</td>
+                                        <td className="px-4 py-3">SHA-256 hash of the credential, holder and issuer wallet addresses, issue time and optional expiry time</td>
                                         <td className="px-4 py-3">Public interest / legal obligation (Art. 6(1)(e), 17(3)(b))</td>
                                         <td className="px-4 py-3">Stellar blockchain — immutable (see §7)</td>
                                     </tr>
@@ -128,16 +128,11 @@ export default function PrivacyPolicyPage() {
                         <h2 id="data-sharing" className="text-2xl font-semibold">4. Data sharing &amp; sub-processors</h2>
                         <ul className="mt-4 list-disc space-y-2 pl-6 text-muted-foreground leading-7">
                             <li>
-                                <strong className="text-foreground">Supabase</strong> — database and
-                                authentication, hosted in the{' '}
+                                <strong className="text-foreground">Supabase</strong> — database,
+                                authentication and private file storage for credential documents, hosted in the{' '}
                                 <strong className="text-foreground">Asia-Pacific region</strong>.
                                 Supabase&apos;s Data Processing Addendum, which incorporates the EU
                                 Standard Contractual Clauses, governs this processing (see §5).
-                            </li>
-                            <li>
-                                <strong className="text-foreground">Pinata / IPFS</strong> — decentralised file
-                                storage for encrypted credential documents. Content is only accessible via the
-                                CID (content address); without the encryption key it is unreadable.
                             </li>
                             <li>
                                 <strong className="text-foreground">Stellar Network</strong> — public, permissionless
@@ -172,12 +167,11 @@ export default function PrivacyPolicyPage() {
                             request a copy of the relevant safeguards at any time.
                         </p>
                         <p className="mt-4 text-muted-foreground leading-7">
-                            Note that the <strong className="text-foreground">Stellar network</strong> and{' '}
-                            <strong className="text-foreground">IPFS</strong> are public, distributed
-                            systems: data written to them is replicated across nodes worldwide and its
-                            geographic location cannot be controlled. Only irreversible hashes,
-                            wallet addresses and encrypted content are published to these networks —
-                            never plain-text personal data. You can request details of our current
+                            Note that the <strong className="text-foreground">Stellar network</strong> is a
+                            public, distributed system: data written to it is replicated across nodes
+                            worldwide and its geographic location cannot be controlled. Only irreversible
+                            hashes, wallet addresses and dates are published to it — never credential
+                            content or documents. You can request details of our current
                             transfer safeguards at{' '}
                             <a href={`mailto:${CONTACT_EMAIL}`} className="text-primary underline">
                                 {CONTACT_EMAIL}
@@ -211,8 +205,8 @@ export default function PrivacyPolicyPage() {
                                         <td className="px-4 py-3">90 days, then deleted by an automated purge that runs nightly at 03:00 UTC</td>
                                     </tr>
                                     <tr>
-                                        <td className="px-4 py-3">IPFS credential documents</td>
-                                        <td className="px-4 py-3">Encrypted storage; pinned during credential lifecycle</td>
+                                        <td className="px-4 py-3">Credential documents</td>
+                                        <td className="px-4 py-3">Private storage, retained with the issued credential</td>
                                     </tr>
                                     <tr>
                                         <td className="px-4 py-3">On-chain hash record</td>
@@ -251,8 +245,8 @@ export default function PrivacyPolicyPage() {
                                 We rely on the exemption in <strong>Art. 17(3)(b) GDPR</strong> (necessity for
                                 compliance with a legal obligation and the exercise of official authority) and
                                 the design principle of pseudonymisation to justify retention. The hash alone
-                                reveals nothing about the credential holder without the original document,
-                                which is either deleted from IPFS or remains encrypted.
+                                reveals nothing about the credential holder without the original credential,
+                                which is held only in Acredia&apos;s private storage.
                             </p>
                         </div>
                         <p className="mt-4 text-sm leading-7 text-muted-foreground">
@@ -309,8 +303,12 @@ export default function PrivacyPolicyPage() {
                     <section aria-labelledby="security">
                         <h2 id="security" className="text-2xl font-semibold">10. Security</h2>
                         <p className="mt-4 text-muted-foreground leading-7">
-                            All data in transit is encrypted with TLS. Credential documents stored on IPFS
-                            are encrypted with AES-256-GCM before upload. Database access is protected by
+                            All data in transit is encrypted with TLS. Credential documents are held in
+                            private storage and served only through short-lived signed links: to the
+                            credential holder, to the issuing institution, and to anyone the holder gives
+                            their credential&apos;s share link, which shows the credential&apos;s details and
+                            document. A credential&apos;s token ID alone shows only its issuer, dates and
+                            status. Database access is protected by
                             Row Level Security (RLS) policies. We follow responsible disclosure — if
                             you believe you have found a vulnerability, please report it privately to{' '}
                             <a href={`mailto:${CONTACT_EMAIL}`} className="text-primary underline">

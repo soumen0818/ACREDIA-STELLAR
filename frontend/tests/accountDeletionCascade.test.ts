@@ -34,9 +34,12 @@ describe('Issue #232 — Schema & Migration constraints', () => {
     });
 });
 
-describe('Issue #232 — Verification on-chain fallback resilience', () => {
-    it('getCredential in contractReads falls back to on-chain read when DB row is missing', async () => {
-        const { getCredential } = await import('@/lib/contractReads');
-        expect(typeof getCredential).toBe('function');
+describe('Issue #232 — Verification survives a missing database row', () => {
+    it('reads credentials from the contract, never the database (review §3.11b)', async () => {
+        // The route-level behaviour is covered in verify-route-status.test.ts
+        // ("verifies from the chain alone when the database has no row").
+        const reads = await import('@/lib/contractReads');
+        expect(typeof reads.getCredentialFromChain).toBe('function');
+        expect(reads).not.toHaveProperty('getCredential');
     });
 });

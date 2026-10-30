@@ -65,6 +65,7 @@ export function CredentialUploadForm({
         major: '',
         gpa: '',
         issueDate: new Date().toISOString().split('T')[0],
+        expiresAt: '',
     });
 
     const addSubject = () => {
@@ -123,6 +124,7 @@ export function CredentialUploadForm({
                 degree: formData.degree,
                 gpa: formData.gpa,
                 issueDate: formData.issueDate,
+                expiresAt: formData.expiresAt,
                 subjects,
                 file: selectedFile,
             },
@@ -131,7 +133,7 @@ export function CredentialUploadForm({
 
     const progressSteps: Array<{ key: 'validate' | CredentialIssueProgressStep; label: string }> = [
         { key: 'validate', label: 'Validate' },
-        { key: 'upload-ipfs', label: 'Upload IPFS' },
+        { key: 'store-document', label: 'Store document' },
         { key: 'sign-transaction', label: 'Sign transaction' },
         { key: 'save-database', label: 'Save database' },
     ];
@@ -225,6 +227,7 @@ export function CredentialUploadForm({
                 major: formData.major.trim() || undefined,
                 gpa: formData.gpa.trim() || undefined,
                 issueDate: formData.issueDate,
+                expiresAt: formData.expiresAt || undefined,
                 institutionId,
                 institutionName,
                 institutionWallet,
@@ -252,6 +255,7 @@ export function CredentialUploadForm({
                 major: '',
                 gpa: '',
                 issueDate: new Date().toISOString().split('T')[0],
+                expiresAt: '',
             });
             setSelectedFile(null);
             setPreviewUrl(null);
@@ -382,6 +386,14 @@ export function CredentialUploadForm({
                                 <p className="text-muted-foreground">Issue Date</p>
                                 <p className="font-medium text-foreground">
                                     {formData.issueDate || 'N/A'}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-muted-foreground">Expires</p>
+                                <p className="font-medium text-foreground">
+                                    {formData.expiresAt
+                                        ? `Valid through ${formData.expiresAt} (UTC)`
+                                        : 'Never'}
                                 </p>
                             </div>
                         </div>

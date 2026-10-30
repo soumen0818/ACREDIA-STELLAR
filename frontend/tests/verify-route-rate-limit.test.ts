@@ -3,55 +3,36 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET } from '@/app/api/verify/[token]/route';
 import { resetRateLimitStore } from '@/lib/rateLimit';
 
+const state = vi.hoisted(() => ({ credentialRow: null as Record<string, unknown> | null }));
+
 vi.mock('@/lib/serverAuth', () => ({
     getServiceRoleClient: () => ({
-        from: () => ({
+        from: (table: string) => ({
             select: () => ({
                 eq: () => ({
                     maybeSingle: async () => ({
-                        data: {
-                            token_id: 'token-123',
-                            issued_at: '2026-01-01T00:00:00.000Z',
-                            revoked: false,
-                            revoked_at: null,
-                            metadata: {
-                                credentialData: {
-                                    institutionName: 'ACREDIA',
-                                    credentialType: 'Degree',
-                                },
-                            },
-                            metadata_schema_version: 1,
-                            hash_algorithm: 'sha256',
-                            ipfs_hash: 'cid-123',
-                            student_wallet_address: 'GStudent',
-                            issuer_wallet_address: 'GIssuer',
-                            institution: { name: 'ACREDIA' },
-                        },
+                        data: table === 'institutions' ? { name: 'ACREDIA' } : state.credentialRow,
                         error: null,
                     }),
                 }),
             }),
+            insert: async () => ({ error: null }),
         }),
     }),
 }));
 
 vi.mock('@/lib/contractReads', () => ({
-    getCredential: async () => ({
-        issuer: 'gissuer',
-        student: 'gstudent',
+    getCredentialFromChain: async () => ({
+        tokenId: '123',
+        student: 'GStudent',
+        issuer: 'GIssuer',
         hash: 'derived-hash',
-        uri: 'ipfs://cid-123',
+        issuedAt: 1_770_000_000,
+        expiresAt: null,
+        revoked: false,
     }),
-    isRevoked: async () => false,
-    isAuthorizedIssuer: async () => true,
-}));
-
-vi.mock('@/lib/credentialHash', () => ({
-    deriveCredentialHash: async () => 'derived-hash',
-}));
-
-vi.mock('@/lib/ipfsServer', () => ({
-    fetchJsonFromIpfs: async () => ({ ok: true, content: {} }),
+    isRevokedFromChain: async () => false,
+    isAuthorizedIssuerOnChain: async () => true,
 }));
 
 describe('verify route rate limiting', () => {
@@ -61,7 +42,7 @@ describe('verify route rate limiting', () => {
 
     it('returns 429 with Retry-After after the verify limit is exceeded', async () => {
         const makeRequest = () =>
-            new Request('http://localhost/api/verify/token-123', {
+            new Request('http://localhost/api/verify/123', {
                 headers: {
                     'x-forwarded-for': '203.0.113.10',
                 },
@@ -74,13 +55,13 @@ describe('verify route rate limiting', () => {
 
         for (let index = 0; index < ANONYMOUS_LIMIT; index += 1) {
             const response = await GET(makeRequest() as any, {
-                params: Promise.resolve({ token: 'token-123' }),
+                params: Promise.resolve({ token: '123' }),
             });
 
             expect(response.status).toBe(200);
         }
         const blockedResponse = await GET(makeRequest() as any, {
-            params: Promise.resolve({ token: 'token-123' }),
+            params: Promise.resolve({ token: '123' }),
         });
 
         expect(blockedResponse.status).toBe(429);

@@ -13,14 +13,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Check, Copy, Download, Share2 } from 'lucide-react';
 import { debugLog, debugWarn, captureException } from '@/lib/debug';
+import { shareUrl } from '@/lib/sharedCredential';
 
 interface QRCodeModalProps {
     open: boolean;
     onClose: () => void;
     credential: {
         token_id: string;
+        /** The holder's share token; without it the QR code only checks status. */
+        share_token?: string | null;
         blockchain_hash: string;
-        ipfs_hash: string;
         metadata: {
             credentialData?: {
                 credentialType?: string;
@@ -35,7 +37,12 @@ export default function QRCodeModal({ open, onClose, credential }: QRCodeModalPr
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [copied, setCopied] = useState(false);
 
-    const verificationUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/verify?token=${credential?.token_id || ''}`;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    // The share link shows the credential's details and document (review
+    // §3.11b); a bare token ID only shows its status.
+    const verificationUrl = credential?.share_token
+        ? shareUrl(origin, credential.share_token)
+        : `${origin}/verify?token=${credential?.token_id || ''}`;
 
     useEffect(() => {
         if (!open || !credential?.token_id) {
@@ -49,7 +56,7 @@ export default function QRCodeModal({ open, onClose, credential }: QRCodeModalPr
             }
 
             const canvas = canvasRef.current;
-            const qrUrl = `${window.location.origin}/verify?token=${credential.token_id}`;
+            const qrUrl = verificationUrl;
             const ctx = canvas.getContext('2d');
 
             if (ctx) {
@@ -81,7 +88,7 @@ export default function QRCodeModal({ open, onClose, credential }: QRCodeModalPr
         }, 100);
 
         return () => clearTimeout(timer);
-    }, [open, credential?.token_id]);
+    }, [open, credential?.token_id, verificationUrl]);
 
     const handleDownload = () => {
         if (!canvasRef.current) return;
@@ -134,7 +141,9 @@ export default function QRCodeModal({ open, onClose, credential }: QRCodeModalPr
                 <DialogHeader className="space-y-1">
                     <DialogTitle className="text-xl font-semibold">Share Credential</DialogTitle>
                     <DialogDescription className="text-sm">
-                        Anyone can scan this QR code to verify your credential
+                        {credential?.share_token
+                            ? 'Anyone with this QR code or link can see this credential’s details and document. Share it only with people you want to verify it.'
+                            : 'Anyone can scan this QR code to check your credential’s status'}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -164,7 +173,7 @@ export default function QRCodeModal({ open, onClose, credential }: QRCodeModalPr
 
                     <div className="space-y-1.5">
                         <label htmlFor="verification-link-input" className="text-xs font-medium text-foreground">
-                            Verification Link
+                            {credential?.share_token ? 'Share Link' : 'Verification Link'}
                         </label>
                         <div className="flex min-w-0 gap-2">
                             <Input

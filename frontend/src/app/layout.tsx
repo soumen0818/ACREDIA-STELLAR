@@ -21,7 +21,7 @@ export const metadata: Metadata = {
         template: '%s | Acredia',
     },
     description:
-        'Secure, tamper-proof academic credentials powered by Stellar blockchain and IPFS.',
+        'Secure, tamper-proof academic credentials anchored on the Stellar blockchain.',
     keywords: [
         'academic credentials',
         'blockchain verification',
@@ -39,7 +39,7 @@ export const metadata: Metadata = {
     openGraph: {
         title: 'Acredia - Blockchain Academic Credentials',
         description:
-            'Secure, tamper-proof academic credentials powered by Stellar blockchain and IPFS.',
+            'Secure, tamper-proof academic credentials anchored on the Stellar blockchain.',
         url: getSiteUrl(),
         siteName: 'Acredia',
         images: [
@@ -57,7 +57,7 @@ export const metadata: Metadata = {
         card: 'summary_large_image',
         title: 'Acredia - Blockchain Academic Credentials',
         description:
-            'Secure, tamper-proof academic credentials powered by Stellar blockchain and IPFS.',
+            'Secure, tamper-proof academic credentials anchored on the Stellar blockchain.',
         images: ['/logo.png'],
         creator: '@acredia',
     },

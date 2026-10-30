@@ -27,7 +27,6 @@ It complements, and does not replace:
 | [ops/runbook.md](./runbook.md) | Signals, dashboards and alert thresholds that *start* an incident |
 | [owner-key-custody.md](../owner-key-custody.md) | The 2-of-3 owner multisig and its signing procedure |
 | [ops/ttl-keeper-runbook.md](./ttl-keeper-runbook.md) | Keeper failures and archived-credential restore |
-| [ops/pin-redundancy.md](./pin-redundancy.md) | IPFS pin health and repair |
 | [support-procedures.md](../support-procedures.md) | Account recovery identity checks — a different problem |
 
 ---
@@ -65,8 +64,8 @@ monitored on a best-effort basis only.
 
 | Source | Examples | Notes |
 |---|---|---|
-| Automated alerts | Exception spikes, uptime failures, IPFS errors, retention purge failures ([runbook.md](./runbook.md#alerts)); keeper `failed`/`partial`/`lowBalance` ([keeper runbook](./ttl-keeper-runbook.md)) | Thresholds live in those documents, not here. |
-| On-chain events | An `iss_auth`, `own_xfer`, `upg_prop`, `paused`, `unpaused` or `cred_rev_owner` event **nobody filed a request for** | Every owner-gated call requires a written request first ([custody §2.3](../owner-key-custody.md#23-what-counts-as-an-authorized-use)). An unrequested owner event is an incident, full stop. |
+| Automated alerts | Exception spikes, uptime failures, retention purge failures ([runbook.md](./runbook.md#alerts)); keeper `failed`/`partial`/`lowBalance` ([keeper runbook](./ttl-keeper-runbook.md)) | Thresholds live in those documents, not here. |
+| On-chain events | An `issuer_authorized`, `owner_transfer_proposed`, `upgrade_proposed`, `paused`, `unpaused` or `credential_revoked_by_owner` event **nobody filed a request for** | Every owner-gated call requires a written request first ([custody §2.3](../owner-key-custody.md#23-what-counts-as-an-authorized-use)). An unrequested owner event is an incident, full stop. |
 | Institutions | Their POC reports issuance failures, a lost or compromised issuer wallet, or credentials they did not issue | Via `/contact` or their direct Acredia contact. |
 | Verifiers and students | "This credential says verified but the institution says it never issued it"; "verification is down" | Via `/contact` or GitHub issues. |
 | Security researchers | A vulnerability report | Must arrive privately — see [§11](#11-prerequisites-before-this-plan-is-live): `SECURITY.md` does not yet name a private channel. |
@@ -82,9 +81,9 @@ that is down.
 
 | Level | Definition | Ack target | Update cadence | Examples in Acredia |
 |---|---|---|---|---|
-| **SEV1 — Critical** | Credential trust is broken or the owner key is not under our control. | 15 min | Every 60 min | • Owner key compromised (§7.1) — two of three multisig keys, or the single testnet owner key.<br>• A fraudulent issuer authorized (§7.4).<br>• An unrequested `upg_prop`, `own_xfer` or `cred_rev_owner` on-chain.<br>• Verification returns `verified` for a revoked or forged credential. |
-| **SEV2 — Major** | A core function is down, or trust will break within days if nothing is done. | 30 min | Every 2 h | • Public verification down — Soroban RPC outage returns 503 `chain_unavailable`, Supabase outage returns 500 (§7.3).<br>• Credentials approaching on-chain expiry: keeper failing with `minRemainingTtlLedgers` low, or any entry archived (§7.2).<br>• One owner multisig key compromised (2-of-3 still holds).<br>• An institution's issuer wallet compromised.<br>• Issuance failing for all institutions. |
-| **SEV3 — Minor** | Degraded, with a workaround or a comfortable margin. | 4 business hours | Daily | • IPFS/Pinata outage — verification still answers from the chain, document integrity reports `unavailable` (§7.3).<br>• One failed keeper run with ample TTL margin.<br>• Retention purge failed (privacy policy at risk if it persists beyond 48 h — escalate to SEV2 then).<br>• Rate limiter fell back to in-memory mode. |
+| **SEV1 — Critical** | Credential trust is broken or the owner key is not under our control. | 15 min | Every 60 min | • Owner key compromised (§7.1) — two of three multisig keys, or the single testnet owner key.<br>• A fraudulent issuer authorized (§7.4).<br>• An unrequested `upgrade_proposed`, `owner_transfer_proposed` or `credential_revoked_by_owner` on-chain.<br>• Verification returns `verified` for a revoked or forged credential. |
+| **SEV2 — Major** | A core function is down, or trust will break within days if nothing is done. | 30 min | Every 2 h | • Public verification down — Soroban RPC outage returns 503 `chain_unavailable`; a Supabase outage takes down share pages, sign-in and issuance (§7.3).<br>• Credentials approaching on-chain expiry: keeper failing with `minRemainingTtlLedgers` low, or any entry archived (§7.2).<br>• One owner multisig key compromised (2-of-3 still holds).<br>• An institution's issuer wallet compromised.<br>• Issuance failing for all institutions. |
+| **SEV3 — Minor** | Degraded, with a workaround or a comfortable margin. | 4 business hours | Daily | • Supabase Storage outage — status checks and share pages still answer, but documents cannot be opened (§7.3).<br>• One failed keeper run with ample TTL margin.<br>• Retention purge failed (privacy policy at risk if it persists beyond 48 h — escalate to SEV2 then).<br>• Rate limiter fell back to in-memory mode. |
 | **SEV4 — Low** | Cosmetic or single-user, no trust impact. | Next business day | On resolution | A single institution's UI error; a broken docs link. |
 
 When unsure between two levels, pick the higher one. Downgrading later is free.
@@ -107,7 +106,7 @@ execute alone — the IC must still agree before they do.
 | `pause` | Blocks `issue_credential`, `batch_issue_credential`, `revoke_credential`, `admin_revoke_credential` for everyone (`ContractPaused`). | Stop owner governance (`authorize_issuer`, `revoke_issuer`, ownership transfer, upgrades, `unpause`); stop reads, verification or `bump_credential`. | See §6. | Yes — `unpause`. |
 | `unpause` | Restores the four calls above. | — | IC + two key holders (§6.5). | Yes — `pause`. |
 | `revoke_issuer(issuer)` | That issuer can no longer issue. Indexer marks the institution `suspended`; verifiers then see `issuerStatus: "revoked"`. | Revoke any credential already issued — they still verify as **verified** (with the issuer flagged). Works while paused. | IC + two key holders. | Yes — `authorize_issuer`. |
-| `admin_revoke_credential(token_id)` | Revokes one credential over the issuer's head; emits `cred_rev_owner`; verifiers see it as a *platform* revocation within ~45 s ([ADR 0004](../decisions/0004-owner-credential-revocation-override.md)). | Work while paused. | IC + two key holders, per credential list reviewed by both. | **No.** Revocation is permanent. |
+| `admin_revoke_credential(token_id)` | Revokes one credential over the issuer's head; emits `credential_revoked_by_owner`; verifiers see it as a *platform* revocation within ~45 s ([ADR 0004](../decisions/0004-owner-credential-revocation-override.md)). | Work while paused. | IC + two key holders, per credential list reviewed by both. | **No.** Revocation is permanent. |
 | `cancel_upgrade` | Removes a pending upgrade proposal before its ~7-day timelock ends ([ADR 0005](../decisions/0005-upgrade-timelock.md)). | Undo an upgrade already executed. | IC + two key holders. | Re-propose. |
 | `transfer_owner` → `accept_owner` | Moves ownership to a new account (key rotation). | Take effect until the new owner accepts. | Two key holders not suspected of compromise. | Yes, by another transfer. |
 
@@ -158,7 +157,7 @@ All of these hold:
 |---|---|---|
 | One known fraudulent issuer | `revoke_issuer` stops them alone, and works while paused. Pausing also blocks the `admin_revoke_credential` calls you will need next. | §7.4 |
 | Owner key compromised | The attacker holds the same authority and can `unpause`. | §7.1 |
-| Verification down (RPC/IPFS) | Pause changes nothing about reads. | §7.3 |
+| Verification down (RPC or Supabase) | Pause changes nothing about reads. | §7.3 |
 | Credentials expiring | The keeper keeps working while paused; pause does not help. | §7.2 |
 | You need to revoke credentials right now | Pause **blocks** revocation. | Revoke first, pause after if still needed. |
 
@@ -225,11 +224,11 @@ device, or Horizon shows unexpected signer changes on the owner account.
    (all owner events since the suspected exposure), notify institutions, and
    follow [custody §3.2](../owner-key-custody.md#32-two-keys-compromised-simultaneously)
    — recovery may mean a new contract and a public migration.
-5. If an `upg_prop` is pending that we did not file: `cancel_upgrade` if we
+5. If an `upgrade_proposed` is pending that we did not file: `cancel_upgrade` if we
    still control the owner, and in any case **announce it publicly** — the
    ~7-day timelock exists so verifiers can stop relying on the contract before
    unknown code goes live.
-6. Review every `iss_auth` and `cred_rev_owner` since the suspected exposure;
+6. Review every `issuer_authorized` and `credential_revoked_by_owner` since the suspected exposure;
    treat unrequested ones as §7.4.
 
 ### 7.2 Credentials expiring on-chain — SEV2
@@ -249,33 +248,32 @@ credential as "not found".
    Do not conclude a credential is gone from a single failed read.
 5. Do **not** pause; it does not help.
 
-### 7.3 Verification down — RPC or IPFS outage
+### 7.3 Verification down — RPC or Supabase outage
 
 **Soroban RPC down (SEV2):** `/api/verify` returns 503 `chain_unavailable`;
 issuance also fails. Confirm against the provider's status page, then switch
 `NEXT_PUBLIC_SOROBAN_RPC_URL` (and Horizon if needed) to a known-good provider
 and **redeploy**. Switch back once the primary recovers, again with a redeploy.
 
-**IPFS/Pinata down (SEV3):** verification still answers from the chain;
-document integrity shows `unavailable`. Follow
-[pin-redundancy.md](./pin-redundancy.md). Escalate to SEV2 if issuance is
-blocked for more than a few hours, since new credentials cannot be pinned.
+**Supabase Storage down (SEV3):** status checks and share pages still answer;
+documents cannot be opened, and issuance fails because documents cannot be
+uploaded. Escalate to SEV2 if issuance is blocked for more than a few hours.
 
-**Supabase down (SEV2):** sign-in and issuance fail, and so does public
-verification — `/api/verify` reads the credential index first and returns 500
-on a database error, even though the chain is healthy. Track the provider's
+**Supabase down (SEV2):** sign-in, issuance and share pages fail. Status checks
+by token ID (`/api/verify`) still answer from the chain, without institution
+names, unless the caller sends an API key (the key lookup needs the database). Track the provider's
 status; there is no alternative database to fail over to. Point verifiers who
 cannot wait at the contract's `verify_credential` on a block explorer.
 
 ### 7.4 A fraudulent issuer authorized — SEV1
 
-**Detect:** an unrequested `iss_auth` event, an institution reporting
+**Detect:** an unrequested `issuer_authorized` event, an institution reporting
 credentials it did not issue, or a verifier report.
 
 1. Declare SEV1. **Do not pause** (§6.2).
 2. `revoke_issuer(<address>)` — stops further issuance by that address and
    works whether or not the contract is paused.
-3. **List everything they issued**: `cred_iss` events whose data names the
+3. **List everything they issued**: `credential_issued` events whose data names the
    issuer, cross-checked with
    `SELECT token_id FROM credentials WHERE issuer_wallet_address = '<address>';`.
    The chain is authoritative, but Stellar RPC `getEvents` only keeps recent
@@ -373,7 +371,7 @@ This plan is decided; these pieces of it are not yet in place.
 
 - [ ] On-call roster and contact details recorded in the internal security registry.
 - [ ] A paging tool provisioned, with [runbook.md](./runbook.md#alerts) alerts and the keeper's independent monitor routed to it.
-- [ ] On-chain event monitoring that pages on `iss_auth`, `own_xfer`, `upg_prop`, `paused`, `unpaused` and `cred_rev_owner` — today these are only noticed if someone looks.
+- [ ] On-chain event monitoring that pages on `issuer_authorized`, `owner_transfer_proposed`, `upgrade_proposed`, `paused`, `unpaused` and `credential_revoked_by_owner` — today these are only noticed if someone looks.
 - [ ] A hosting and monitoring decision for the indexer (`npm run indexer`): verifiers' `issuerStatus` depends on it, and it has no documented home.
 - [ ] A private security-report channel named in `SECURITY.md` (e.g. GitHub private vulnerability reporting). `SECURITY.md` also refers to a `SECRETS_ROTATION.md` that does not exist.
 - [ ] A public status page (Issue 26); until then, §8.1.

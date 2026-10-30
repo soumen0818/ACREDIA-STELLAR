@@ -16,19 +16,21 @@ function fakeServer(transaction: unknown) {
     } as any;
 }
 
+// The contract's `issuer_authorized` event: the issuer is a topic and the
+// data an empty map (contracts/test_snapshots record this shape).
 function authEvent(wallet = walletAddress, contract = contractId) {
     return {
         contractId: contract,
-        topics: ['iss_auth'],
-        data: wallet,
+        topics: ['issuer_authorized', wallet],
+        data: {},
     } as any;
 }
 
-function xdrAuthEvent(wallet = walletAddress, contract = contractId) {
+function xdrAuthEvent(wallet = walletAddress, contract = contractId, name = 'issuer_authorized') {
     const contractBytes = StrKey.decodeContract(contract);
     const body = new xdr.ContractEventV0({
-        topics: [xdr.ScVal.scvSymbol('iss_auth')],
-        data: new Address(wallet).toScVal(),
+        topics: [xdr.ScVal.scvSymbol(name), new Address(wallet).toScVal()],
+        data: xdr.ScVal.scvMap([]),
     });
 
     return new xdr.ContractEvent({
@@ -77,6 +79,38 @@ describe('admin authorization transaction verification', () => {
             transactionHash,
             contractId,
         });
+    });
+
+    it('no longer accepts the previous contract’s iss_auth event', async () => {
+        const oldEvent = new xdr.ContractEvent({
+            ext: xdr.ExtensionPoint.v0(),
+            contractId: new xdr.ContractId(StrKey.decodeContract(contractId)),
+            type: xdr.ContractEventType.contract,
+            body: xdr.ContractEventBody.v0(
+                new xdr.ContractEventV0({
+                    topics: [xdr.ScVal.scvSymbol('iss_auth')],
+                    data: new Address(walletAddress).toScVal(),
+                }),
+            ),
+        }) as any;
+
+        const result = await verifyAdminAuthorizationTransaction(walletAddress, transactionHash, {
+            contractId,
+            server: fakeServer(successTransaction(oldEvent)),
+            isAuthorizedIssuerOnChain: vi.fn(async () => true),
+        });
+
+        expect(result).toMatchObject({ ok: false, code: 'wrong-contract' });
+    });
+
+    it('rejects an issuer_authorized event for a different wallet in XDR form', async () => {
+        const result = await verifyAdminAuthorizationTransaction(walletAddress, transactionHash, {
+            contractId,
+            server: fakeServer(successTransaction(xdrAuthEvent(otherWalletAddress))),
+            isAuthorizedIssuerOnChain: vi.fn(async () => true),
+        });
+
+        expect(result).toMatchObject({ ok: false, code: 'wrong-wallet' });
     });
 
     it('rejects invalid wallet addresses before fetching Stellar RPC', async () => {

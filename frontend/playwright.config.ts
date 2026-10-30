@@ -11,10 +11,11 @@ const webServerEnv = {
     NEXT_PUBLIC_HORIZON_URL: 'https://horizon-testnet.stellar.org',
     NEXT_PUBLIC_SOROBAN_RPC_URL: 'https://soroban-testnet.stellar.org',
     NEXT_PUBLIC_NETWORK_PASSPHRASE: 'Test SDF Network ; September 2015',
-    PINATA_JWT: 'placeholder-pinata-jwt',
-    NEXT_PUBLIC_PINATA_GATEWAY: 'https://gateway.pinata.cloud',
     NEXT_PUBLIC_ENABLE_DEBUG_LOGS: 'false',
     ADMIN_EMAIL_ALLOWLIST: 'admin@acredia.test',
+    // Enables E2E test mode (fake session, signer and ledger) for this dev
+    // server only; it can never be on in a production build (src/lib/e2e.ts).
+    NEXT_PUBLIC_E2E: 'true',
 };
 
 // Deliberately not 3000: that port is shared with roughly every other web

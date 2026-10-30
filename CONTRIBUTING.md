@@ -43,7 +43,7 @@ Copy-Item .env.local.example .env.local
 npm run dev
 ```
 
-Fill `frontend\.env.local` before testing flows that use Supabase, Pinata/IPFS, Stellar, or admin APIs. The canonical variable names live in `frontend/.env.local.example`.
+Fill `frontend\.env.local` before testing flows that use Supabase, Stellar, or admin APIs. The canonical variable names live in `frontend/.env.local.example`.
 
 For contract deployment work only:
 
@@ -63,7 +63,7 @@ frontend/sql/secure_rls_migration.sql
 
 ## Production Safety
 
-- Keep `SUPABASE_SERVICE_ROLE_KEY`, `PINATA_JWT`, and Stellar secret keys server-only.
+- Keep `SUPABASE_SERVICE_ROLE_KEY`, `VERIFICATION_LOG_HASH_SECRET`, and Stellar secret keys server-only.
 - Do not put secrets in `NEXT_PUBLIC_*` variables.
 - Do not paste real secrets into screenshots, logs, browser code, pull requests, or issues.
 - Verify contract IDs on Stellar Expert before using them in production.
@@ -99,7 +99,8 @@ Issues missing setup steps, labels/area, or file paths may be closed until enoug
 
 These are the parts of the codebase that are already done right. Every pull request is reviewed against them, and a PR that weakens one of them will be asked to change, even if its tests pass.
 
-- **Verification trusts the chain, not the database.** `frontend/src/app/api/verify/[token]/route.ts` re-hashes database metadata against the on-chain `credential_hash`, checks IPFS integrity separately, and treats a credential as revoked if *either* the chain or the database says so. Do not add a code path where editing a database row can make a credential verify or un-revoke it.
+- **Verification trusts the chain, not the database.** Status checks (`frontend/src/app/api/verify/[token]/route.ts`) read existence, revocation, expiry and issuer authorization from the contract only (`frontend/src/lib/contractReads.ts` never touches the database). The share page (`frontend/src/lib/sharedCredential.ts`) re-hashes the stored credential against the on-chain `credential_hash` and displays only fields that hash covers. Do not add a code path where editing a database row can make a credential verify, un-revoke it, or change what it shows.
+- **A token ID shows status only.** Who holds a credential and what it certifies are visible only through the holder's share link. Do not add holder data to `/api/verify` or to any page addressed by token ID.
 - **Runtime config fails fast.** `frontend/src/lib/runtimeConfig.ts` refuses known testnet contract IDs on mainnet, requires an explicit network in production, and blocks secrets from `NEXT_PUBLIC_*`. New environment variables go through `runtimeConfig`, not raw `process.env` reads, and must keep these guarantees.
 - **No hardcoded network values.** Explorer URLs, Horizon/RPC endpoints and passphrases come from `runtimeConfig.stellar` (for example `explorerBaseUrl`). Never write `testnet` or `public` into a URL in a component.
 - **Contract governance stays intact.** Two-step ownership (`transfer_owner` → `accept_owner`), the timelocked upgrade (`propose_upgrade` → `upgrade`), `pause`, typed `ContractError` returns, the bounded `MAX_BATCH_SIZE`, and TTL management are deliberate. Changes to any of them need an issue, an explanation, and tests. Behaviour changes to `contracts/src/lib.rs` must add or update unit tests, and property tests where an invariant is involved.

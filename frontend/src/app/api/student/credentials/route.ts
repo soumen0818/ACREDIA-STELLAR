@@ -19,7 +19,9 @@ const STUDENT_CREDENTIALS_RATE_LIMIT = {
 type CredentialRow = {
     id: string;
     token_id: string;
-    ipfs_hash: string;
+    share_token: string | null;
+    document_sha256: string | null;
+    expires_at: string | null;
     blockchain_hash: string;
     metadata: unknown;
     metadata_schema_version: number | null;
@@ -91,8 +93,8 @@ export async function GET(request: NextRequest) {
         let query = supabase
             .from('credentials')
             .select(
-                `id, token_id, ipfs_hash, blockchain_hash, metadata, metadata_schema_version, hash_algorithm,
-                 issued_at, revoked, institution:institutions(name)`,
+                `id, token_id, share_token, document_sha256, expires_at, blockchain_hash, metadata,
+                 metadata_schema_version, hash_algorithm, issued_at, revoked, institution:institutions(name)`,
                 { count: 'exact' }
             )
             .eq('student_id', studentRow.id)

@@ -36,6 +36,9 @@ function seedState(overrides: Partial<E2eState> = {}): E2eState {
         ...overrides,
     };
 
+    // E2E mode is a build-time switch (src/lib/e2e.ts); declare an E2E build
+    // the way Playwright's dev server does.
+    vi.stubEnv('NEXT_PUBLIC_E2E', 'true');
     vi.stubGlobal('window', {
         __ACREDIA_E2E__: state,
         sessionStorage: { setItem: vi.fn() },
@@ -46,6 +49,7 @@ function seedState(overrides: Partial<E2eState> = {}): E2eState {
 
 afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
 });
 
 describe('isAuthorizedInE2eState', () => {

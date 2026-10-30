@@ -67,15 +67,6 @@ const nextConfig: NextConfig = {
         return config;
     },
 
-    images: {
-        remotePatterns: [
-            { protocol: 'https', hostname: 'gateway.pinata.cloud' },
-            { protocol: 'https', hostname: '**.ipfs.dweb.link' },
-            { protocol: 'https', hostname: 'ipfs.io' },
-            { protocol: 'https', hostname: 'res.cloudinary.com' },
-        ],
-    },
-
     experimental: {
         // Optimize package imports
         optimizePackageImports: ['@radix-ui/react-icons', 'lucide-react'],

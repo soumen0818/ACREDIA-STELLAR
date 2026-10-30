@@ -53,9 +53,9 @@ const architecture = [
     },
     {
         icon: Database,
-        title: 'IPFS Storage',
+        title: 'Private Document Storage',
         description:
-            'Credential documents are pinned to IPFS for durable, decentralized, content-addressed storage.',
+            'Credential documents are stored privately and fingerprinted on-chain, so anyone given a share link can prove a document is the one issued.',
     },
     {
         icon: KeyRound,

@@ -16,7 +16,15 @@ interface OgCredential {
     institution: { name?: string } | { name?: string }[] | null;
 }
 
-async function fetchCredential(tokenId: string): Promise<OgCredential | null> {
+// The page is addressed by the holder's share token (review §3.11b). Inlined
+// rather than imported from sharedCredential.ts to keep this Edge bundle small.
+const SHARE_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+async function fetchCredential(shareToken: string): Promise<OgCredential | null> {
+    if (!SHARE_TOKEN.test(shareToken)) {
+        return null;
+    }
+
     const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -30,7 +38,7 @@ async function fetchCredential(tokenId: string): Promise<OgCredential | null> {
     const url =
         `${baseUrl}/rest/v1/credentials` +
         `?select=${encodeURIComponent(select)}` +
-        `&token_id=eq.${encodeURIComponent(tokenId)}&limit=1`;
+        `&share_token=eq.${encodeURIComponent(shareToken)}&limit=1`;
 
     const response = await fetch(url, {
         headers: {
@@ -65,7 +73,7 @@ export default async function Image({
     params: Promise<{ token: string }>;
 }) {
     const { token } = await params;
-    const cleanToken = token?.trim() || '';
+    const cleanToken = token?.trim().toLowerCase() || '';
 
     let degree = 'Academic Credential';
     let institutionName = 'Authorized Institution';

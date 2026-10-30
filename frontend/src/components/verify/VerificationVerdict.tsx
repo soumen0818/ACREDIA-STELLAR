@@ -1,9 +1,15 @@
 'use client';
 
-import { AlertCircle, CheckCircle2, HelpCircle, ShieldOff } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, Clock, HelpCircle, ShieldOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type VerdictKind = 'verified' | 'revoked' | 'not-found' | 'unavailable';
+export type VerdictKind =
+    | 'verified'
+    | 'revoked'
+    | 'expired'
+    | 'mismatch'
+    | 'not-found'
+    | 'unavailable';
 
 interface VerdictConfig {
     icon: typeof CheckCircle2;
@@ -21,7 +27,7 @@ const VERDICTS: Record<VerdictKind, VerdictConfig> = {
         container: 'border-success/30 bg-success/8',
         chip: 'bg-success/12 text-success',
         title: 'Credential Verified ✓',
-        line: 'This credential is authentic, valid, and secured on the blockchain.',
+        line: 'This credential is recorded on the Stellar ledger and is currently valid.',
     },
     revoked: {
         icon: ShieldOff,
@@ -29,6 +35,20 @@ const VERDICTS: Record<VerdictKind, VerdictConfig> = {
         chip: 'bg-warning/15 text-warning',
         title: 'Credential Revoked',
         line: 'This credential has been revoked and should no longer be relied on.',
+    },
+    expired: {
+        icon: Clock,
+        container: 'border-warning/30 bg-warning/8',
+        chip: 'bg-warning/15 text-warning',
+        title: 'Credential Expired',
+        line: 'This credential has passed its expiry date and is no longer valid.',
+    },
+    mismatch: {
+        icon: AlertTriangle,
+        container: 'border-destructive/30 bg-destructive/8',
+        chip: 'bg-destructive/12 text-destructive',
+        title: 'Details Could Not Be Verified',
+        line: 'The details Acredia holds for this credential do not match the record on the Stellar ledger, so they are not shown. Do not rely on any copy of them.',
     },
     'not-found': {
         icon: AlertCircle,

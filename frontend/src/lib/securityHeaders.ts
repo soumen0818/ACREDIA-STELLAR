@@ -1,3 +1,5 @@
+import { runtimeConfig } from './runtimeConfig';
+
 export interface SecurityHeader {
     key: string;
     value: string;
@@ -19,7 +21,7 @@ export interface SecurityHeader {
 // development, because Next.js's dev-mode HMR/react-refresh runtime relies on
 // eval(); it is never present in the production policy.
 //
-// When adding a new external integration (image CDN, API endpoint, IPFS gateway,
+// When adding a new external integration (image CDN, API endpoint,
 // wallet provider, etc.):
 //
 // 1. Add the domain to the relevant directive below:
@@ -42,30 +44,67 @@ export interface SecurityHeader {
 // so it is accepted rather than nonce'd.
 // ──────────────────────────────────────────────────────────────────────────────
 
-export function buildCspDirectives(nonce: string, isProduction: boolean): Record<string, string> {
+/**
+ * The deployment-specific origins the CSP must allow (review §3.7): the
+ * Supabase project (database, auth, realtime, private document storage) and
+ * the active network's Stellar endpoints. Only the configured network is
+ * allowed, so a mainnet build never trusts testnet endpoints.
+ */
+export interface CspEndpoints {
+    supabaseUrl: string;
+    horizonUrl: string;
+    sorobanRpcUrl: string;
+}
+
+function cspEndpointsFromConfig(): CspEndpoints {
+    return {
+        supabaseUrl: runtimeConfig.supabase.url,
+        horizonUrl: runtimeConfig.stellar.horizonUrl,
+        sorobanRpcUrl: runtimeConfig.stellar.sorobanRpcUrl,
+    };
+}
+
+/** The origin of `url`, or null for an empty or malformed value. */
+function originOf(url: string): string | null {
+    try {
+        return new URL(url).origin;
+    } catch {
+        return null;
+    }
+}
+
+export function buildCspDirectives(
+    nonce: string,
+    isProduction: boolean,
+    endpoints: CspEndpoints = cspEndpointsFromConfig(),
+): Record<string, string> {
+    const supabase = originOf(endpoints.supabaseUrl);
+    const connect = [
+        "'self'",
+        supabase,
+        // Supabase Realtime.
+        supabase?.replace(/^https:/, 'wss:'),
+        originOf(endpoints.horizonUrl),
+        originOf(endpoints.sorobanRpcUrl),
+        'https://relay.walletconnect.com wss://relay.walletconnect.com',
+        'https://relay.walletconnect.org wss://relay.walletconnect.org',
+        'https://pulse.walletconnect.com https://explorer-api.walletconnect.com',
+        'https://verify.walletconnect.com https://verify.walletconnect.org',
+    ].filter((value, index, all): value is string => Boolean(value) && all.indexOf(value) === index);
+
     return {
         'default-src': "'self'",
         'script-src':
             `'self' 'nonce-${nonce}' 'strict-dynamic'` + (isProduction ? '' : " 'unsafe-eval'"),
         'style-src': "'self' 'unsafe-inline'",
+        // Wallet icons only. Credential documents open as blob: URLs after
+        // the browser has checked their hash (review §3.11b).
         'img-src':
             "'self' data: blob: " +
-            'tse1.mm.bing.net tse3.mm.bing.net tse4.mm.bing.net ' +
-            'www.scholarshipregion.com ' +
-            'gateway.pinata.cloud ipfs.io *.ipfs.dweb.link res.cloudinary.com ' +
             'https://stellar.creit.tech https://explorer-api.walletconnect.com ' +
             'https://walletconnect.org https://walletconnect.com https://uni.onekey-asset.com',
-        'media-src': "'self' gateway.pinata.cloud ipfs.io *.ipfs.dweb.link res.cloudinary.com",
-        'connect-src':
-            "'self' " +
-            '*.supabase.co ' +
-            'https://horizon-testnet.stellar.org https://soroban-testnet.stellar.org ' +
-            'https://horizon.stellar.org https://mainnet.sorobanrpc.com ' +
-            'https://gateway.pinata.cloud https://ipfs.io https://api.pinata.cloud ' +
-            'https://relay.walletconnect.com wss://relay.walletconnect.com ' +
-            'https://relay.walletconnect.org wss://relay.walletconnect.org ' +
-            'https://pulse.walletconnect.com https://explorer-api.walletconnect.com ' +
-            'https://verify.walletconnect.com https://verify.walletconnect.org',
+        'media-src': "'self'",
+        'connect-src': connect.join(' '),
         // Albedo embeds its intent UI; WalletConnect verifies app origins.
         'frame-src':
             "'self' https://albedo.link https://verify.walletconnect.com https://verify.walletconnect.org",

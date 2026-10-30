@@ -3,13 +3,10 @@
     "p50": 10,
     "p95": 25
   },
-  "ipfsFile": {
+  "documentUpload": {
     "p50": 5,
-    "p95": 20
-  },
-  "ipfsJson": {
-    "p50": 5,
-    "p95": 20
+    "p95": 20,
+    "capturedAt": "2026-10-30"
   },
   "samples": 25,
   "capturedAt": "2026-07-27"

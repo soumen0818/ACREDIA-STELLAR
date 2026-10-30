@@ -44,6 +44,7 @@ export function createAdminStats(overrides: Partial<E2eAdminStats> = {}): E2eAdm
             resultCounts: {
                 verified: 0,
                 revoked: 0,
+                expired: 0,
                 not_found: 0,
                 chain_unavailable: 0,
                 mismatch: 0,
@@ -320,6 +321,80 @@ export async function installE2eRoutes(page: Page, { team = soloTeam() }: { team
         });
     });
 
+    // The holder's share link (review §3.11b). The E2E ledger has no real
+    // chain, so the fake models a credential whose content matched it.
+    await page.route('**/api/credentials/share/**', async (route) => {
+        const shareToken = new URL(route.request().url()).pathname.split('/').pop() ?? '';
+        const state = await readE2eState(page);
+        const credential =
+            state?.issuedCredentials?.find((entry) => entry.share_token === shareToken) ?? null;
+
+        if (!credential) {
+            await route.fulfill({
+                status: 404,
+                contentType: 'application/json',
+                body: JSON.stringify({ success: false, error: 'Credential not found' }),
+            });
+            return;
+        }
+
+        const data = credential.metadata?.credentialData ?? {};
+        const expiresAt = credential.expires_at ?? null;
+        const status = credential.revoked
+            ? 'revoked'
+            : expiresAt && Date.now() >= Date.parse(expiresAt)
+              ? 'expired'
+              : 'valid';
+
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                credential: {
+                    tokenId: credential.token_id,
+                    status,
+                    issuedAt: credential.issued_at,
+                    expiresAt,
+                    revoked: credential.revoked,
+                    revokedAt: credential.revoked ? credential.issued_at : null,
+                    revocationSource: credential.revoked ? 'issuer' : null,
+                    institutionName: state?.institution?.name ?? 'Acredia Academy',
+                    institutionWallet: credential.issuer_wallet_address,
+                    studentWallet: credential.student_wallet_address,
+                    onChainHash: credential.credential_hash ?? credential.blockchain_hash,
+                    transactionHash: credential.blockchain_hash,
+                    details: {
+                        studentName: data.studentName ?? 'Student',
+                        credentialType: data.credentialType ?? 'diploma',
+                        degree: data.degree ?? 'Degree',
+                        major: data.major ?? null,
+                        gpa: data.gpa ?? null,
+                        issueDate: data.issueDate ?? credential.issued_at.slice(0, 10),
+                        institutionName: state?.institution?.name ?? 'Acredia Academy',
+                        subjects: [],
+                    },
+                    metadata: credential.metadata,
+                    metadataSchemaVersion: null,
+                    hashAlgorithm: null,
+                    document: null,
+                    documentStatus: 'none',
+                },
+                verification: {
+                    verified: status === 'valid',
+                    status,
+                    contentMatches: true,
+                    mismatchReason: null,
+                    revoked: credential.revoked,
+                    expired: status === 'expired',
+                    revocationSource: credential.revoked ? 'issuer' : null,
+                    issuerAuthorized: true,
+                    issuerStatus: 'active',
+                },
+            }),
+        });
+    });
+
     await page.route('**/api/verify/**', async (route) => {
         const token = new URL(route.request().url()).pathname.split('/').pop() ?? '';
         const state = await readE2eState(page);
@@ -334,6 +409,16 @@ export async function installE2eRoutes(page: Page, { team = soloTeam() }: { team
             return;
         }
 
+        // Same shape as the real status-only route (review §3.11b): issuer,
+        // dates and status, nothing about the holder.
+        const expiresAt = credential.expires_at ?? null;
+        const status = credential.revoked
+            ? 'revoked'
+            : expiresAt && Date.now() >= Date.parse(expiresAt)
+              ? 'expired'
+              : 'valid';
+        const revocationSource = credential.revoked ? 'issuer' : null;
+
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -341,32 +426,25 @@ export async function installE2eRoutes(page: Page, { team = soloTeam() }: { team
                 success: true,
                 credential: {
                     tokenId: credential.token_id,
+                    status,
                     issuedAt: credential.issued_at,
+                    expiresAt,
                     revoked: credential.revoked,
                     revokedAt: credential.revoked ? credential.issued_at : null,
+                    revocationSource,
                     institutionName: state?.institution?.name ?? 'Acredia Academy',
-                    credentialType: credential.metadata?.credentialData?.credentialType ?? 'diploma',
-                    degree: credential.metadata?.credentialData?.degree ?? 'Degree',
-                    major: credential.metadata?.credentialData?.major ?? null,
-                    issueDate: credential.metadata?.credentialData?.issueDate ?? null,
-                    studentWallet: credential.student_wallet_address ?? null,
-                    institutionWallet: credential.issuer_wallet_address ?? null,
-                    metadataSchemaVersion: null,
-                    hashAlgorithm: null,
-                    onChainHash: null,
-                    blockchainHash: credential.blockchain_hash ?? null,
-                    ipfsHash: credential.ipfs_hash ?? null,
+                    institutionWallet: credential.issuer_wallet_address,
+                    onChainHash: credential.credential_hash ?? credential.blockchain_hash,
                 },
                 verification: {
-                    verified: !credential.revoked,
+                    verified: status === 'valid',
+                    status,
                     revoked: credential.revoked,
-                    onChainMatch: true,
+                    expired: status === 'expired',
+                    revocationSource,
                     onChainFound: true,
                     issuerAuthorized: true,
-                    issuerStatus: credential.revoked ? 'revoked' : 'active',
-                    // E2E mode has no real IPFS/chain to fetch from — model
-                    // the common happy path (document matches on-chain hash).
-                    integrity: { status: 'match', cidResolved: true },
+                    issuerStatus: 'active',
                 },
             }),
         });

@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { uploadJSONToIPFS } from './ipfs';
+import { expiryDateToTimestamp } from './credentialValidation';
 import {
     batchIssueCredentialOnStellar,
     describeBatchRowError,
@@ -47,7 +47,7 @@ export interface BatchIssuanceSummary {
     remainingRows: CsvCredentialRow[];
 }
 
-export type BatchIssuancePhase = 'validating' | 'uploading-ipfs' | 'signing' | 'saving-db';
+export type BatchIssuancePhase = 'validating' | 'preparing' | 'signing' | 'saving-db';
 
 export interface BatchIssuanceProgress {
     phase: BatchIssuancePhase;
@@ -57,15 +57,16 @@ export interface BatchIssuanceProgress {
     totalChunks: number;
 }
 
-// Pinata is rate-limited and a CSV may have hundreds of rows — cap how many
-// IPFS uploads run at once rather than firing them all simultaneously.
-const IPFS_UPLOAD_CONCURRENCY = 4;
+// Hashing is async (Web Crypto); a CSV may have hundreds of rows, so rows are
+// prepared a few at a time rather than all at once.
+const PREPARE_CONCURRENCY = 4;
 
 interface PreparedRow {
     row: CsvCredentialRow;
     metadata: AcrediaVerifiableCredential;
-    metadataPath: string;
     credentialHash: string;
+    /** Unix seconds, or null when the credential never expires. */
+    expiresAt: number | null;
 }
 
 type PrepareOutcome =
@@ -94,12 +95,13 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * Builds the VC document, validates it, pins it to IPFS, and hashes it for
- * one CSV row — the same pipeline credentialService.ts's issueCredential
- * runs per single credential, minus the source-file upload step (batch
- * import is metadata-only; `evidenceUrl` stands in for an uploaded file).
- * Failures are caught and returned rather than thrown so one bad row doesn't
- * abort every other row's upload running concurrently alongside it.
+ * Builds the VC document, validates it and hashes it for one CSV row — the
+ * same pipeline credentialService.ts's issueCredential runs per single
+ * credential, minus the document upload (batch import is metadata-only;
+ * `evidenceUrl` optionally references a document the institution hosts).
+ * Nothing goes to IPFS: the JSON is stored privately in the database and only
+ * its hash goes on-chain (review §3.11). Failures are caught and returned
+ * rather than thrown so one bad row doesn't abort the others.
  */
 async function prepareRow(row: CsvCredentialRow, context: BatchIssuanceContext): Promise<PrepareOutcome> {
     try {
@@ -116,14 +118,19 @@ async function prepareRow(row: CsvCredentialRow, context: BatchIssuanceContext):
                 institutionWallet: context.institutionWallet,
             },
             runtimeConfig.stellar.explorerBaseUrl,
-            row.evidenceUrl ?? null,
+            row.evidenceUrl
+                ? {
+                      id: row.evidenceUrl,
+                      description: `Source document referenced by ${context.institutionName} at issuance.`,
+                  }
+                : null,
         );
         validateVerifiableCredential(metadata);
 
-        const metadataPath = await uploadJSONToIPFS(metadata);
         const credentialHash = await generateCredentialHash(metadata);
+        const expiresAt = row.expiresAt ? expiryDateToTimestamp(row.expiresAt) : null;
 
-        return { status: 'ready', row, prepared: { row, metadata, metadataPath, credentialHash } };
+        return { status: 'ready', row, prepared: { row, metadata, credentialHash, expiresAt } };
     } catch (error) {
         captureException(error, { context: 'batchCredentialService_prepareRow', rowNumber: row.rowNumber });
         return {
@@ -164,7 +171,8 @@ function buildCredentialInsertPayload(
         institution_id: context.institutionId,
         issuer_wallet_address: context.institutionWallet,
         token_id: tokenId,
-        ipfs_hash: item.metadataPath,
+        ipfs_hash: null,
+        expires_at: item.expiresAt === null ? null : new Date(item.expiresAt * 1000).toISOString(),
         blockchain_hash: transactionHash,
         metadata: item.metadata,
         metadata_schema_version: CREDENTIAL_METADATA_SCHEMA_VERSION,
@@ -191,8 +199,8 @@ function baseReport(row: CsvCredentialRow): BatchIssuanceRowReport {
 /**
  * Orchestrates a full CSV batch issuance:
  *  1. Validate every row up front (validateCsvRows) — rows that fail never
- *     touch IPFS or the contract, so a bad row doesn't waste a batch slot.
- *  2. Build + pin a VC document per valid row (bounded concurrency).
+ *     reach the contract, so a bad row doesn't waste a batch slot.
+ *  2. Build and hash a VC document per valid row (bounded concurrency).
  *  3. Chunk the ready rows to MAX_BATCH_CHUNK_SIZE and submit each chunk as
  *     one batchIssueCredentialOnStellar call — one wallet signature covers
  *     a whole chunk.
@@ -223,11 +231,11 @@ export async function issueBatchCredentials(
     }
 
     let uploadedCount = 0;
-    const outcomes = await mapWithConcurrency(validRows, IPFS_UPLOAD_CONCURRENCY, async (row) => {
+    const outcomes = await mapWithConcurrency(validRows, PREPARE_CONCURRENCY, async (row) => {
         const outcome = await prepareRow(row, context);
         uploadedCount += 1;
         onProgress?.({
-            phase: 'uploading-ipfs',
+            phase: 'preparing',
             processedRows: uploadedCount,
             totalRows: validRows.length,
             currentChunk: 0,
@@ -266,7 +274,7 @@ export async function issueBatchCredentials(
                 chunk.map((item) => ({
                     studentAddress: item.row.studentWalletAddress,
                     credentialHash: item.credentialHash,
-                    ipfsUri: `ipfs://${item.metadataPath}`,
+                    expiresAt: item.expiresAt,
                 })),
                 context.issuer,
             );
@@ -307,13 +315,18 @@ export async function issueBatchCredentials(
         );
 
         if (insertPayloads.length > 0) {
-            const { error: dbError } = await supabase.from('credentials').insert(insertPayloads);
+            // An upsert: the indexer may already have written status-only rows
+            // for these tokens from the chain events (review §3.11c).
+            const { error: dbError } = await supabase
+                .from('credentials')
+                .upsert(insertPayloads, { onConflict: 'token_id' });
             if (dbError) {
                 // The credentials are already valid on-chain even though this
-                // insert failed — keep their report status as success (the
-                // off-chain indexer backfills the row from the `cred_iss`
-                // event as a self-healing fallback) rather than conflating a
-                // DB-write failure with an actual issuance failure.
+                // write failed — keep their report status as success rather
+                // than conflating a DB-write failure with an issuance failure.
+                // The indexer backfills a status-only row from the
+                // `credential_issued` event, but the credential's content is
+                // only in this payload (review §3.11c follow-up).
                 captureException(dbError, { context: 'batchCredentialService_dbInsert', chunkIndex });
             }
 

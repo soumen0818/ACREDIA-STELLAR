@@ -14,7 +14,10 @@ import {
 import { activeNetwork, getContractAddress } from './stellar';
 
 const TX_HASH_PATTERN = /^[a-fA-F0-9]{64}$/;
-const ISSUER_AUTHORIZED_EVENT = 'iss_auth';
+// The contract's typed event (#[contractevent], SDK defaults): topics are
+// `["issuer_authorized", issuer]` and the data is an empty map. The previous
+// contract emitted `iss_auth` with the issuer as data (review §3.8, §3.11c).
+const ISSUER_AUTHORIZED_EVENT = 'issuer_authorized';
 
 export type AuthorizationVerificationFailureCode =
     | 'invalid-wallet'
@@ -189,15 +192,6 @@ function readEventTopics(event: unknown): string[] {
         : [];
 }
 
-function readEventData(event: unknown): string | null {
-    const plainData = (event as { data?: unknown }).data;
-    if (plainData !== undefined) {
-        return scValToComparableString(plainData) ?? String(plainData);
-    }
-
-    return scValToComparableString(readMember(getEventBodyV0(event), 'data') ?? null);
-}
-
 function getContractEvents(transaction: unknown): unknown[] {
     const events = (transaction as { events?: { contractEventsXdr?: unknown } })?.events
         ?.contractEventsXdr;
@@ -233,8 +227,7 @@ function findAuthorizeIssuerEvent(
 
     for (const event of contractEvents) {
         const topics = readEventTopics(event);
-        const isAuthorizeEvent = topics.includes(ISSUER_AUTHORIZED_EVENT);
-        if (!isAuthorizeEvent) {
+        if (topics[0] !== ISSUER_AUTHORIZED_EVENT) {
             continue;
         }
 
@@ -245,7 +238,7 @@ function findAuthorizeIssuerEvent(
         }
 
         sawAuthorizeEventForContract = true;
-        if (readEventData(event) === walletAddress) {
+        if (topics[1] === walletAddress) {
             return null;
         }
     }
@@ -262,7 +255,9 @@ function findAuthorizeIssuerEvent(
         'wrong-contract',
         sawAuthorizeEventForAnotherContract
             ? 'Authorization transaction succeeded on a different contract.'
-            : 'Transaction does not contain an authorize_issuer event for the configured contract.',
+            : 'Transaction does not contain an issuer_authorized event for the configured contract. ' +
+              'Authorizing a wallet that is already authorized changes nothing and emits no event; ' +
+              'check the institution’s current status instead.',
         422,
     );
 }

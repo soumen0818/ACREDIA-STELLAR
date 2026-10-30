@@ -19,12 +19,10 @@ const {
     mockRequireAuthenticatedRequest,
     mockGetServiceRoleClient,
     mockIsTrustedAdminEmail,
-    mockUnpin,
 } = vi.hoisted(() => ({
     mockRequireAuthenticatedRequest: vi.fn(),
     mockGetServiceRoleClient: vi.fn(),
     mockIsTrustedAdminEmail: vi.fn(),
-    mockUnpin: vi.fn(),
 }));
 
 vi.mock('../src/lib/serverAuth', () => ({
@@ -33,7 +31,6 @@ vi.mock('../src/lib/serverAuth', () => ({
     isTrustedAdminEmail: mockIsTrustedAdminEmail,
 }));
 vi.mock('../src/lib/rateLimit', () => ({ enforceRateLimit: vi.fn(async () => null) }));
-vi.mock('../src/lib/ipfsServer', () => ({ unpinFromPinata: mockUnpin }));
 
 import { POST } from '../src/app/api/account/erase/route';
 
@@ -114,15 +111,18 @@ describe('POST /api/account/erase — students delete their own account', () => 
         },
     );
 
-    it('never unpins credential documents: credentials stay verifiable', async () => {
-        // A student with an issued credential: the old route unpinned its
-        // documents before erasing, which broke verification.
-        setup({ credentials: [{ id: 'c1', student_id: 'student-1', ipfs_hash: 'bafy1' }] });
+    it('never removes credentials or their documents: credentials stay verifiable', async () => {
+        // A student with an issued credential: an old version of this route
+        // unpinned its documents before erasing, which broke verification.
+        // The fake client has no Storage API, so any attempt to delete the
+        // document would also fail this test.
+        const credential = { id: 'c1', student_id: 'student-1', document_path: 'inst-1/doc.pdf' };
+        setup({ credentials: [{ ...credential }] });
 
         const res = await erase();
 
         expect(res.status).toBe(204);
-        expect(mockUnpin).not.toHaveBeenCalled();
+        expect(tables.credentials).toEqual([credential]);
     });
 
     it('stops before deleting the login when process_erasure fails, and marks the request failed', async () => {

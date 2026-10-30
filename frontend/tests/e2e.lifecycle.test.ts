@@ -12,7 +12,6 @@ const {
     mockVerificationLogInsert,
     mockSupabaseMaybeSingle,
     mockRequireAdminRequest,
-    mockFetchJsonFromIpfs,
 } = vi.hoisted(() => ({
     mockIssueCredentialOnStellar: vi.fn(),
     mockGetServiceRoleClient: vi.fn(),
@@ -22,22 +21,14 @@ const {
     mockVerificationLogInsert: vi.fn(),
     mockSupabaseMaybeSingle: vi.fn(),
     mockRequireAdminRequest: vi.fn(),
-    mockFetchJsonFromIpfs: vi.fn(),
 }));
 
-// Mock IPFS methods
-vi.mock('../src/lib/ipfs', () => ({
-    uploadToIPFS: vi.fn(async () => 'mocked-file-cid'),
-    uploadJSONToIPFS: vi.fn(async () => 'mocked-metadata-path'),
-    getIPFSUrl: vi.fn((cid) => `ipfs://${cid}`),
-}));
-
-// Mock the server-side IPFS gateway fetch used by the verify route's
-// end-to-end integrity check (ACREDIA-STELLAR#163). Each verify-route test
-// below sets this to resolve with the same content it expects the CID to
-// hold, so the integrity check's outcome matches what that test is probing.
-vi.mock('../src/lib/ipfsServer', () => ({
-    fetchJsonFromIpfs: mockFetchJsonFromIpfs,
+// Documents go to private storage, not IPFS (review §3.11).
+vi.mock('../src/lib/credentialDocumentUpload', () => ({
+    uploadCredentialDocument: vi.fn(async () => ({
+        path: 'inst-999/diploma.pdf',
+        sha256: 'd'.repeat(64),
+    })),
 }));
 
 // Mock Stellar/Freighter contracts
@@ -56,11 +47,12 @@ vi.mock('../src/lib/serverAuth', () => ({
     requireAdminRequest: mockRequireAdminRequest,
 }));
 
-// Mock contractReads
-vi.mock('../src/lib/contractReads', () => ({
-    getCredential: mockGetCredential,
-    isRevoked: mockIsRevoked,
-    isAuthorizedIssuer: vi.fn().mockResolvedValue(true),
+// Mock the contract reads: verification reads the chain only (review §3.11b).
+vi.mock('../src/lib/contractReads', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../src/lib/contractReads')>()),
+    getCredentialFromChain: mockGetCredential,
+    isRevokedFromChain: mockIsRevoked,
+    isAuthorizedIssuerOnChain: vi.fn().mockResolvedValue(true),
 }));
 
 // Mock Supabase
@@ -72,7 +64,7 @@ vi.mock('../src/lib/supabase', () => ({
                     maybeSingle: mockSupabaseMaybeSingle,
                 })),
             })),
-            insert: mockSupabaseInsert,
+            upsert: mockSupabaseInsert,
         })),
     },
 }));
@@ -86,9 +78,9 @@ import { GET as adminStatsGET } from '../src/app/api/admin/stats/route';
 import {
     CREDENTIAL_HASH_ALGORITHM,
     CREDENTIAL_METADATA_SCHEMA_VERSION,
-    generateCanonicalCredentialHash,
 } from '../src/lib/credentialHash';
 
+/** The verify route reads display labels only: the credential row and the institution name. */
 function mockVerifyRouteClient(credentialResponse: unknown) {
     const mockMaybeSingle = vi.fn().mockResolvedValue(credentialResponse);
     const from = vi.fn((table: string) => {
@@ -101,7 +93,10 @@ function mockVerifyRouteClient(credentialResponse: unknown) {
         return {
             select: vi.fn(() => ({
                 eq: vi.fn(() => ({
-                    maybeSingle: mockMaybeSingle,
+                    maybeSingle:
+                        table === 'institutions'
+                            ? vi.fn().mockResolvedValue({ data: { name: 'Acredia Academy' }, error: null })
+                            : mockMaybeSingle,
                 })),
             })),
         };
@@ -178,20 +173,49 @@ describe('Academic Credential E2E Integration / Lifecycle', () => {
         expect(result).toEqual({
             tokenId: '123',
             transactionHash: 'mocked-transaction-hash',
-            ipfsHash: 'mocked-file-cid',
-            metadataHash: 'mocked-metadata-path',
         });
 
         expect(mockSupabaseInsert).toHaveBeenCalledWith(
             expect.objectContaining({
                 student_wallet_address: mockCredentialData.studentWallet,
                 token_id: '123',
-                ipfs_hash: 'mocked-metadata-path',
+                ipfs_hash: null,
+                document_path: 'inst-999/diploma.pdf',
+                document_sha256: 'd'.repeat(64),
+                expires_at: null,
                 blockchain_hash: 'mocked-transaction-hash',
                 metadata_schema_version: CREDENTIAL_METADATA_SCHEMA_VERSION,
                 hash_algorithm: CREDENTIAL_HASH_ALGORITHM,
                 revoked: false,
             }),
+            // Completes a row the indexer may have written first (review §3.11c).
+            { onConflict: 'token_id' },
+        );
+    });
+
+    it('passes an optional expiry to the contract and stores it', async () => {
+        mockIssueCredentialOnStellar.mockResolvedValue({
+            tokenId: '124',
+            transactionHash: 'mocked-transaction-hash',
+        });
+        mockSupabaseMaybeSingle.mockResolvedValue({
+            data: { id: 'student-db-id-001' },
+            error: null,
+        });
+        mockSupabaseInsert.mockResolvedValue({ data: null, error: null });
+
+        // Valid through 2099-12-31 (UTC) => expires at 2100-01-01T00:00:00Z.
+        await issueCredential({ ...mockCredentialData, expiresAt: '2099-12-31' }, issuerSigner);
+
+        expect(mockIssueCredentialOnStellar).toHaveBeenCalledWith(
+            mockCredentialData.studentWallet,
+            expect.any(String),
+            Date.UTC(2100, 0, 1) / 1000,
+            issuerSigner,
+        );
+        expect(mockSupabaseInsert).toHaveBeenCalledWith(
+            expect.objectContaining({ expires_at: '2100-01-01T00:00:00.000Z' }),
+            { onConflict: 'token_id' },
         );
     });
 
@@ -214,261 +238,83 @@ describe('Academic Credential E2E Integration / Lifecycle', () => {
         expect(mockSupabaseInsert).not.toHaveBeenCalled();
     });
 
-    // ── 3. VERIFICATION SUCCESS ───────────────────────────────────────────────
+    // ── 3–5. STATUS VERIFICATION ─────────────────────────────────────────────
+    // A token ID shows status only, read from the contract (review §3.11b).
+    // Whether a credential's content is the one issued is checked through
+    // the holder's share link, not here.
+    const ISSUER = 'GINSTITUTIONADDRESS12345678901234567890123456789';
+    const issuedOnChain = {
+        tokenId: '123',
+        student: 'GSTUDENTADDRESS123456789012345678901234567890123456789',
+        issuer: ISSUER,
+        hash: 'ab'.repeat(32),
+        issuedAt: 1717146000,
+        expiresAt: null,
+        revoked: false,
+    };
+
+    async function verifyToken(token: string) {
+        const req = new NextRequest(`http://localhost:3000/api/verify/${token}`);
+        const response = await GET(req, { params: Promise.resolve({ token }) });
+        return { response, payload: await response.json() };
+    }
+
     it('covers verification success states', async () => {
-        const dbMetadata = {
-            name: 'diploma - Alice Smith',
-            description: 'Academic credential issued by Acredia Academy to Alice Smith',
-            image: 'ipfs://mocked-file-cid',
-            credentialData: {
-                studentName: 'Alice Smith',
-                studentWallet: 'gstudentaddress123456789012345678901234567890123456789',
-                credentialType: 'diploma',
-                degree: 'Bachelor of Computer Science',
-                institutionName: 'Acredia Academy',
-                issueDate: '2026-05-31',
-            },
-        };
-
-        const expectedHash = await generateCanonicalCredentialHash(dbMetadata);
-
-        // Mock Supabase service role client to return database credential record
         mockVerifyRouteClient({
-            data: {
-                id: 'cred-001',
-                token_id: '123',
-                issued_at: '2026-05-31T09:00:00Z',
-                revoked: false,
-                revoked_at: null,
-                metadata: dbMetadata,
-                metadata_schema_version: CREDENTIAL_METADATA_SCHEMA_VERSION,
-                hash_algorithm: CREDENTIAL_HASH_ALGORITHM,
-                ipfs_hash: 'mocked-metadata-path',
-                student_wallet_address: 'gstudentaddress123456789012345678901234567890123456789',
-                issuer_wallet_address: 'ginstitutionaddress12345678901234567890123456789',
-                institution: {
-                    name: 'Acredia Academy',
-                },
-            },
+            data: { id: 'cred-001', revoked_at: null, revocation_source: null },
             error: null,
         });
-
-        // Mock on-chain query to return matching credential
-        mockGetCredential.mockResolvedValue({
-            student: 'gstudentaddress123456789012345678901234567890123456789',
-            issuer: 'ginstitutionaddress12345678901234567890123456789',
-            hash: expectedHash, // Dynamically matches computed hash
-            uri: 'ipfs://mocked-metadata-path',
-            issued_at: 1717146000,
-        });
-
+        mockGetCredential.mockResolvedValue(issuedOnChain);
         mockIsRevoked.mockResolvedValue(false);
-        mockFetchJsonFromIpfs.mockResolvedValue({ ok: true, content: dbMetadata });
 
-        // Call verify route
-        const req = new NextRequest('http://localhost:3000/api/verify/123');
-        const response = await GET(req, { params: Promise.resolve({ token: '123' }) });
-        const payload = await response.json();
+        const { response, payload } = await verifyToken('123');
 
         expect(response.status).toBe(200);
         expect(payload.success).toBe(true);
         expect(payload.verification.verified).toBe(true);
-        expect(payload.verification.onChainMatch).toBe(true);
-        expect(payload.verification.integrity).toEqual({ status: 'match', cidResolved: true });
+        expect(payload.credential).toMatchObject({
+            status: 'valid',
+            institutionName: 'Acredia Academy',
+            institutionWallet: ISSUER,
+            issuedAt: '2024-05-31T09:00:00.000Z',
+        });
+        expect(payload.credential).not.toHaveProperty('studentWallet');
         expectVerificationLog('verified', 'cred-001');
     });
 
-    // ── 4. VERIFICATION REVOKED ───────────────────────────────────────────────
     it('covers verification revoked states', async () => {
-        const dbMetadata = {
-            credentialData: {
-                studentName: 'Alice Smith',
-                credentialType: 'diploma',
-            },
-        };
-
-        const expectedHash = await generateCanonicalCredentialHash(dbMetadata);
-
-        // Mock Supabase service role client to return active record but marked revoked on-chain
+        // Active in the database, revoked on-chain: the chain wins.
         mockVerifyRouteClient({
-            data: {
-                id: 'cred-001',
-                token_id: '123',
-                issued_at: '2026-05-31T09:00:00Z',
-                revoked: false, // active in DB
-                revoked_at: null,
-                metadata: dbMetadata,
-                metadata_schema_version: CREDENTIAL_METADATA_SCHEMA_VERSION,
-                hash_algorithm: CREDENTIAL_HASH_ALGORITHM,
-                ipfs_hash: 'mocked-metadata-path',
-                student_wallet_address: 'gstudentaddress123456789012345678901234567890123456789',
-                issuer_wallet_address: 'ginstitutionaddress12345678901234567890123456789',
-            },
+            data: { id: 'cred-001', revoked_at: null, revocation_source: null },
             error: null,
         });
-
-        // Mock on-chain query to return matching credential
-        mockGetCredential.mockResolvedValue({
-            student: 'gstudentaddress123456789012345678901234567890123456789',
-            issuer: 'ginstitutionaddress12345678901234567890123456789',
-            hash: expectedHash,
-            uri: 'ipfs://mocked-metadata-path',
-            issued_at: 1717146000,
-        });
-
-        // Revoked on-chain!
+        mockGetCredential.mockResolvedValue(issuedOnChain);
         mockIsRevoked.mockResolvedValue(true);
-        mockFetchJsonFromIpfs.mockResolvedValue({ ok: true, content: dbMetadata });
 
-        const req = new NextRequest('http://localhost:3000/api/verify/123');
-        const response = await GET(req, { params: Promise.resolve({ token: '123' }) });
-        const payload = await response.json();
+        const { response, payload } = await verifyToken('123');
 
         expect(response.status).toBe(200);
         expect(payload.success).toBe(true);
-        expect(payload.verification.verified).toBe(false); // Revoked credential is not verified
+        expect(payload.verification.verified).toBe(false);
         expect(payload.verification.revoked).toBe(true);
-        // Revocation is orthogonal to document integrity: the document
-        // itself hasn't been tampered with, only invalidated by the issuer.
-        expect(payload.verification.integrity).toEqual({ status: 'match', cidResolved: true });
+        expect(payload.credential.status).toBe('revoked');
         expectVerificationLog('revoked', 'cred-001');
     });
 
-    // ── 5. VERIFICATION NOT FOUND ─────────────────────────────────────────────
     it('covers verification not found states', async () => {
-        // Mock Supabase to return null (no matching token ID)
+        // A database row does not make a credential exist: only the chain does.
         mockVerifyRouteClient({
-            data: null,
+            data: { id: 'cred-999', revoked_at: null, revocation_source: null },
             error: null,
         });
-
-        // The database is only an index — a missing row alone no longer means
-        // "not found", because the route falls back to reading the chain
-        // directly (the resilience fix from ACREDIA-STELLAR#232). A genuine
-        // 404 therefore requires BOTH the index and the chain to have nothing.
         mockGetCredential.mockResolvedValueOnce(null);
 
-        const req = new NextRequest('http://localhost:3000/api/verify/999');
-        const response = await GET(req, { params: Promise.resolve({ token: '999' }) });
-        const payload = await response.json();
+        const { response, payload } = await verifyToken('999');
 
         expect(response.status).toBe(404);
         expect(payload.success).toBe(false);
         expect(payload.error).toBe('Credential not found');
         expectVerificationLog('not_found', null);
-    });
-
-    // ── 6. VERIFICATION MISMATCH ──────────────────────────────────────────────
-    it('covers verification mismatch (tampered metadata/hashes) states', async () => {
-        const dbMetadata = {
-            credentialData: {
-                studentName: 'Alice Smith',
-                credentialType: 'diploma',
-            },
-        };
-
-        // Mock Supabase service role client to return valid metadata
-        mockVerifyRouteClient({
-            data: {
-                id: 'cred-001',
-                token_id: '123',
-                issued_at: '2026-05-31T09:00:00Z',
-                revoked: false,
-                revoked_at: null,
-                metadata: dbMetadata,
-                metadata_schema_version: CREDENTIAL_METADATA_SCHEMA_VERSION,
-                hash_algorithm: CREDENTIAL_HASH_ALGORITHM,
-                ipfs_hash: 'mocked-metadata-path',
-                student_wallet_address: 'gstudentaddress123456789012345678901234567890123456789',
-                issuer_wallet_address: 'ginstitutionaddress12345678901234567890123456789',
-            },
-            error: null,
-        });
-
-        // Mock on-chain query to return non-matching credential (e.g. completely different hash)
-        mockGetCredential.mockResolvedValue({
-            student: 'gstudentaddress123456789012345678901234567890123456789',
-            issuer: 'ginstitutionaddress12345678901234567890123456789',
-            hash: 'tampered-or-different-hash-value-1234567890', // Hash Mismatch!
-            uri: 'ipfs://mocked-metadata-path',
-            issued_at: 1717146000,
-        });
-
-        mockIsRevoked.mockResolvedValue(false);
-        // The IPFS-hosted content is the real (untampered) metadata — but the
-        // on-chain hash itself was tampered/replaced, so recomputing from the
-        // fetched document still won't match it.
-        mockFetchJsonFromIpfs.mockResolvedValue({ ok: true, content: dbMetadata });
-
-        const req = new NextRequest('http://localhost:3000/api/verify/123');
-        const response = await GET(req, { params: Promise.resolve({ token: '123' }) });
-        const payload = await response.json();
-
-        expect(response.status).toBe(200);
-        expect(payload.success).toBe(true);
-        expect(payload.verification.verified).toBe(false); // Tampered hash means not verified
-        expect(payload.verification.onChainMatch).toBe(false);
-        expect(payload.verification.integrity).toEqual({ status: 'mismatch', cidResolved: true });
-        expect(payload.verification).not.toHaveProperty('checks');
-        expectVerificationLog('mismatch', 'cred-001');
-        expect(mockVerificationLogInsert).toHaveBeenCalledWith(
-            expect.objectContaining({
-                verification_result: expect.objectContaining({
-                    mismatch_reasons: expect.arrayContaining(['hash', 'ipfs_integrity']),
-                    integrity: { status: 'mismatch', cidResolved: true },
-                }),
-            }),
-        );
-    });
-
-    // ── 6b. VERIFICATION INTEGRITY UNAVAILABLE ────────────────────────────────
-    it('reports integrity as unavailable when the IPFS CID cannot be resolved', async () => {
-        const dbMetadata = {
-            credentialData: {
-                studentName: 'Alice Smith',
-                credentialType: 'diploma',
-            },
-        };
-
-        const expectedHash = await generateCanonicalCredentialHash(dbMetadata);
-
-        mockVerifyRouteClient({
-            data: {
-                id: 'cred-001',
-                token_id: '123',
-                issued_at: '2026-05-31T09:00:00Z',
-                revoked: false,
-                revoked_at: null,
-                metadata: dbMetadata,
-                metadata_schema_version: CREDENTIAL_METADATA_SCHEMA_VERSION,
-                hash_algorithm: CREDENTIAL_HASH_ALGORITHM,
-                ipfs_hash: 'mocked-metadata-path',
-                student_wallet_address: 'gstudentaddress123456789012345678901234567890123456789',
-                issuer_wallet_address: 'ginstitutionaddress12345678901234567890123456789',
-            },
-            error: null,
-        });
-
-        mockGetCredential.mockResolvedValue({
-            student: 'gstudentaddress123456789012345678901234567890123456789',
-            issuer: 'ginstitutionaddress12345678901234567890123456789',
-            hash: expectedHash,
-            uri: 'ipfs://mocked-metadata-path',
-            issued_at: 1717146000,
-        });
-        mockIsRevoked.mockResolvedValue(false);
-        // Gateway timeout / CID unreachable — a transient infra problem, not
-        // evidence of tampering, so this must not be reported as 'mismatch'.
-        mockFetchJsonFromIpfs.mockResolvedValue({ ok: false, reason: 'timeout' });
-
-        const req = new NextRequest('http://localhost:3000/api/verify/123');
-        const response = await GET(req, { params: Promise.resolve({ token: '123' }) });
-        const payload = await response.json();
-
-        expect(response.status).toBe(200);
-        // The on-chain/DB-based checks are unaffected by IPFS reachability.
-        expect(payload.verification.verified).toBe(true);
-        expect(payload.verification.integrity).toEqual({ status: 'unavailable', cidResolved: false });
     });
 
     // ── 7. ROLE-BASED ROUTE ACCESS ────────────────────────────────────────────
@@ -530,6 +376,7 @@ describe('Academic Credential E2E Integration / Lifecycle', () => {
                 resultCounts: {
                     verified: 5,
                     revoked: 5,
+                    expired: 5,
                     not_found: 5,
                     chain_unavailable: 5,
                     mismatch: 5,

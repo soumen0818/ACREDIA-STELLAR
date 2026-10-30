@@ -3,99 +3,53 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { SiteNavbar } from '@/components/marketing/SiteNavbar';
-import {
-    PublicCredentialCard,
-    type PublicCredentialCardData,
-} from '@/components/student/PublicCredentialCard';
+import { PublicCredentialCard } from '@/components/student/PublicCredentialCard';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getE2eState } from '@/lib/e2e';
-import { AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { verdictLine } from '@/components/verify/VerificationReport';
+import { VerificationVerdict } from '@/components/verify/VerificationVerdict';
+import { parseShareResponse, type SharedCredentialView } from '@/lib/sharedCredentialView';
 
 interface CredentialClientViewProps {
+    /** The holder's share token from `/credentials/<share_token>`. */
     token: string;
 }
 
+type LoadState =
+    | { kind: 'loading' }
+    | { kind: 'loaded'; view: SharedCredentialView }
+    | { kind: 'not-found' }
+    | { kind: 'unavailable' };
+
 export function CredentialClientView({ token }: CredentialClientViewProps) {
-    const [loading, setLoading] = useState(true);
-    const [credential, setCredential] = useState<PublicCredentialCardData | null>(null);
-    const [error, setError] = useState<string | null>(null);
+    const [state, setState] = useState<LoadState>({ kind: 'loading' });
 
     useEffect(() => {
         let mounted = true;
 
-        async function fetchPublicCredential() {
-            setLoading(true);
-            setError(null);
+        async function load() {
+            setState({ kind: 'loading' });
+            try {
+                const res = await fetch(`/api/credentials/share/${encodeURIComponent(token)}`);
+                const payload = await res.json().catch(() => null);
+                if (!mounted) return;
 
-            // E2E mock mode fallback
-            const e2eState = getE2eState();
-            if (e2eState?.enabled) {
-                const found = e2eState.issuedCredentials?.find((c) => c.token_id === token);
-                if (found) {
-                    if (mounted) {
-                        setCredential({
-                            tokenId: found.token_id,
-                            studentName: found.metadata?.credentialData?.studentName || 'Student',
-                            degree: found.metadata?.credentialData?.degree || 'Academic Degree',
-                            credentialType:
-                                found.metadata?.credentialData?.credentialType || 'diploma',
-                            institutionName: 'Acredia Academy',
-                            issueDate: found.metadata?.credentialData?.issueDate || '2024-01-01',
-                            revoked: found.revoked,
-                            blockchainHash: found.blockchain_hash,
-                            ipfsHash: found.ipfs_hash,
-                            isPublic: true,
-                        });
-                        setLoading(false);
-                    }
+                if (res.status === 404) {
+                    setState({ kind: 'not-found' });
                     return;
                 }
-            }
-
-            try {
-                const res = await fetch(`/api/verify/${encodeURIComponent(token)}`);
-                const data = await res.json();
-
-                if (!res.ok || !data?.success || !data?.credential) {
-                    throw new Error(data?.error || 'Credential not found.');
+                if (!res.ok || !payload?.success) {
+                    setState({ kind: 'unavailable' });
+                    return;
                 }
-
-                const c = data.credential;
-                if (mounted) {
-                    setCredential({
-                        tokenId: c.tokenId,
-                        studentName: c.studentName || 'Credential Holder',
-                        studentWallet: c.studentWallet || undefined,
-                        degree: c.degree || 'Academic Credential',
-                        credentialType: c.credentialType || 'diploma',
-                        institutionName: c.institutionName || 'Issuing Institution',
-                        issuerWallet: c.institutionWallet || undefined,
-                        issueDate: c.issueDate || '2024-01-01',
-                        revoked: Boolean(c.revoked),
-                        revocationSource: c.revocationSource ?? null,
-                        blockchainHash: c.blockchainHash,
-                        ipfsHash: c.ipfsHash,
-                        onChainHash: c.onChainHash || undefined,
-                        metadataSchemaVersion: c.metadataSchemaVersion ?? undefined,
-                        hashAlgorithm: c.hashAlgorithm || undefined,
-                        isPublic: true,
-                    });
-                }
-            } catch (err) {
-                if (mounted) {
-                    setError(
-                        err instanceof Error
-                            ? err.message
-                            : 'Failed to load public credential.',
-                    );
-                }
-            } finally {
-                if (mounted) setLoading(false);
+                setState({ kind: 'loaded', view: parseShareResponse(token, payload) });
+            } catch {
+                if (mounted) setState({ kind: 'unavailable' });
             }
         }
 
-        void fetchPublicCredential();
+        void load();
 
         return () => {
             mounted = false;
@@ -109,15 +63,13 @@ export function CredentialClientView({ token }: CredentialClientViewProps) {
             <main className="container mx-auto px-4 py-12">
                 <div className="max-w-4xl mx-auto space-y-8">
                     <div className="text-center space-y-2">
-                        <h1 className="text-3xl font-bold text-foreground">
-                            Verified Academic Credential
-                        </h1>
+                        <h1 className="text-3xl font-bold text-foreground">Academic Credential</h1>
                         <p className="text-muted-foreground">
-                            Public credential showcase backed by Stellar blockchain verification
+                            Shared by its holder and checked against the Stellar ledger
                         </p>
                     </div>
 
-                    {loading ? (
+                    {state.kind === 'loading' && (
                         <Card className="p-8 space-y-6">
                             <Skeleton className="h-8 w-2/3" />
                             <Skeleton className="h-4 w-1/3" />
@@ -126,26 +78,47 @@ export function CredentialClientView({ token }: CredentialClientViewProps) {
                                 <Skeleton className="h-16 w-full" />
                             </div>
                         </Card>
-                    ) : error || !credential ? (
-                        <Card className="p-8 text-center space-y-4">
-                            <div className="flex justify-center">
-                                <AlertCircle className="h-12 w-12 text-destructive" />
-                            </div>
-                            <h2 className="text-2xl font-bold text-foreground">
-                                Credential Unavailable
-                            </h2>
-                            <p className="text-muted-foreground">
-                                {error || 'This credential token could not be found.'}
-                            </p>
-                            <Link
-                                href="/verify"
-                                className="inline-block mt-4 text-sm font-semibold text-primary underline"
-                            >
-                                Return to Verification Portal
-                            </Link>
-                        </Card>
-                    ) : (
-                        <PublicCredentialCard credential={credential} />
+                    )}
+
+                    {(state.kind === 'not-found' || state.kind === 'unavailable') && (
+                        <div className="space-y-4">
+                            <VerificationVerdict
+                                kind={state.kind}
+                                line={
+                                    state.kind === 'not-found'
+                                        ? 'This share link does not match any credential. Check that you copied the whole link, or ask the holder to share it again.'
+                                        : undefined
+                                }
+                            />
+                            <Button asChild variant="outline">
+                                <Link href="/verify">Go to the verification portal</Link>
+                            </Button>
+                        </div>
+                    )}
+
+                    {state.kind === 'loaded' && (
+                        <div className="space-y-6">
+                            <VerificationVerdict
+                                kind={
+                                    !state.view.card
+                                        ? 'mismatch'
+                                        : state.view.status.status === 'valid'
+                                          ? 'verified'
+                                          : state.view.status.status
+                                }
+                                line={state.view.card ? verdictLine(state.view.status) : undefined}
+                            />
+
+                            {state.view.card ? (
+                                <PublicCredentialCard credential={state.view.card} />
+                            ) : (
+                                <Button asChild variant="outline">
+                                    <Link href={`/verify?token=${state.view.status.token_id}`}>
+                                        Check this credential&apos;s status on the ledger
+                                    </Link>
+                                </Button>
+                            )}
+                        </div>
                     )}
                 </div>
             </main>

@@ -30,13 +30,11 @@ contract governance.
   - a dedicated multisig/timelock smart contract.
 - [ ] Signer set, thresholds, and the recovery process for a lost/compromised signer are
       documented somewhere the whole team can find (link here: `<link>`).
-- [ ] Add and audit an owner-setting `__constructor` before mainnet deployment.
-      `initialize()` requires owner authorization, but a separate deployment
-      and initialization cannot be atomic because Soroban transactions permit
-      only one contract operation. Immediate succession is acceptable only for
-      disposable testnet rehearsal; see SECURITY_AUDIT.md F-1.
-- [ ] The team knows what an unexpected `init` event (from an address they didn't submit) means:
-      redeploy before issuing any credentials.
+- [x] Owner-setting `__constructor` added (2026-10-30); `initialize` removed, so deploy and owner
+      setup are atomic. Still to do: include it in the third-party audit; see SECURITY_AUDIT.md F-1.
+- [ ] Right after deploying, `get_owner()` is checked against the intended multisig owner. The
+      constructor does not require the owner's signature, so a wrong address is only caught here;
+      if it is wrong, redeploy before issuing any credentials.
 
 ## 3. Upgrade governance
 
@@ -71,21 +69,23 @@ section is the operational go-live gate for it.
       threshold noted in the README, so a keeper outage is caught with time to spare.
 - [ ] Someone on the team knows the manual recovery path (`RestoreFootprintOp` via Stellar CLI/
       Horizon) if an entry is archived anyway, and has practiced it on testnet at least once.
-- [ ] The **separate** off-chain IPFS pin-redundancy keeper (`frontend/worker/pinKeeper.ts`,
-      `docs/ops/pin-redundancy.md`) is also deployed and running, with a second pinning provider
-      configured. The TTL keeper above only keeps the on-chain hash/URI record alive — without the
-      pin keeper, a lost IPFS pin still makes the document itself unretrievable even though the
-      chain record is fine.
+- [ ] Credential content and documents are backed up off-chain: the `credentials` table is in
+      the database backup, and the private `credential-documents` Storage bucket is backed up
+      separately (a database dump does not include Storage objects). The TTL keeper above only
+      keeps the on-chain hash record alive; the content it anchors lives only off-chain
+      (IPFS pinning was retired — see `docs/ops/pin-redundancy.md`).
 
 ## 5. Event coverage
 
-- [ ] Every state-changing entrypoint emits an event. As of this checklist, that's: `init`,
-      `own_xfer`, `own_acpt`, `iss_auth`, `iss_rev`, `cred_iss`, `cred_rev`, `paused`, `unpaused`,
-      `upgraded`, `migrated`. Re-verify this list against `src/lib.rs` if entrypoints change.
+- [ ] Every state-changing entrypoint emits a typed `#[contractevent]` event. As of 2026-10-30:
+      `initialized`, `owner_transfer_proposed`, `owner_transfer_accepted`, `issuer_authorized`,
+      `issuer_revoked`, `issuer_profile_updated`, `credential_issued`, `batch_issued`,
+      `credential_revoked`, `credential_revoked_by_owner`, `paused`, `unpaused`,
+      `upgrade_proposed`, `upgrade_cancelled`, `upgraded`, `migrated` (see the Events table in
+      README.md). Re-verify this list against `src/lib.rs` if entrypoints change.
 - [ ] Indexers/monitoring subscribe to all of the above, not just the credential-lifecycle events.
-- [ ] Decide on F-5/F-6 from SECURITY_AUDIT.md (owner override for `revoke_credential`;
-      `iss_rev` firing on never-authorized addresses) before mainnet — both affect what event
-      consumers can assume about event semantics.
+- [x] F-5/F-6 decided (SECURITY_AUDIT.md): an owner override exists
+      (`credential_revoked_by_owner`), and issuer events fire only when state changes.
 
 ## 6. Error taxonomy
 

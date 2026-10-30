@@ -43,7 +43,10 @@ export default function ApiDocsPage() {
                     <section id="verification-api">
                         <h2 className="text-2xl font-semibold border-b pb-2 mb-6">Public Verification API</h2>
                         <p className="text-muted-foreground mb-4">
-                            The Acredia Public Verification API allows employers, ATS platforms, and partners to verify the authenticity, integrity, and revocation status of credentials programmatically.
+                            The Acredia Public Verification API lets employers, ATS platforms, and partners check a credential&apos;s status programmatically. Every answer is read from the Acredia contract on the Stellar ledger.
+                        </p>
+                        <p className="text-muted-foreground mb-4">
+                            A token ID returns <span className="text-foreground font-medium">status only</span>: the issuer, the issue and expiry dates, and whether the credential is valid, revoked, or expired. It never returns the holder&apos;s name, wallet, or what the credential certifies. Those are shared by the credential holder through their own share link.
                         </p>
 
                         <Card className="p-6 overflow-hidden">
@@ -57,7 +60,7 @@ export default function ApiDocsPage() {
                                 <div>
                                     <h4 className="font-semibold text-foreground mb-1">Path Parameters</h4>
                                     <ul className="list-disc list-inside text-muted-foreground ml-2">
-                                        <li><code className="bg-muted px-1 py-0.5 rounded">token</code> - The unique credential token ID</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">token</code> - The credential&apos;s token ID: a whole number, as issued by the contract. Anything else returns <code className="bg-muted px-1 py-0.5 rounded">400</code>.</li>
                                     </ul>
                                 </div>
                                 
@@ -76,27 +79,50 @@ export default function ApiDocsPage() {
 {`{
   "success": true,
   "credential": {
-    "tokenId": "did:acredia:...",
-    "issuedAt": "2024-01-01T00:00:00Z",
+    "tokenId": "42",
+    "status": "valid",
+    "issuedAt": "2026-06-01T09:30:00.000Z",
+    "expiresAt": null,
     "revoked": false,
+    "revokedAt": null,
+    "revocationSource": null,
     "institutionName": "University of Technology",
-    "credentialType": "Bachelor of Science",
-    ...
+    "institutionWallet": "G...",
+    "onChainHash": "3f9a..."
   },
   "verification": {
     "verified": true,
+    "status": "valid",
     "revoked": false,
-    "onChainMatch": true,
+    "expired": false,
+    "revocationSource": null,
     "onChainFound": true,
     "issuerAuthorized": true,
-    "issuerStatus": "active",
-    "integrity": {
-      "status": "match",
-      "cidResolved": true
-    }
+    "issuerStatus": "active"
   }
 }`}
                                     </pre>
+                                </div>
+
+                                <div>
+                                    <h4 className="font-semibold text-foreground mb-1">Fields</h4>
+                                    <ul className="list-disc list-inside text-muted-foreground ml-2 space-y-1">
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">status</code> - <code>valid</code>, <code>revoked</code>, or <code>expired</code>. Revocation takes precedence over expiry. <code>verified</code> is true only for <code>valid</code>.</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">expiresAt</code> - The moment the credential expires (UTC), or <code>null</code> if it never does.</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">revocationSource</code> - <code>issuer</code> or <code>platform</code> when revoked; a platform revocation is reserved for incident response.</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">issuerAuthorized</code> - Whether the issuer may still issue credentials. A credential issued while the issuer was authorized stays valid after the issuer loses authorization.</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">institutionName</code> - The name registered with Acredia for the issuing wallet, or <code>null</code> if none is registered.</li>
+                                    </ul>
+                                </div>
+
+                                <div>
+                                    <h4 className="font-semibold text-foreground mb-1">Errors</h4>
+                                    <ul className="list-disc list-inside text-muted-foreground ml-2 space-y-1">
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">400</code> - The token is not a valid token ID.</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">404</code> - The contract has no credential with this token ID.</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">429</code> - Rate limit exceeded; see the <code>Retry-After</code> header.</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">503</code> - The Stellar ledger could not be read. Retry later; the API never guesses a status while the ledger is unreachable.</li>
+                                    </ul>
                                 </div>
                             </div>
                         </Card>
@@ -109,7 +135,7 @@ export default function ApiDocsPage() {
                         </p>
                         <Card className="p-6">
                             <ul className="space-y-3 text-sm text-muted-foreground list-disc list-inside">
-                                <li><span className="text-foreground font-medium">Announced in advance.</span> Every upgrade must first be proposed on-chain, which emits a public <code className="bg-muted px-1 py-0.5 rounded">upg_prop</code> event and is readable by anyone via the contract&apos;s <code className="bg-muted px-1 py-0.5 rounded">get_pending_upgrade</code> method.</li>
+                                <li><span className="text-foreground font-medium">Announced in advance.</span> Every upgrade must first be proposed on-chain, which emits a public <code className="bg-muted px-1 py-0.5 rounded">upgrade_proposed</code> event and is readable by anyone via the contract&apos;s <code className="bg-muted px-1 py-0.5 rounded">get_pending_upgrade</code> method.</li>
                                 <li><span className="text-foreground font-medium">Fixed waiting period.</span> A proposed upgrade can only be executed after a timelock of ~7 days (120,960 ledgers) has elapsed, giving credential holders and verifiers a window to inspect the proposed code before it goes live.</li>
                                 <li><span className="text-foreground font-medium">Code-hash commitment.</span> A proposal commits to a specific WASM code hash, and execution must present that same hash — so the code that ships is exactly the code that was announced.</li>
                                 <li><span className="text-foreground font-medium">Owner-gated and cancellable.</span> Only the contract owner can propose, cancel, or execute an upgrade, and a pending proposal can be withdrawn (<code className="bg-muted px-1 py-0.5 rounded">cancel_upgrade</code>) before the window elapses.</li>

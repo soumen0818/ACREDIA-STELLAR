@@ -1,80 +1,122 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import {
     Award,
     Building2,
     Calendar,
     CheckCircle2,
+    Clock,
     Download,
-    Lock,
     QrCode,
     Share2,
     Shield,
+    User,
     XCircle,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import QRCodeModal from './QRCodeModal';
+import { CredentialDocumentCheck } from './CredentialDocumentCheck';
 import { buildStandardsExportDocument, downloadJsonFile, getLinkedInShareUrl } from '@/lib/standardsExport';
+import { formatValidThrough, type CredentialStatus } from '@/lib/credentialStatus';
+import { shareUrl as buildShareUrl } from '@/lib/sharedCredential';
+import type { SharedCredentialDetails } from '@/lib/sharedCredential';
 import { captureException } from '@/lib/debug';
 
+/**
+ * A credential as its holder's share link shows it (review §3.11b). Only
+ * built from content the share API proved against the on-chain hash.
+ */
 export interface PublicCredentialCardData {
+    shareToken: string;
     tokenId: string;
-    studentName: string;
-    studentWallet?: string;
+    status: CredentialStatus;
+    issuedAt: string | null;
+    expiresAt: string | null;
+    revocationSource: 'issuer' | 'platform' | null;
     institutionName: string;
-    issuerWallet?: string;
-    degree: string;
-    credentialType: string;
-    issueDate: string;
-    issuedAt?: string;
-    revoked?: boolean;
-    revokedAt?: string | null;
-    revocationSource?: 'issuer' | 'platform' | null;
-    isPublic?: boolean;
-    blockchainHash?: string;
-    ipfsHash?: string;
-    onChainHash?: string;
-    metadataSchemaVersion?: number;
-    hashAlgorithm?: string;
+    issuerWallet: string;
+    studentWallet: string;
+    onChainHash: string;
+    transactionHash: string | null;
+    details: SharedCredentialDetails;
+    metadata: unknown;
+    metadataSchemaVersion: number | null;
+    hashAlgorithm: string | null;
+    document: { url: string; sha256: string } | null;
+    documentStatus: 'available' | 'none' | 'unavailable';
 }
 
-interface PublicCredentialCardProps {
-    credential: PublicCredentialCardData;
+function StatusBadge({ credential }: { credential: PublicCredentialCardData }) {
+    if (credential.status === 'revoked') {
+        return (
+            <Badge variant="destructive" className="flex items-center gap-1">
+                <XCircle className="h-3.5 w-3.5" />
+                {credential.revocationSource === 'platform'
+                    ? 'Revoked by platform'
+                    : credential.revocationSource === 'issuer'
+                      ? 'Revoked by issuer'
+                      : 'Revoked'}
+            </Badge>
+        );
+    }
+    if (credential.status === 'expired') {
+        return (
+            <Badge variant="outline" className="flex items-center gap-1 text-warning border-warning/30 bg-warning/10">
+                <Clock className="h-3.5 w-3.5" /> Expired
+            </Badge>
+        );
+    }
+    return (
+        <Badge variant="outline" className="flex items-center gap-1 text-success border-success/30 bg-success/10">
+            <CheckCircle2 className="h-3.5 w-3.5" /> Blockchain Verified
+        </Badge>
+    );
 }
 
-export function PublicCredentialCard({ credential }: PublicCredentialCardProps) {
+function Field({ icon: Icon, label, value }: { icon: typeof Award; label: string; value: string }) {
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                <Icon className="h-4 w-4 text-primary" />
+                <span>{label}:</span>
+            </div>
+            <p className="font-semibold text-foreground">{value}</p>
+        </div>
+    );
+}
+
+export function PublicCredentialCard({ credential }: { credential: PublicCredentialCardData }) {
     const [qrOpen, setQrOpen] = useState(false);
     const [copied, setCopied] = useState(false);
     const [downloading, setDownloading] = useState(false);
+    const { details } = credential;
+    const documentAttempts = useRef(0);
 
-    if (credential.isPublic === false) {
-        return (
-            <Card className="mx-auto max-w-2xl p-8 text-center bg-card/90 backdrop-blur shadow-lg border-2">
-                <div className="flex flex-col items-center justify-center space-y-4">
-                    <div className="rounded-full bg-secondary p-4">
-                        <Lock className="h-12 w-12 text-muted-foreground" />
-                    </div>
-                    <h2 className="text-2xl font-bold text-foreground">Private Credential</h2>
-                    <p className="text-muted-foreground">
-                        This credential has been set to private by the credential holder.
-                    </p>
-                    <Button asChild variant="outline" className="mt-4">
-                        <Link href="/verify">Verify another token</Link>
-                    </Button>
-                </div>
-            </Card>
-        );
-    }
+    // The page's signed URL expires after a few minutes, so a retry asks the
+    // share API for a fresh one.
+    const loadDocumentUrl = async () => {
+        documentAttempts.current += 1;
+        if (documentAttempts.current === 1 && credential.document) {
+            return credential.document.url;
+        }
+        const response = await fetch(`/api/credentials/share/${encodeURIComponent(credential.shareToken)}`);
+        const payload = await response.json().catch(() => null);
+        const url = payload?.credential?.document?.url;
+        if (!response.ok || typeof url !== 'string') {
+            throw new Error('Document unavailable');
+        }
+        return url;
+    };
 
-    const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/credentials/${credential.tokenId}` : '';
+    const shareUrl = typeof window !== 'undefined' ? buildShareUrl(window.location.origin, credential.shareToken) : '';
     const linkedInUrl = getLinkedInShareUrl({
-        title: credential.degree,
+        title: details.degree,
         institutionName: credential.institutionName,
-        issueDate: credential.issueDate,
+        issueDate: details.issueDate,
         tokenId: credential.tokenId,
         certUrl: shareUrl,
     });
@@ -89,19 +131,22 @@ export function PublicCredentialCard({ credential }: PublicCredentialCardProps) 
     const handleDownloadVc = async () => {
         setDownloading(true);
         try {
+            // The exact anchored credential: its hash is the one on-chain.
             const document = await buildStandardsExportDocument({
                 tokenId: credential.tokenId,
-                blockchainHash: credential.blockchainHash,
-                onChainHash: credential.onChainHash,
+                shareToken: credential.shareToken,
+                metadata: credential.metadata,
                 metadataSchemaVersion: credential.metadataSchemaVersion,
                 hashAlgorithm: credential.hashAlgorithm,
-                studentName: credential.studentName,
+                blockchainHash: credential.transactionHash,
+                onChainHash: credential.onChainHash,
+                studentName: details.studentName,
                 studentWallet: credential.studentWallet,
                 institutionName: credential.institutionName,
                 issuerWallet: credential.issuerWallet,
-                degree: credential.degree,
-                credentialType: credential.credentialType,
-                issueDate: credential.issueDate,
+                degree: details.degree,
+                credentialType: details.credentialType,
+                issueDate: details.issueDate,
             });
             downloadJsonFile(document, `credential-${credential.tokenId}-verifiable-credential.json`);
         } catch (err) {
@@ -122,46 +167,64 @@ export function PublicCredentialCard({ credential }: PublicCredentialCardProps) 
                             <Award className="h-8 w-8 text-primary" />
                         </div>
                         <div>
-                            <h1 className="text-2xl font-bold text-foreground">{credential.degree}</h1>
+                            <h2 className="text-2xl font-bold text-foreground">{details.degree}</h2>
                             <p className="text-sm text-muted-foreground">{credential.institutionName}</p>
                         </div>
                     </div>
-                    <div>
-                        {credential.revoked ? (
-                            <Badge variant="destructive" className="flex items-center gap-1">
-                                <XCircle className="h-3.5 w-3.5" />
-                                {credential.revocationSource === 'platform'
-                                    ? 'Revoked by platform'
-                                    : credential.revocationSource === 'issuer'
-                                      ? 'Revoked by issuer'
-                                      : 'Revoked'}
-                            </Badge>
-                        ) : (
-                            <Badge variant="outline" className="flex items-center gap-1 text-success border-success/30 bg-success/10">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Blockchain Verified
-                            </Badge>
-                        )}
-                    </div>
+                    <StatusBadge credential={credential} />
                 </div>
 
                 {/* Grid Info */}
                 <div className="grid md:grid-cols-2 gap-6 pt-2">
-                    <div className="space-y-3">
-                        <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                            <Building2 className="h-4 w-4 text-primary" />
-                            <span>Issuing Institution:</span>
-                        </div>
-                        <p className="font-semibold text-foreground">{credential.institutionName}</p>
-                    </div>
-
-                    <div className="space-y-3">
-                        <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                            <Calendar className="h-4 w-4 text-primary" />
-                            <span>Issue Date:</span>
-                        </div>
-                        <p className="font-semibold text-foreground">{credential.issueDate}</p>
-                    </div>
+                    <Field icon={User} label="Awarded to" value={details.studentName} />
+                    <Field icon={Building2} label="Issuing Institution" value={credential.institutionName} />
+                    {details.major && <Field icon={Award} label="Field of study" value={details.major} />}
+                    {details.gpa && <Field icon={Award} label="GPA" value={details.gpa} />}
+                    <Field icon={Calendar} label="Issue Date" value={details.issueDate} />
+                    <Field
+                        icon={Clock}
+                        label="Valid through"
+                        value={
+                            credential.expiresAt
+                                ? `${formatValidThrough(credential.expiresAt)} (UTC)`
+                                : 'Does not expire'
+                        }
+                    />
                 </div>
+
+                {details.subjects.length > 0 && (
+                    <div className="border-t border-border pt-6">
+                        <h2 className="mb-3 text-sm font-semibold text-foreground">Subjects</h2>
+                        <ul className="divide-y divide-border text-sm">
+                            {details.subjects.map((subject) => (
+                                <li key={subject.name} className="flex justify-between gap-4 py-2">
+                                    <span className="text-foreground">{subject.name}</span>
+                                    <span className="text-muted-foreground">
+                                        {subject.marks}/{subject.maxMarks}
+                                        {subject.grade ? ` (${subject.grade})` : ''}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
+                {credential.document && (
+                    <div className="border-t border-border pt-6">
+                        <CredentialDocumentCheck
+                            loadUrl={loadDocumentUrl}
+                            sha256={credential.document.sha256}
+                            tokenId={credential.tokenId}
+                            anchored
+                        />
+                    </div>
+                )}
+                {credential.documentStatus === 'unavailable' && (
+                    <p className="border-t border-border pt-6 text-sm text-muted-foreground">
+                        The credential document cannot be shown right now. The details above are
+                        still verified against the ledger.
+                    </p>
+                )}
 
                 {/* Actions Bar */}
                 <div className="flex flex-wrap items-center gap-3 border-t border-border pt-6">
@@ -197,11 +260,11 @@ export function PublicCredentialCard({ credential }: PublicCredentialCardProps) 
                 onClose={() => setQrOpen(false)}
                 credential={{
                     token_id: credential.tokenId,
-                    blockchain_hash: credential.blockchainHash || '',
-                    ipfs_hash: credential.ipfsHash || '',
+                    share_token: credential.shareToken,
+                    blockchain_hash: credential.transactionHash || '',
                     metadata: {
                         credentialData: {
-                            credentialType: credential.credentialType,
+                            credentialType: details.credentialType,
                             institutionName: credential.institutionName,
                         },
                     },

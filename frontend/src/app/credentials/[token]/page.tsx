@@ -1,6 +1,15 @@
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 import { getServiceRoleClient } from '@/lib/serverAuth';
+import { isShareToken } from '@/lib/sharedCredential';
 import { CredentialClientView } from './CredentialClientView';
+
+/** Old links used the public token ID, which now shows status only (review §3.11b). */
+const TOKEN_ID = /^\d{1,20}$/;
+
+// A share page carries personal data the holder chose to share with
+// whoever has the link. It is never meant for search engines.
+const NOT_INDEXED: Metadata['robots'] = { index: false, follow: false };
 
 interface Props {
     params: Promise<{
@@ -10,12 +19,13 @@ interface Props {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const { token } = await params;
-    const cleanToken = token?.trim();
+    const cleanToken = token?.trim().toLowerCase() ?? '';
 
-    if (!cleanToken) {
+    if (!isShareToken(cleanToken)) {
         return {
             title: 'Academic Credential',
             description: 'Verify and view academic credentials on the Stellar blockchain.',
+            robots: NOT_INDEXED,
         };
     }
 
@@ -33,7 +43,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
                 )
             `,
             )
-            .eq('token_id', cleanToken)
+            .eq('share_token', cleanToken)
             .maybeSingle();
 
         if (credential) {
@@ -62,6 +72,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
             return {
                 title: `${degree} | Verified Credential`,
                 description,
+                robots: NOT_INDEXED,
                 alternates: {
                     canonical: `/credentials/${encodeURIComponent(cleanToken)}`,
                 },
@@ -84,27 +95,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     }
 
     return {
-        title: `Academic Credential #${cleanToken}`,
-        description: `View and verify academic credential token #${cleanToken} on the Stellar blockchain.`,
-        alternates: {
-            canonical: `/credentials/${encodeURIComponent(cleanToken)}`,
-        },
-        openGraph: {
-            title: `Academic Credential #${cleanToken} | Acredia`,
-            description: `View and verify academic credential token #${cleanToken} on the Stellar blockchain.`,
-            url: `/credentials/${encodeURIComponent(cleanToken)}`,
-            siteName: 'Acredia',
-            type: 'website',
-        },
-        twitter: {
-            card: 'summary_large_image',
-            title: `Academic Credential #${cleanToken} | Acredia`,
-            description: `View and verify academic credential token #${cleanToken} on the Stellar blockchain.`,
-        },
+        title: 'Academic Credential',
+        description: 'View and verify an academic credential on the Stellar blockchain.',
+        robots: NOT_INDEXED,
     };
 }
 
 export default async function PublicCredentialPage({ params }: Props) {
     const { token } = await params;
-    return <CredentialClientView token={token} />;
+    const cleanToken = token?.trim() ?? '';
+    if (TOKEN_ID.test(cleanToken)) {
+        redirect(`/verify?token=${cleanToken}`);
+    }
+    return <CredentialClientView token={cleanToken.toLowerCase()} />;
 }

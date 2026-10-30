@@ -1,58 +1,67 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { extractTokenFromQrPayload } from '@/lib/verification';
+import { parseVerificationInput } from '@/lib/verification';
 import { debugWarn } from '@/lib/debug';
 
-export interface CredentialData {
-    token_id: string;
-    ipfs_hash?: string | null;
-    blockchain_hash?: string | null;
-    on_chain_hash?: string | null;
-    /**
-     * The public verify route deliberately omits GPA, subject marks, and other
-     * granular academic data — see `standardsExport.ts` for the privacy
-     * rationale. Only what is listed here ever reaches this page.
-     */
-    metadata?: {
-        credentialData?: {
-            studentName?: string;
-            credentialType?: string;
-            degree?: string;
-            major?: string;
-            issueDate?: string;
-            institutionName?: string;
-        };
-    };
-    issued_at: string;
-    revoked: boolean;
-    revoked_at: string | null;
-    revocation_source?: RevocationSource;
-    student_wallet_address?: string | null;
-    issuer_wallet_address?: string | null;
-    institution: {
-        name: string;
-    } | null;
-    issuer_authorized?: boolean;
-    issuer_status?: 'active' | 'revoked';
-}
-
-export type IntegrityStatus = 'match' | 'mismatch' | 'unavailable';
-
 export type RevocationSource = 'issuer' | 'platform' | null;
+
+export type CredentialStatus = 'valid' | 'revoked' | 'expired';
+
+/**
+ * What a bare token ID reveals: status only (review §3.11b). Everything here
+ * is read from the contract except the institution's display name and the
+ * revocation label. The holder's name, the credential's content and its
+ * document are only reachable through the holder's share link.
+ */
+export interface CredentialStatusRecord {
+    token_id: string;
+    status: CredentialStatus;
+    issued_at: string | null;
+    expires_at: string | null;
+    revoked_at: string | null;
+    revocation_source: RevocationSource;
+    institution_name: string | null;
+    issuer_wallet_address: string | null;
+    on_chain_hash: string | null;
+    /** Whether the issuer is still authorized on the contract; null if unknown. */
+    issuer_authorized: boolean | null;
+}
 
 function normalizeRevocationSource(value: unknown): RevocationSource {
     return value === 'issuer' || value === 'platform' ? value : null;
 }
 
+function isCredentialStatus(value: unknown): value is CredentialStatus {
+    return value === 'valid' || value === 'revoked' || value === 'expired';
+}
+
 /**
- * The `verification` half of the API response — the independent signals the
- * report presents separately from the credential's own facts.
+ * Maps a successful `/api/verify/:tokenId` payload to the page's record.
+ * Fails closed: a payload without a recognised status throws rather than
+ * rendering as verified.
  */
-export interface VerificationDetail {
-    verified: boolean;
-    revoked: boolean;
-    revocationSource: RevocationSource;
-    onChainMatch: boolean;
-    onChainFound: boolean;
+export function parseVerificationResponse(payload: {
+    credential?: Record<string, unknown>;
+    verification?: Record<string, unknown>;
+}): CredentialStatusRecord {
+    const safe = payload.credential ?? {};
+    const verification = payload.verification ?? {};
+    if (!isCredentialStatus(safe.status)) {
+        throw new Error('Verification unavailable: unexpected response.');
+    }
+    const text = (value: unknown) => (typeof value === 'string' ? value : null);
+    return {
+        token_id: String(safe.tokenId),
+        status: safe.status,
+        issued_at: text(safe.issuedAt),
+        expires_at: text(safe.expiresAt),
+        revoked_at: text(safe.revokedAt),
+        revocation_source: normalizeRevocationSource(safe.revocationSource),
+        institution_name: text(safe.institutionName),
+        issuer_wallet_address: text(safe.institutionWallet),
+        on_chain_hash: text(safe.onChainHash),
+        issuer_authorized:
+            typeof verification.issuerAuthorized === 'boolean' ? verification.issuerAuthorized : null,
+    };
 }
 
 export type ScanState =
@@ -70,11 +79,8 @@ export function useCredentialVerification(tokenId: string | null) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Html5Qrcode is dynamically imported; narrowing to its full API is impractical
     const scannerRef = useRef<any>(null);
     const [loading, setLoading] = useState(true);
-    const [credential, setCredential] = useState<CredentialData | null>(null);
+    const [credential, setCredential] = useState<CredentialStatusRecord | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [verificationStatus, setVerificationStatus] = useState<'valid' | 'invalid' | 'revoked' | null>(null);
-    const [integrityStatus, setIntegrityStatus] = useState<IntegrityStatus | null>(null);
-    const [verificationDetail, setVerificationDetail] = useState<VerificationDetail | null>(null);
     const [manualToken, setManualToken] = useState('');
     const [scanMode, setScanMode] = useState(false);
     const [scanState, setScanState] = useState<ScanState>('idle');
@@ -121,51 +127,10 @@ export function useCredentialVerification(tokenId: string | null) {
                 throw new Error(payload?.error || 'Credential not found. The token ID may be invalid.');
             }
 
-            const safe = payload.credential;
-            const verification = payload.verification;
-            const transformedData: CredentialData = {
-                token_id: safe.tokenId,
-                issued_at: safe.issuedAt,
-                revoked: Boolean(safe.revoked),
-                revoked_at: safe.revokedAt || null,
-                revocation_source: normalizeRevocationSource(safe.revocationSource ?? verification?.revocationSource),
-                institution: safe.institutionName ? { name: safe.institutionName } : null,
-                issuer_authorized: verification?.issuerAuthorized,
-                issuer_status: verification?.issuerStatus,
-                // These identifiers are already on the wire and are what the
-                // report's technical tier is built from; they used to be
-                // dropped here, leaving that whole section permanently empty.
-                student_wallet_address: safe.studentWallet ?? null,
-                issuer_wallet_address: safe.institutionWallet ?? null,
-                blockchain_hash: safe.blockchainHash ?? null,
-                ipfs_hash: safe.ipfsHash ?? null,
-                on_chain_hash: safe.onChainHash ?? null,
-                metadata: {
-                    credentialData: {
-                        credentialType: safe.credentialType || undefined,
-                        degree: safe.degree || undefined,
-                        major: safe.major || undefined,
-                        issueDate: safe.issueDate || undefined,
-                        institutionName: safe.institutionName || undefined,
-                    },
-                },
-            };
-
-            setCredential(transformedData);
-            setVerificationStatus(safe.revoked ? 'revoked' : 'valid');
-            setIntegrityStatus(verification?.integrity?.status ?? null);
-            setVerificationDetail({
-                verified: Boolean(verification?.verified),
-                revoked: Boolean(verification?.revoked ?? safe.revoked),
-                revocationSource: normalizeRevocationSource(verification?.revocationSource ?? safe.revocationSource),
-                onChainMatch: Boolean(verification?.onChainMatch),
-                onChainFound: Boolean(verification?.onChainFound),
-            });
+            setCredential(parseVerificationResponse(payload));
         } catch (err: unknown) {
+            setCredential(null);
             setError((err instanceof Error ? err.message : String(err)) || 'Failed to verify credential');
-            setVerificationStatus('invalid');
-            setIntegrityStatus(null);
-            setVerificationDetail(null);
         } finally {
             setLoading(false);
         }
@@ -182,8 +147,15 @@ export function useCredentialVerification(tokenId: string | null) {
     const verifyToken = useCallback((token: string) => {
         const cleanedToken = token.trim();
         if (!cleanedToken) return;
-        window.history.pushState({}, '', `/verify?token=${encodeURIComponent(cleanedToken)}`);
-        void verifyCredential(cleanedToken);
+        const target = parseVerificationInput(cleanedToken);
+        // A share link shows the details and document on its own page.
+        if (target?.kind === 'share') {
+            window.location.assign(`/credentials/${target.shareToken}`);
+            return;
+        }
+        const tokenId = target?.tokenId ?? cleanedToken;
+        window.history.pushState({}, '', `/verify?token=${encodeURIComponent(tokenId)}`);
+        void verifyCredential(tokenId);
     }, [verifyCredential]);
 
     const handleManualVerify = useCallback(() => {
@@ -242,8 +214,8 @@ export function useCredentialVerification(tokenId: string | null) {
                     aspectRatio: 1,
                 },
                 async (decodedText: string) => {
-                    const scannedToken = extractTokenFromQrPayload(decodedText);
-                    if (!scannedToken) {
+                    const scanned = parseVerificationInput(decodedText);
+                    if (!scanned) {
                         setScanState('invalid');
                         setScanMessage('This QR code does not contain a valid Acredia verification URL or token ID.');
                         return;
@@ -251,7 +223,7 @@ export function useCredentialVerification(tokenId: string | null) {
                     setScanState('success');
                     setScanMessage('QR code found. Loading the verification report...');
                     await stopScanner();
-                    verifyToken(scannedToken);
+                    verifyToken(scanned.kind === 'share' ? scanned.shareToken : scanned.tokenId);
                 },
                 () => undefined,
             );
@@ -277,9 +249,6 @@ export function useCredentialVerification(tokenId: string | null) {
         loading,
         credential,
         error,
-        verificationStatus,
-        integrityStatus,
-        verificationDetail,
         manualToken,
         setManualToken,
         scanMode,

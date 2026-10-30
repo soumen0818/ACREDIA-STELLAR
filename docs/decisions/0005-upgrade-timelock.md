@@ -4,6 +4,8 @@
 **Date:** 2026-09-30  
 **Issue:** [#290](https://github.com/soumen0818/ACREDIA-STELLAR/issues/290)
 
+> **Event names changed on 2026-10-30** (codebase review §3.8, typed `#[contractevent]` events): `upg_prop` is now `upgrade_proposed` and `upg_cncl` is now `upgrade_cancelled`. The decision below is unchanged.
+
 ---
 
 ## Context

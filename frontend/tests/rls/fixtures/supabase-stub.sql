@@ -62,3 +62,33 @@ CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION auth.uid(), auth.role(), auth.jwt() TO anon, authenticated, service_role;
+
+-- Supabase Storage. Like Supabase, storage.objects has RLS enabled and
+-- client roles hold table privileges, so access depends only on policies:
+-- a bucket with no policies is readable and writable by the service role
+-- alone.
+CREATE SCHEMA storage;
+GRANT USAGE ON SCHEMA storage TO anon, authenticated, service_role;
+
+CREATE TABLE storage.buckets (
+    id                 text PRIMARY KEY,
+    name               text NOT NULL,
+    owner              uuid,
+    public             boolean DEFAULT false,
+    file_size_limit    bigint,
+    allowed_mime_types text[],
+    created_at         timestamptz DEFAULT now(),
+    updated_at         timestamptz DEFAULT now()
+);
+
+CREATE TABLE storage.objects (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    bucket_id  text REFERENCES storage.buckets (id),
+    name       text,
+    owner      uuid,
+    metadata   jsonb,
+    created_at timestamptz DEFAULT now()
+);
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+
+GRANT ALL ON storage.buckets, storage.objects TO anon, authenticated, service_role;

@@ -22,7 +22,6 @@
         "db:backup": "bash scripts/backup-db.sh",
         "db:restore": "bash scripts/restore-db.sh",
         "email-worker": "tsx --env-file=.env.local scripts/emailWorker.ts",
-        "worker:pin-keeper": "tsx --env-file=.env.local worker/pinKeeper.ts",
         "db:schema": "bash scripts/build-schema.sh"
     },
     "dependencies": {

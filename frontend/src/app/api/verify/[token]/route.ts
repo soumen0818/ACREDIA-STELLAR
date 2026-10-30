@@ -1,14 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceRoleClient } from '@/lib/serverAuth';
-import {
-    getCredential,
-    isAuthorizedIssuer,
-    isRevoked,
-    ContractConfigurationError,
-    BlockchainUnavailableError,
-} from '@/lib/contractReads';
-import { deriveCredentialHash } from '@/lib/credentialHash';
-import { fetchJsonFromIpfs } from '@/lib/ipfsServer';
+import { ContractConfigurationError, BlockchainUnavailableError } from '@/lib/contractReads';
+import { unixSecondsToIso } from '@/lib/credentialStatus';
+import { readOnChainStatus } from '@/lib/onChainStatus';
 import { enforceRateLimit, getRateLimiterMode } from '@/lib/rateLimit';
 import {
     writeVerificationAuditLog,
@@ -16,26 +10,15 @@ import {
 } from '@/lib/verificationAudit';
 import { captureException, recordMetric } from '@/lib/debug';
 import { hashApiKey } from '@/lib/apiKey';
-import {
-    getCachedImmutableData,
-    setCachedImmutableData,
-    getCachedRevocationStatus,
-    setCachedRevocationStatus,
-    RESPONSE_CACHE_MAX_AGE_SECONDS,
-} from '@/lib/verificationCache';
-
-export type IntegrityStatus = 'match' | 'mismatch' | 'unavailable';
-
-export interface IntegrityResult {
-    status: IntegrityStatus;
-    cidResolved: boolean;
-}
+import { RESPONSE_CACHE_MAX_AGE_SECONDS } from '@/lib/verificationCache';
 
 // Dynamic rendering is required because we read request headers (IP, API key).
 // The response Cache-Control header allows CDN/browser caching of the payload.
 export const dynamic = 'force-dynamic';
 
-const MAX_TOKEN_LENGTH = 128;
+/** Token IDs are the contract's u64 counter: decimal digits only. */
+const TOKEN_ID_PATTERN = /^\d{1,20}$/;
+const U64_MAX = BigInt('18446744073709551615');
 
 const VERIFY_RATE_LIMIT = {
     windowSeconds: 60,
@@ -51,81 +34,14 @@ const VERIFY_API_KEY_RATE_LIMIT = {
 
 type ServiceRoleClient = ReturnType<typeof getServiceRoleClient>;
 
-type ChainChecks = {
-    issuerMatch: boolean | null;
-    studentMatch: boolean | null;
-    hashMatch: boolean | null;
-    uriMatch: boolean | null;
-    notRevoked: boolean;
-};
+const RESULT_TYPE_BY_STATUS = {
+    valid: 'verified',
+    revoked: 'revoked',
+    expired: 'expired',
+} as const satisfies Record<string, VerificationResultType>;
 
-// Removed unused getErrorMessage
-
-function getMismatchReasons(checks: ChainChecks | null) {
-    if (!checks) {
-        return ['missing_on_chain'];
-    }
-
-    const reasons: string[] = [];
-    if (checks.issuerMatch !== true) reasons.push('issuer');
-    if (checks.studentMatch !== true) reasons.push('student');
-    if (checks.hashMatch !== true) reasons.push('hash');
-    if (checks.uriMatch !== true) reasons.push('uri');
-    if (!checks.notRevoked) reasons.push('revocation');
-    return reasons;
-}
-
-function getResultType(verified: boolean, revoked: boolean): VerificationResultType {
-    if (verified) {
-        return 'verified';
-    }
-
-    if (revoked) {
-        return 'revoked';
-    }
-
-    return 'mismatch';
-}
-
-/**
- * Independently confirms that the CID the contract actually points to
- * (`onChainUri`) resolves and that its content hashes to the same value as
- * the on-chain `credential_hash`. This is deliberately separate from
- * `checks.hashMatch` above, which only proves the *database's cached copy*
- * of the metadata matches the chain — it says nothing about whether the
- * document a real verifier would fetch from IPFS is the same bytes. See
- * ACREDIA-STELLAR#163.
- */
-async function checkIntegrity(
-    onChainUri: string | null | undefined,
-    onChainHash: string | null | undefined,
-    metadataSchemaVersion: number | null | undefined,
-    hashAlgorithm: string | null | undefined,
-): Promise<IntegrityResult> {
-    if (!onChainUri || !onChainHash) {
-        return { status: 'unavailable', cidResolved: false };
-    }
-
-    const fetched = await fetchJsonFromIpfs(onChainUri);
-    if (!fetched.ok) {
-        return { status: 'unavailable', cidResolved: false };
-    }
-
-    try {
-        const fetchedHash = await deriveCredentialHash(
-            fetched.content,
-            metadataSchemaVersion,
-            hashAlgorithm,
-        );
-        return {
-            status: fetchedHash === onChainHash ? 'match' : 'mismatch',
-            cidResolved: true,
-        };
-    } catch {
-        // Content resolved but isn't a canonicalizable document for the
-        // recorded schema version — can't be judged authentic or tampered.
-        return { status: 'unavailable', cidResolved: true };
-    }
+function isTokenId(token: string): boolean {
+    return TOKEN_ID_PATTERN.test(token) && BigInt(token) <= U64_MAX;
 }
 
 async function logVerificationAttempt(
@@ -139,10 +55,7 @@ async function logVerificationAttempt(
         chain?: {
             found?: boolean;
             revoked?: boolean;
-            match?: boolean;
         };
-        integrity?: IntegrityResult;
-        mismatchReasons?: string[];
         errorCategory?: string;
         apiKeyContext?: { id: string; name: string } | null;
     } = {},
@@ -152,7 +65,6 @@ async function logVerificationAttempt(
         statusCode,
         credentialId: options.credentialId,
         chain: options.chain,
-        integrityStatus: options.integrity?.status,
         errorCategory: options.errorCategory,
     });
 
@@ -167,13 +79,59 @@ async function logVerificationAttempt(
         statusCode,
         credentialId: options.credentialId,
         chain: options.chain,
-        integrity: options.integrity,
-        mismatchReasons: options.mismatchReasons,
         errorCategory: options.errorCategory,
         apiKeyContext: options.apiKeyContext,
     });
 }
 
+/**
+ * Display labels that only the database holds: the institution's name, and
+ * which on-chain event revoked the credential. They never decide the result;
+ * a missing or unreachable row just means the label is absent.
+ */
+async function readDisplayLabels(supabase: ServiceRoleClient, tokenId: string, issuer: string) {
+    const [credentialRow, institutionRow] = await Promise.all([
+        supabase
+            .from('credentials')
+            .select('id, revoked_at, revocation_source')
+            .eq('token_id', tokenId)
+            .maybeSingle()
+            .then(
+                ({ data }) => data,
+                () => null,
+            ),
+        supabase
+            .from('institutions')
+            .select('name')
+            .eq('wallet_address', issuer)
+            .maybeSingle()
+            .then(
+                ({ data }) => data,
+                () => null,
+            ),
+    ]);
+
+    const revocationSource = credentialRow?.revocation_source;
+    return {
+        credentialId: (credentialRow?.id as string | undefined) ?? null,
+        revokedAt: (credentialRow?.revoked_at as string | null | undefined) ?? null,
+        revocationSource:
+            revocationSource === 'issuer' || revocationSource === 'platform'
+                ? (revocationSource as 'issuer' | 'platform')
+                : null,
+        institutionName: (institutionRow?.name as string | undefined) ?? null,
+    };
+}
+
+/**
+ * GET /api/verify/:tokenId
+ *
+ * Status-only verification by token ID (review §3.11b). Everything that
+ * decides the answer is read from the contract: whether the credential
+ * exists, its issuer, dates, revocation, expiry, and whether the issuer is
+ * still authorized. Nothing personal is returned. The holder's name, degree
+ * and document are only reachable through their share link.
+ */
 export async function GET(
     request: NextRequest,
     { params }: { params: Promise<{ token: string }> },
@@ -215,7 +173,7 @@ export async function GET(
             providedKey = authHeader.substring(7).trim();
         }
 
-        if (providedKey && supabase) {
+        if (providedKey) {
             const keyHash = await hashApiKey(providedKey);
             const { data: keyData, error: keyError } = await supabase
                 .from('api_keys')
@@ -226,22 +184,22 @@ export async function GET(
             if (keyError) {
                 return NextResponse.json(
                     { success: false, error: 'Database error validating API key' },
-                    { status: 500 }
+                    { status: 500 },
                 );
             }
 
             if (!keyData || keyData.revoked) {
                 return NextResponse.json(
                     { success: false, error: 'Invalid or revoked API key' },
-                    { status: 401 }
+                    { status: 401 },
                 );
             }
-            
+
             apiKeyContext = { id: keyData.id, name: keyData.name };
         }
 
         // Issue #229: Fail closed in production if Upstash is not configured.
-        // This endpoint is the most exposed to abuse (burns RPC quota and IPFS bandwidth).
+        // This endpoint is the most exposed to abuse (it burns RPC quota).
         if (
             process.env.NODE_ENV === 'production' &&
             getRateLimiterMode() === 'in-memory-unconfigured'
@@ -260,86 +218,34 @@ export async function GET(
             request,
             apiKeyContext
                 ? { ...VERIFY_API_KEY_RATE_LIMIT, identifier: apiKeyContext.id }
-                : VERIFY_RATE_LIMIT
+                : VERIFY_RATE_LIMIT,
         );
 
         if (rateLimitResponse) {
             return rateLimitResponse;
         }
 
-        if (token.length > MAX_TOKEN_LENGTH) {
+        if (!isTokenId(token)) {
             await logVerificationAttempt(supabase, request, token, 'invalid_request', 400, {
-                errorCategory: 'token_too_long',
-            });
-
-            return NextResponse.json(
-                { success: false, error: 'Invalid token' },
-                { status: 400 },
-            );
-        }
-
-        const { data, error } = await supabase
-            .from('credentials')
-            .select(
-                `
-                id,
-                token_id,
-                issued_at,
-                revoked,
-                revoked_at,
-                revocation_source,
-                metadata,
-                metadata_schema_version,
-                hash_algorithm,
-                ipfs_hash,
-                blockchain_hash,
-                student_wallet_address,
-                issuer_wallet_address,
-                institution:institutions!credentials_institution_id_fkey (
-                    name
-                )
-            `,
-            )
-            .eq('token_id', token)
-            .maybeSingle();
-
-        if (error) {
-            await logVerificationAttempt(supabase, request, token, 'server_error', 500, {
-                errorCategory: 'database_query_failed',
+                errorCategory: 'invalid_token_id',
                 apiKeyContext,
             });
 
             return NextResponse.json(
-                { success: false, error: 'Failed to query credential' },
-                { status: 500 },
+                { success: false, error: 'Invalid token ID' },
+                { status: 400 },
             );
         }
 
         const tokenId = token;
 
-        // ------------------------------------------------------------------
-        // Cache layer — Issue #228
-        // Immutable data (on-chain credential + IPFS integrity) is cached with
-        // a long TTL. Revocation status uses a short TTL so that a revocation
-        // event propagates to verifiers within its documented window.
-        // All cache helpers return `null` on a miss or Redis unavailability
-        // so we fall through to the live chain/IPFS path transparently.
-        // ------------------------------------------------------------------
+        const chainStatus = await readOnChainStatus(tokenId);
 
-        // 1. Try the immutable cache (skips RPC + IPFS fetch on a hit).
-        const cachedImmutable = await getCachedImmutableData(tokenId);
-        let onChain = cachedImmutable?.onChain ?? null;
-        let integrity = cachedImmutable?.integrity ?? null;
-        const immutableCacheHit = cachedImmutable !== null;
-
-        // 3. On an immutable cache miss, do the real chain + IPFS work.
-        if (!immutableCacheHit) {
-            onChain = await getCredential(tokenId);
-        }
-
-        // If neither the database index nor the blockchain record exists, 404.
-        if (!data && !onChain) {
-            await logVerificationAttempt(supabase, request, token, 'not_found', 404, { apiKeyContext });
+        if (!chainStatus) {
+            await logVerificationAttempt(supabase, request, token, 'not_found', 404, {
+                chain: { found: false },
+                apiKeyContext,
+            });
 
             return NextResponse.json(
                 { success: false, error: 'Credential not found' },
@@ -347,144 +253,18 @@ export async function GET(
             );
         }
 
-        // Issue #232: Synthesize credential record if database row is absent / pruned / erased.
-        const credentialRecord = data ?? {
-            id: undefined,
-            token_id: tokenId,
-            issued_at: onChain?.issued_at ? new Date(Number(onChain.issued_at)).toISOString() : new Date().toISOString(),
-            revoked: onChain?.revoked ?? false,
-            revoked_at: null,
-            revocation_source: null,
-            metadata: null,
-            metadata_schema_version: 1,
-            hash_algorithm: 'sha256:canonical-json:v1',
-            ipfs_hash: onChain?.uri ? onChain.uri.replace(/^ipfs:\/\//, '') : '',
-            blockchain_hash: onChain?.hash ?? '',
-            student_wallet_address: onChain?.student ?? null,
-            issuer_wallet_address: onChain?.issuer ?? null,
-            institution: null,
-        };
+        const { onChain, status, revoked, issuerAuthorized } = chainStatus;
+        recordMetric('verification.cache.status', 1, { ...chainStatus.cache, tokenId });
 
-        credentialId = credentialRecord.id;
+        const labels = await readDisplayLabels(supabase, tokenId, onChain.issuer);
+        credentialId = labels.credentialId;
+        const revocationSource = revoked ? labels.revocationSource : null;
 
-        if (!immutableCacheHit) {
-            integrity = await checkIntegrity(
-                onChain?.uri,
-                onChain?.hash,
-                credentialRecord.metadata_schema_version,
-                credentialRecord.hash_algorithm,
-            );
-            // Write immutable results to cache in the background — don't block.
-            void setCachedImmutableData(tokenId, {
-                onChain,
-                integrity: integrity ?? { status: 'unavailable', cidResolved: false },
-            });
-        }
-
-        // 2. Revocation is always re-checked with its own short TTL.
-        let cachedRevoked = await getCachedRevocationStatus(tokenId);
-        const revocationCacheHit = cachedRevoked !== null;
-
-        // 4. On a revocation cache miss, fetch live and cache the result.
-        if (!revocationCacheHit) {
-            cachedRevoked = await isRevoked(tokenId);
-            void setCachedRevocationStatus(tokenId, cachedRevoked);
-        }
-        const onChainRevoked = cachedRevoked ?? false;
-
-        // issuerAuthorized is not cached — it's a cheap single Supabase lookup
-        // and is not on the hot path of repeated public verification.
-        const issuerWallet = credentialRecord.issuer_wallet_address || onChain?.issuer;
-        const issuerAuthorized =
-            issuerWallet && typeof isAuthorizedIssuer === 'function'
-                ? await isAuthorizedIssuer(issuerWallet)
-                : false;
-
-        recordMetric('verification.cache.status', 1, {
-            immutableHit: immutableCacheHit,
-            revocationHit: revocationCacheHit,
-            tokenId,
-        });
-
-        const dbHash = credentialRecord.metadata
-            ? await deriveCredentialHash(
-                  credentialRecord.metadata,
-                  credentialRecord.metadata_schema_version,
-                  credentialRecord.hash_algorithm,
-              )
-            : null;
-        const expectedUri = credentialRecord.ipfs_hash ? `ipfs://${credentialRecord.ipfs_hash}` : (onChain?.uri ?? null);
-
-        // integrity is guaranteed non-null here: either from cache or from
-        // the live checkIntegrity() call above. Fall back defensively.
-        const safeIntegrity: IntegrityResult = integrity ?? { status: 'unavailable', cidResolved: false };
-
-        const checks: ChainChecks | null = onChain
-            ? {
-                  issuerMatch: credentialRecord.issuer_wallet_address
-                      ? onChain.issuer.toLowerCase() === credentialRecord.issuer_wallet_address.toLowerCase()
-                      : true,
-                  studentMatch: credentialRecord.student_wallet_address
-                      ? onChain.student.toLowerCase() === credentialRecord.student_wallet_address.toLowerCase()
-                      : true,
-                  // `hashMatch` answers one narrow question: does the database's
-                  // cached hash agree with the chain? With no cached hash there
-                  // is nothing to disagree, so the check is not applicable and
-                  // must not fail — document integrity is reported separately
-                  // via `safeIntegrity`, and folding it in here would make an
-                  // IPFS gateway outage render valid credentials as unverified.
-                  //
-                  // The previous expression was
-                  //   dbHash ? … : (status === 'verified' || status === 'match' || !dbHash)
-                  // whose else-branch always evaluated to true via `!dbHash`,
-                  // while `status === 'verified'` was dead code ('verified' is
-                  // not in IntegrityStatus). Same behaviour, stated plainly.
-                  hashMatch: dbHash ? onChain.hash === dbHash : true,
-                  uriMatch: expectedUri ? onChain.uri === expectedUri : true,
-                  notRevoked: !onChainRevoked,
-              }
-            : null;
-
-        const onChainMatch =
-            checks !== null &&
-            checks.issuerMatch === true &&
-            checks.studentMatch === true &&
-            checks.hashMatch === true &&
-            checks.uriMatch === true;
-
-        const revoked = Boolean(onChainRevoked || credentialRecord.revoked);
-        const revocationSource: 'issuer' | 'platform' | null = revoked
-            ? (credentialRecord.revocation_source === 'issuer' || credentialRecord.revocation_source === 'platform'
-                  ? credentialRecord.revocation_source
-                  : null)
-            : null;
-        const verified = onChain !== null && onChainMatch && !revoked;
-        const resultType = getResultType(verified, revoked);
-
-        const mismatchReasons = [
-            ...(resultType === 'mismatch' ? getMismatchReasons(checks) : []),
-            ...(safeIntegrity.status === 'mismatch' ? ['ipfs_integrity'] : []),
-        ];
-
-        // Audit log is unconditional — every attempt is recorded whether the
-        // result came from cache or from live chain/IPFS reads.
-        await logVerificationAttempt(supabase, request, token, resultType, 200, {
+        await logVerificationAttempt(supabase, request, token, RESULT_TYPE_BY_STATUS[status], 200, {
             credentialId,
-            chain: {
-                found: onChain !== null,
-                revoked,
-                match: onChainMatch,
-            },
-            integrity: safeIntegrity,
-            mismatchReasons,
+            chain: { found: true, revoked },
             apiKeyContext,
         });
-
-        const institution = Array.isArray(credentialRecord.institution)
-            ? credentialRecord.institution[0]
-            : credentialRecord.institution;
-
-        const credentialData = credentialRecord.metadata?.credentialData ?? {};
 
         // HTTP Cache-Control: CDN/browsers may cache this public response for the
         // same duration as the revocation TTL — ensuring a revocation event
@@ -497,39 +277,26 @@ export async function GET(
             {
                 success: true,
                 credential: {
-                    tokenId: credentialRecord.token_id,
-                    issuedAt: credentialRecord.issued_at,
+                    tokenId,
+                    status,
+                    issuedAt: unixSecondsToIso(onChain.issuedAt),
+                    expiresAt: unixSecondsToIso(onChain.expiresAt),
                     revoked,
-                    revokedAt: credentialRecord.revoked_at,
+                    revokedAt: revoked ? labels.revokedAt : null,
                     revocationSource,
-                    institutionName: institution?.name ?? credentialData.institutionName ?? null,
-                    credentialType: credentialData.credentialType ?? null,
-                    degree: credentialData.degree ?? null,
-                    major: credentialData.major ?? null,
-                    issueDate: credentialData.issueDate ?? null,
-                    // Stellar account addresses, not sensitive: already readable
-                    // on-chain by anyone who queries this token_id directly.
-                    studentWallet: onChain?.student ?? credentialRecord.student_wallet_address ?? null,
-                    institutionWallet: onChain?.issuer ?? credentialRecord.issuer_wallet_address ?? null,
-                    metadataSchemaVersion: credentialRecord.metadata_schema_version ?? null,
-                    hashAlgorithm: credentialRecord.hash_algorithm ?? null,
-                    onChainHash: onChain?.hash ?? null,
-                    blockchainHash: credentialRecord.blockchain_hash ?? onChain?.hash ?? null,
-                    ipfsHash: credentialRecord.ipfs_hash ?? (onChain?.uri ? onChain.uri.replace(/^ipfs:\/\//, '') : null),
+                    institutionName: labels.institutionName,
+                    institutionWallet: onChain.issuer,
+                    onChainHash: onChain.hash,
                 },
                 verification: {
-                    verified,
+                    verified: status === 'valid',
+                    status,
                     revoked,
+                    expired: status === 'expired',
                     revocationSource,
-                    onChainMatch,
-                    onChainFound: onChain !== null,
+                    onChainFound: true,
                     issuerAuthorized,
                     issuerStatus: issuerAuthorized ? 'active' : 'revoked',
-                    // Distinct from `revoked`/`onChainFound`: proves the actual
-                    // IPFS-hosted document — not the DB's cached copy — hashes to
-                    // the on-chain value. 'unavailable' means the CID couldn't be
-                    // resolved/checked, not that anything is wrong.
-                    integrity: safeIntegrity,
                 },
             },
             {

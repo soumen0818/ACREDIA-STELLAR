@@ -29,7 +29,10 @@ debug-assertions = true
 
 [profile.release]
 opt-level = "z"
-overflow-checks = false
+# Integer overflow traps instead of wrapping (review §3.8a). Token ids and
+# counters use u64 and cannot realistically overflow, but a trap is the safe
+# failure if they ever did; the size cost is negligible.
+overflow-checks = true
 lto = true
 codegen-units = 1
 strip = true

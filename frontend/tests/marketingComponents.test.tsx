@@ -9,7 +9,15 @@ describe('marketing and verification components', () => {
         const html = renderToStaticMarkup(<VerificationVerdict kind="verified" />);
 
         expect(html).toContain('Credential Verified');
-        expect(html).toContain('authentic, valid, and secured on the blockchain');
+        expect(html).toContain('recorded on the Stellar ledger and is currently valid');
+    });
+
+    it('states expiry as its own verdict, not as a revocation', () => {
+        const expired = renderToStaticMarkup(<VerificationVerdict kind="expired" />);
+
+        expect(expired).toContain('Credential Expired');
+        expect(expired).toContain('passed its expiry date');
+        expect(expired).not.toContain('revoked');
     });
 
     it('keeps revocation and document integrity as separate verdicts', () => {

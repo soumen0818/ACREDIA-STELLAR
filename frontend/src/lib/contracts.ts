@@ -19,9 +19,20 @@ import type { StellarSigner } from './stellarSigner';
 export interface CredentialMetadata {
     studentAddress: string;
     credentialHash: string;
-    ipfsHash: string;
     issuerAddress: string;
     issuedAt: number;
+    /** Unix seconds, or null when the credential never expires. */
+    expiresAt: number | null;
+}
+
+/**
+ * Encodes the contract's `Option<u64>` expiry: `None` is ScVal void, `Some`
+ * is the bare u64 (Unix seconds).
+ */
+export function expiresAtToScVal(expiresAt: number | null): xdr.ScVal {
+    return expiresAt === null
+        ? xdr.ScVal.scvVoid()
+        : nativeToScVal(BigInt(expiresAt), { type: 'u64' });
 }
 
 interface ContractInvocationResult<T = unknown> {
@@ -346,10 +357,14 @@ export async function authorizeIssuer(
     });
 }
 
+/**
+ * Issues one credential. Only the hash goes on-chain (review §3.11);
+ * `expiresAt` is optional Unix seconds and must be in the future.
+ */
 export async function issueCredentialOnStellar(
     studentAddress: string,
     credentialHash: string,
-    ipfsUri: string,
+    expiresAt: number | null,
     issuer: StellarSigner,
 ): Promise<{ tokenId: string; transactionHash: string }> {
     return executeLedgerOperation('issue_credential', [], issuer, async () => {
@@ -371,7 +386,7 @@ export async function issueCredentialOnStellar(
             new Address(studentAddress).toScVal(),
             new Address(issuerAddress).toScVal(),
             credentialHashHexToScVal(credentialHash),
-            nativeToScVal(ipfsUri, { type: 'string' }),
+            expiresAtToScVal(expiresAt),
         ];
 
         const result = await invokeContractMethod(contractId, 'issue_credential', args, issuer);
@@ -393,14 +408,14 @@ export const CONTRACT_MAX_BATCH_SIZE = 20;
 
 /** Mirrors ContractError::CredentialAlreadyExists = 3 in contracts/src/lib.rs. */
 const CONTRACT_ERROR_CREDENTIAL_ALREADY_EXISTS = 3;
-// ContractError::IpfsUriTooLarge — the contract caps ipfs_uri at MAX_IPFS_URI_LEN
-// (256 bytes); see contracts/src/lib.rs.
-const CONTRACT_ERROR_URI_TOO_LARGE = 17;
+/** Mirrors ContractError::InvalidExpiry = 18 in contracts/src/lib.rs. */
+const CONTRACT_ERROR_INVALID_EXPIRY = 18;
 
 export interface BatchCredentialInputItem {
     studentAddress: string;
     credentialHash: string; // 64-char sha256 hex
-    ipfsUri: string;
+    /** Unix seconds, or null when the credential never expires. */
+    expiresAt: number | null;
 }
 
 export interface BatchIssueRowResult {
@@ -419,8 +434,8 @@ export function describeBatchRowError(errorCode: number | null): string {
     if (errorCode === CONTRACT_ERROR_CREDENTIAL_ALREADY_EXISTS) {
         return 'A credential with this exact hash already exists (duplicate row, or already issued previously).';
     }
-    if (errorCode === CONTRACT_ERROR_URI_TOO_LARGE) {
-        return 'The metadata URI for this row is too long (the contract caps it at 256 bytes).';
+    if (errorCode === CONTRACT_ERROR_INVALID_EXPIRY) {
+        return 'The expiry date for this row is not in the future.';
     }
     return errorCode == null ? 'Unknown error' : `Contract error ${errorCode}`;
 }
@@ -449,7 +464,7 @@ function structScVal(fields: Record<string, xdr.ScVal>): xdr.ScVal {
 export function batchCredentialInputToScVal(item: BatchCredentialInputItem): xdr.ScVal {
     return structScVal({
         credential_hash: credentialHashHexToScVal(item.credentialHash),
-        ipfs_uri: nativeToScVal(item.ipfsUri, { type: 'string' }),
+        expires_at: expiresAtToScVal(item.expiresAt),
         student: new Address(item.studentAddress).toScVal(),
     });
 }

@@ -8,7 +8,7 @@ export const metadata: Metadata = {
         'Data Processing Agreement (DPA) template for institutions using Acredia as a data processor.',
 };
 
-const LAST_UPDATED = '8 August 2026';
+const LAST_UPDATED = '30 October 2026';
 
 export default function DpaPage() {
     return (
@@ -112,10 +112,9 @@ export default function DpaPage() {
                                 Credential issuance writes a SHA-256 hash (not personal data) to the Stellar
                                 blockchain. This record is technically immutable. Both parties acknowledge
                                 that this hash is pseudonymous and relies on the Art. 17(3)(b) GDPR
-                                exemption. All personally identifiable fields (name, email, metadata JSONB)
-                                will be redacted from Acredia's database and the IPFS document will be
-                                unpinned upon a valid erasure request, but the on-chain hash cannot be
-                                removed.
+                                exemption. Personal data held in Acredia&apos;s database and private
+                                storage is handled on a valid erasure request as set out in the Privacy
+                                Policy, but the on-chain hash cannot be removed.
                             </p>
                         </div>
                     </section>
@@ -124,7 +123,7 @@ export default function DpaPage() {
                         <h2 id="security" className="text-2xl font-semibold">6. Security measures (Art. 32)</h2>
                         <ul className="mt-4 list-disc space-y-2 pl-6 text-muted-foreground leading-7">
                             <li>TLS 1.2+ encryption for all data in transit.</li>
-                            <li>AES-256-GCM encryption for credential documents stored on IPFS.</li>
+                            <li>Credential documents held in private storage and served only through short-lived signed links.</li>
                             <li>Row Level Security (RLS) enforced at the database layer.</li>
                             <li>API rate limiting and bearer-token authentication on all data endpoints.</li>
                             <li>Regular security reviews and a responsible-disclosure process for reported vulnerabilities.</li>
@@ -155,12 +154,10 @@ export default function DpaPage() {
                         <h2 id="transfers" className="text-2xl font-semibold">8. International transfers</h2>
                         <p className="mt-4 leading-7 text-muted-foreground">
                             The Controller acknowledges that Acredia&apos;s database and authentication
-                            sub-processor hosts data in the{' '}
-                            <strong className="text-foreground">Asia-Pacific region</strong>, and its
-                            IPFS pinning sub-processor in the{' '}
-                            <strong className="text-foreground">United States</strong> (see Schedule
-                            B). Personal data processed under this DPA is therefore stored outside the
-                            EEA and the UK.
+                            sub-processor hosts data, including credential documents, in the{' '}
+                            <strong className="text-foreground">Asia-Pacific region</strong> (see
+                            Schedule B). Personal data processed under this DPA is therefore stored
+                            outside the EEA and the UK.
                         </p>
                         <p className="mt-4 leading-7 text-muted-foreground">
                             Each such transfer is made under an appropriate safeguard permitted by
@@ -172,11 +169,11 @@ export default function DpaPage() {
                             complete a transfer impact assessment.
                         </p>
                         <p className="mt-4 leading-7 text-muted-foreground">
-                            The Controller acknowledges that the <strong>Stellar network</strong> and{' '}
-                            <strong>IPFS</strong> are public, globally distributed systems whose node
-                            locations cannot be controlled by either party. Only irreversible hashes,
-                            wallet addresses and encrypted content are published to those networks; no
-                            plain-text personal data is transferred to them.
+                            The Controller acknowledges that the <strong>Stellar network</strong> is a
+                            public, globally distributed system whose node locations cannot be
+                            controlled by either party. Only irreversible hashes, wallet addresses and
+                            dates are published to it; no credential content or documents are
+                            transferred to it.
                         </p>
                     </section>
 
@@ -241,14 +238,8 @@ export default function DpaPage() {
                                     <tr>
                                         <td className="px-4 py-3 font-medium text-foreground">Supabase</td>
                                         <td className="px-4 py-3">Asia-Pacific</td>
-                                        <td className="px-4 py-3">Database &amp; auth</td>
+                                        <td className="px-4 py-3">Database, auth &amp; document storage</td>
                                         <td className="px-4 py-3">DPA + SCCs</td>
-                                    </tr>
-                                    <tr>
-                                        <td className="px-4 py-3 font-medium text-foreground">Pinata</td>
-                                        <td className="px-4 py-3">US</td>
-                                        <td className="px-4 py-3">IPFS pinning</td>
-                                        <td className="px-4 py-3">DPA + SCCs; content encrypted before upload</td>
                                     </tr>
                                     <tr>
                                         <td className="px-4 py-3 font-medium text-foreground">Stellar Network</td>

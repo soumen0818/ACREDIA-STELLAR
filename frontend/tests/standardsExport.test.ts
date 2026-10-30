@@ -18,7 +18,7 @@ describe('buildStandardsExportDocument', () => {
                 institutionWallet: 'GAcrediaIssuerWallet0000000000000000000000000000001',
             },
             explorerBaseUrl,
-            'ipfs://evidence-cid',
+            { id: `urn:sha256:${'ab'.repeat(32)}`, description: 'SHA-256 of the source document.' },
         );
 
         const doc = await buildStandardsExportDocument({
@@ -74,6 +74,15 @@ describe('buildStandardsExportDocument', () => {
         });
 
         expect(doc.onChainAnchor.credentialHash).toBe('f'.repeat(64));
+    });
+
+    it('links the export to the holder’s share page when the share token is known (review §3.11b)', async () => {
+        const share = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+        const withShare = await buildStandardsExportDocument({ tokenId: '123', shareToken: share });
+        const withoutShare = await buildStandardsExportDocument({ tokenId: '123' });
+
+        expect(withShare.onChainAnchor.verifyUrl).toBe(`/credentials/${share}`);
+        expect(withoutShare.onChainAnchor.verifyUrl).toBe('/verify?token=123');
     });
 
     it('generates a properly formatted LinkedIn add certification URL', () => {

@@ -1,31 +1,31 @@
 ﻿/**
  * Shared verification result cache — Issue #228.
  *
- * Caches the two expensive, immutable parts of credential verification:
- *   1. The on-chain credential record (hash + URI + wallets)
- *   2. The IPFS integrity result (fetched document hash comparison)
+ * Caches the on-chain credential record (hash, wallets, dates), which never
+ * changes once written.
  *
- * Revocation status is stored with a much shorter TTL so that a revocation
- * event propagates to verifiers within its documented window.
+ * Revocation status and issuer authorization can change, so they are stored
+ * with a much shorter TTL: a revocation, or an issuer losing authorization,
+ * reaches verifiers within its documented window. Expiry is not cached at all;
+ * the route re-evaluates it against the clock on every request.
  *
  * The cache is backed by the same Upstash Redis instance used for rate
  * limiting (pure REST — no new npm dependency). If Upstash is not configured
  * or is temporarily unreachable every function returns `null`, which callers
- * treat as a cache miss and fall back to the live chain/IPFS path.
+ * treat as a cache miss and fall back to a live chain read.
  */
 
 import { captureException, recordMetric } from './debug';
 import type { OnChainCredential } from './contractReads';
-import type { IntegrityResult } from '@/app/api/verify/[token]/route';
 
 // ---------------------------------------------------------------------------
 // TTLs
 // ---------------------------------------------------------------------------
 
-/** On-chain credential data and IPFS integrity are immutable once written. */
+/** The on-chain credential record is immutable once written. */
 const IMMUTABLE_TTL_SECONDS = 4 * 60 * 60; // 4 hours
 
-/** Revocation can change — keep the stale window short. */
+/** Revocation and issuer authorization can change — keep the stale window short. */
 const REVOCATION_TTL_SECONDS = 45;
 
 // ---------------------------------------------------------------------------
@@ -89,13 +89,16 @@ function revocationKey(tokenId: string): string {
     return `verify:revoked:${tokenId}`;
 }
 
+function issuerKey(issuerAddress: string): string {
+    return `verify:issuer:${issuerAddress}`;
+}
+
 // ---------------------------------------------------------------------------
-// Immutable verification data (on-chain credential + IPFS integrity)
+// Immutable verification data (the on-chain credential record)
 // ---------------------------------------------------------------------------
 
 export interface CachedImmutableData {
-    onChain: OnChainCredential | null;
-    integrity: IntegrityResult;
+    onChain: OnChainCredential;
 }
 
 /**
@@ -161,6 +164,29 @@ export async function setCachedRevocationStatus(
 ): Promise<void> {
     await redisSet(revocationKey(tokenId), revoked ? '1' : '0', REVOCATION_TTL_SECONDS);
     recordMetric('verification.cache.write', 1, { kind: 'revocation', tokenId });
+}
+
+// ---------------------------------------------------------------------------
+// Issuer authorization (short TTL — an issuer can be de-authorized)
+// ---------------------------------------------------------------------------
+
+/** Returns the cached `is_authorized_issuer` answer, or `null` if not cached. */
+export async function getCachedIssuerAuthorization(issuerAddress: string): Promise<boolean | null> {
+    const raw = await redisGet(issuerKey(issuerAddress));
+    const value = raw === '1' ? true : raw === '0' ? false : null;
+    if (value !== null) {
+        recordMetric('verification.cache.hit', 1, { kind: 'issuer' });
+    }
+    return value;
+}
+
+/** Stores the `is_authorized_issuer` answer with a short TTL. Never throws. */
+export async function setCachedIssuerAuthorization(
+    issuerAddress: string,
+    authorized: boolean,
+): Promise<void> {
+    await redisSet(issuerKey(issuerAddress), authorized ? '1' : '0', REVOCATION_TTL_SECONDS);
+    recordMetric('verification.cache.write', 1, { kind: 'issuer' });
 }
 
 // ---------------------------------------------------------------------------

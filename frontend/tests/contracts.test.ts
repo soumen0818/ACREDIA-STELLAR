@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { nativeToScVal } from '@stellar/stellar-sdk';
+import { nativeToScVal, scValToNative } from '@stellar/stellar-sdk';
 import {
     batchCredentialInputToScVal,
     describeBatchRowError,
+    expiresAtToScVal,
     getSorobanTransactionResult,
     normalizeTokenId,
 } from '../src/lib/contracts';
@@ -41,12 +42,12 @@ describe('batchCredentialInputToScVal', () => {
         // Soroban's derive_struct macro decodes #[contracttype] structs via a
         // binary_search_by_key over field-name symbols, so the ScMap keys
         // MUST be symbols (not strings) in ascending alphabetical order —
-        // credential_hash < ipfs_uri < student — or the contract call traps
+        // credential_hash < expires_at < student — or the contract call traps
         // on the host. This locks that shape down directly against the XDR.
         const scVal = batchCredentialInputToScVal({
             studentAddress: 'GD4CT6FQBUTCG7A3X3QAYXZSZLLJYPMKJNIBD7UCTLKV7MX4XK66OIHU',
             credentialHash: 'a'.repeat(64),
-            ipfsUri: 'ipfs://test',
+            expiresAt: null,
         });
 
         expect(scVal.type).toBe('scvMap');
@@ -57,8 +58,26 @@ describe('batchCredentialInputToScVal', () => {
             return key.type === 'scvSymbol' ? key.sym.toString() : '';
         });
 
-        expect(keys).toEqual(['credential_hash', 'ipfs_uri', 'student']);
+        expect(keys).toEqual(['credential_hash', 'expires_at', 'student']);
         expect(keys).toEqual([...keys].sort());
+    });
+
+    it('encodes expiry as the contract Option<u64>: void for none, u64 seconds for some', () => {
+        expect(expiresAtToScVal(null).type).toBe('scvVoid');
+        const some = expiresAtToScVal(1_900_000_000);
+        expect(some.type).toBe('scvU64');
+        expect(scValToNative(some)).toBe(BigInt(1_900_000_000));
+
+        const withExpiry = batchCredentialInputToScVal({
+            studentAddress: 'GD4CT6FQBUTCG7A3X3QAYXZSZLLJYPMKJNIBD7UCTLKV7MX4XK66OIHU',
+            credentialHash: 'a'.repeat(64),
+            expiresAt: 1_900_000_000,
+        });
+        const entries = withExpiry.type === 'scvMap' ? (withExpiry.map ?? []) : [];
+        const expiry = entries.find(
+            (entry) => entry.key.type === 'scvSymbol' && entry.key.sym.toString() === 'expires_at',
+        );
+        expect(expiry && scValToNative(expiry.val)).toBe(BigInt(1_900_000_000));
     });
 });
 

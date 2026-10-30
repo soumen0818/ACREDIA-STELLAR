@@ -12,6 +12,8 @@ import {
     scValToNative,
     nativeToScVal,
     xdr,
+    Address,
+    contract as sorobanContract,
 } from '@stellar/stellar-sdk';
 import { credentialHashBytesToHex } from './credentialHashEncoding';
 import { runtimeConfig } from './runtimeConfig';
@@ -21,9 +23,12 @@ const RPC_URL = runtimeConfig.stellar.sorobanRpcUrl;
 const NETWORK_PASSPHRASE = runtimeConfig.stellar.networkPassphrase;
 const CONTRACT_ID = runtimeConfig.contracts.CREDENTIAL_NFT;
 
-// Dummy funded account used as transaction source for read-only simulations.
-// The contract itself is always present on-ledger, so we borrow its address.
-const DUMMY_SOURCE = CONTRACT_ID;
+// Source account for read-only simulations. Simulation does not need the
+// account to exist, so this is the SDK's own all-zero placeholder, as its
+// contract client uses. It must be a G-address: the contract ID used to be
+// borrowed here, and the SDK rejects a C-address as an account, so every
+// chain read failed before reaching the RPC (review §3.11b).
+const SIMULATION_SOURCE = sorobanContract.NULL_ACCOUNT;
 
 const server = new rpc.Server(RPC_URL);
 
@@ -49,24 +54,32 @@ export class CredentialNotFoundError extends Error {
 }
 
 export interface OnChainCredential {
-    token_id?: bigint | number;
+    tokenId: string;
     student: string;
     issuer: string;
+    /** Lowercase hex of the on-chain `credential_hash`. */
     hash: string;
-    uri: string;
-    issued_at: bigint | number;
-    revoked?: boolean;
+    /** Ledger timestamp of issuance, in Unix seconds. */
+    issuedAt: number;
+    /** Unix seconds from which the credential is expired, or null if it never expires. */
+    expiresAt: number | null;
+    /** Revocation flag as read; may be stale if cached, so re-check with `isRevokedFromChain`. */
+    revoked: boolean;
 }
 
- 
 async function simulate(method: string, args: xdr.ScVal[]): Promise<unknown> {
     if (!CONTRACT_ID) {
         throw new ContractConfigurationError('Missing contract configuration: CONTRACT_ID not configured');
     }
 
-    const contract = new Contract(CONTRACT_ID);
-    // Use a dummy Account with sequence "0" — valid for read-only simulation
-    const source = new Account(DUMMY_SOURCE, '0');
+    let contract: Contract;
+    try {
+        contract = new Contract(CONTRACT_ID);
+    } catch {
+        throw new ContractConfigurationError(`Invalid contract ID: ${CONTRACT_ID}`);
+    }
+    // Sequence "0" is fine: the transaction is only simulated, never submitted.
+    const source = new Account(SIMULATION_SOURCE, '0');
 
     let sim;
     try {
@@ -86,12 +99,9 @@ async function simulate(method: string, args: xdr.ScVal[]): Promise<unknown> {
 
     if ('error' in sim) {
         const errStr = String((sim as { error: string }).error);
-        if (
-            errStr.includes('CredentialNotFound') ||
-            errStr.includes('ContractError(4)') ||
-            errStr.includes('Codes(4)') ||
-            errStr.includes('Error(Contract, 4)')
-        ) {
+        // The RPC renders contract errors as `Error(Contract, #4)`; 4 is
+        // CredentialNotFound. The exact match keeps #40 from counting.
+        if (/Error\(Contract, #?4\)/.test(errStr)) {
             throw new CredentialNotFoundError(errStr);
         }
         throw new BlockchainUnavailableError(`Simulation error (${method}): ${errStr}`);
@@ -132,37 +142,33 @@ function nativeStructToRecord(value: unknown): Record<string, unknown> | null {
     return value as Record<string, unknown>;
 }
 
-function firstPresent(record: Record<string, unknown>, keys: string[]): unknown {
-    for (const key of keys) {
-        if (record[key] !== undefined && record[key] !== null) {
-            return record[key];
-        }
-    }
-
-    return undefined;
-}
-
-export function normalizeOnChainCredential(result: unknown): OnChainCredential | null {
-    const record = nativeStructToRecord(result);
-    if (!record) {
+function toSeconds(value: unknown): number | null {
+    if (value === undefined || value === null) {
         return null;
     }
+    const seconds = Number(value);
+    return Number.isFinite(seconds) ? seconds : null;
+}
 
-    const credentialHash = firstPresent(record, ['credential_hash', 'credentialHash', 'hash']);
-    const ipfsHash = firstPresent(record, ['ipfs_hash', 'ipfsHash', 'uri']);
-
-    if (!credentialHash || !ipfsHash) {
+/**
+ * Maps the contract's `Credential` struct to plain JSON-safe values. Numbers
+ * rather than bigints: the verification cache serializes this with
+ * `JSON.stringify`, which throws on a bigint.
+ */
+export function normalizeOnChainCredential(result: unknown): OnChainCredential | null {
+    const record = nativeStructToRecord(result);
+    if (!record?.credential_hash) {
         return null;
     }
 
     return {
-        token_id: firstPresent(record, ['token_id', 'tokenId']) as bigint | number | undefined,
-        student: String(firstPresent(record, ['student']) ?? ''),
-        issuer: String(firstPresent(record, ['issuer']) ?? ''),
-        hash: credentialHashBytesToHex(credentialHash),
-        uri: String(ipfsHash),
-        issued_at: (firstPresent(record, ['issued_at', 'issuedAt']) as bigint | number) ?? 0,
-        revoked: firstPresent(record, ['revoked']) as boolean | undefined,
+        tokenId: String(record.token_id ?? ''),
+        student: String(record.student ?? ''),
+        issuer: String(record.issuer ?? ''),
+        hash: credentialHashBytesToHex(record.credential_hash),
+        issuedAt: toSeconds(record.issued_at) ?? 0,
+        expiresAt: toSeconds(record.expires_at),
+        revoked: record.revoked === true,
     };
 }
 
@@ -174,14 +180,37 @@ function toU64ScVal(tokenId: string | number): xdr.ScVal {
     }
 }
 
-/**
- * Direct on-chain simulation read for get_credential(token_id).
- * Used when the database index is missing or pruned (Issue #232).
+function e2eCredential(tokenId: string | number) {
+    return getE2eState()?.issuedCredentials?.find((entry) => entry.token_id === String(tokenId));
+}
+
+/*
+ * Every read below goes to the contract. None of them consults the database:
+ * verification must not be satisfiable by editing a credentials row (review
+ * §2 correction, §3.11b). E2E builds read the fake ledger instead.
  */
+
+/** `get_credential(token_id)`, or null when the contract has no such token. */
 export async function getCredentialFromChain(tokenId: string | number): Promise<OnChainCredential | null> {
+    if (getE2eState()?.enabled) {
+        const credential = e2eCredential(tokenId);
+        return credential
+            ? {
+                  tokenId: credential.token_id,
+                  student: credential.student_wallet_address,
+                  issuer: credential.issuer_wallet_address,
+                  hash: credential.credential_hash ?? credential.blockchain_hash,
+                  issuedAt: Math.floor(Date.parse(credential.issued_at) / 1000),
+                  expiresAt: credential.expires_at
+                      ? Math.floor(Date.parse(credential.expires_at) / 1000)
+                      : null,
+                  revoked: credential.revoked,
+              }
+            : null;
+    }
+
     try {
-        const arg = toU64ScVal(tokenId);
-        const result = await simulate('get_credential', [arg]);
+        const result = await simulate('get_credential', [toU64ScVal(tokenId)]);
         return normalizeOnChainCredential(result);
     } catch (error) {
         if (error instanceof CredentialNotFoundError) {
@@ -192,13 +221,17 @@ export async function getCredentialFromChain(tokenId: string | number): Promise<
 }
 
 /**
- * Direct on-chain simulation read for is_revoked(token_id).
+ * `is_revoked(token_id)`. Throws `BlockchainUnavailableError` when the chain
+ * cannot be read: answering "not revoked" during an outage would let a
+ * revoked credential verify.
  */
 export async function isRevokedFromChain(tokenId: string | number): Promise<boolean> {
+    if (getE2eState()?.enabled) {
+        return Boolean(e2eCredential(tokenId)?.revoked);
+    }
+
     try {
-        const arg = toU64ScVal(tokenId);
-        const result = await simulate('is_revoked', [arg]);
-        return Boolean(result);
+        return Boolean(await simulate('is_revoked', [toU64ScVal(tokenId)]));
     } catch (error) {
         if (error instanceof CredentialNotFoundError) {
             return false;
@@ -207,153 +240,18 @@ export async function isRevokedFromChain(tokenId: string | number): Promise<bool
     }
 }
 
-import { getServiceRoleClient } from './serverAuth';
-
-/**
- * Fetch full credential struct by token_id (u64).
- * Checks the database index first, and transparently falls back to
- * live on-chain simulation if the database row is absent (Issue #232).
- */
-export async function getCredential(tokenId: string | number): Promise<OnChainCredential | null> {
+/** `is_authorized_issuer(issuer)`. Throws when the chain cannot be read. */
+export async function isAuthorizedIssuerOnChain(issuerAddress: string): Promise<boolean> {
     const e2eState = getE2eState();
     if (e2eState?.enabled) {
-        const credential = e2eState.issuedCredentials?.find(
-            (entry) => entry.token_id === String(tokenId),
-        );
-
-        if (!credential) {
-            return null;
-        }
-
-        return {
-            token_id: Number(credential.token_id),
-            student: credential.student_wallet_address,
-            issuer: credential.issuer_wallet_address,
-            hash: credential.blockchain_hash,
-            uri: `ipfs://${credential.ipfs_hash}`,
-            issued_at: credential.issued_at ? Date.parse(credential.issued_at) : 0,
-            revoked: credential.revoked,
-        };
-    }
-
-    try {
-        const supabase = getServiceRoleClient();
-        const { data } = await supabase
-            .from('credentials')
-            .select('token_id, student_wallet_address, issuer_wallet_address, blockchain_hash, ipfs_hash, issued_at, revoked')
-            .eq('token_id', String(tokenId))
-            .maybeSingle();
-
-        if (data) {
-            return {
-                token_id: data.token_id ? Number(data.token_id) : undefined,
-                student: data.student_wallet_address || '',
-                issuer: data.issuer_wallet_address || '',
-                hash: data.blockchain_hash || '',
-                uri: data.ipfs_hash ? `ipfs://${data.ipfs_hash}` : '',
-                issued_at: data.issued_at ? Date.parse(data.issued_at) : 0,
-                revoked: data.revoked || false,
-            };
-        }
-    } catch {
-        // Fall through to on-chain read
-    }
-
-    try {
-        return await getCredentialFromChain(tokenId);
-    } catch (error) {
-        if (error instanceof BlockchainUnavailableError || error instanceof ContractConfigurationError) {
-            throw error;
-        }
-        return null;
-    }
-}
-
-/**
- * Look up a credential by its SHA-256 hash.
- * Returns the full credential struct or null if not found.
- */
-export async function verifyCredentialByHash(hash: string): Promise<OnChainCredential | null> {
-    try {
-        const supabase = getServiceRoleClient();
-        const { data } = await supabase
-            .from('credentials')
-            .select('token_id, student_wallet_address, issuer_wallet_address, blockchain_hash, ipfs_hash, issued_at, revoked')
-            .eq('blockchain_hash', hash)
-            .maybeSingle();
-
-        if (!data) return null;
-
-        return {
-            token_id: data.token_id ? Number(data.token_id) : undefined,
-            student: data.student_wallet_address || '',
-            issuer: data.issuer_wallet_address || '',
-            hash: data.blockchain_hash || '',
-            uri: data.ipfs_hash ? `ipfs://${data.ipfs_hash}` : '',
-            issued_at: data.issued_at ? Date.parse(data.issued_at) : 0,
-            revoked: data.revoked || false,
-        };
-    } catch (error) {
-        throw new BlockchainUnavailableError('Database/Index unavailable');
-    }
-}
-
-/**
- * Check whether a credential has been revoked on-chain.
- */
-export async function isRevoked(tokenId: string | number): Promise<boolean> {
-    const e2eState = getE2eState();
-    if (e2eState?.enabled) {
+        const address = issuerAddress.toLowerCase();
         return Boolean(
-            e2eState.issuedCredentials?.find((credential) => credential.token_id === String(tokenId))
-                ?.revoked,
+            e2eState.contractOwner?.toLowerCase() === address ||
+                e2eState.authorizedIssuers?.some((value) => value.toLowerCase() === address),
         );
     }
 
-    try {
-        const supabase = getServiceRoleClient();
-        const { data } = await supabase
-            .from('credentials')
-            .select('revoked')
-            .eq('token_id', String(tokenId))
-            .maybeSingle();
-            
-        if (data && typeof data.revoked === 'boolean') {
-            return data.revoked;
-        }
-    } catch {
-        // Fall through to on-chain check
-    }
-
-    try {
-        return await isRevokedFromChain(tokenId);
-    } catch {
-        return false;
-    }
-}
-
-export async function isAuthorizedIssuer(issuerAddress: string): Promise<boolean> {
-    const e2eState = getE2eState();
-    if (e2eState?.enabled) {
-        return Boolean(
-            (e2eState.contractOwner &&
-                issuerAddress.toLowerCase() === e2eState.contractOwner.toLowerCase()) ||
-                e2eState.authorizedIssuers?.some(
-                    (value) => value.toLowerCase() === issuerAddress.toLowerCase(),
-                ),
-        );
-    }
-
-    try {
-        const supabase = getServiceRoleClient();
-        const { data } = await supabase
-            .from('institutions')
-            .select('verified, status')
-            .eq('wallet_address', issuerAddress)
-            .maybeSingle();
-            
-        return data?.verified === true;
-    } catch (error) {
-        return false;
-    }
+    return Boolean(
+        await simulate('is_authorized_issuer', [new Address(issuerAddress).toScVal()]),
+    );
 }

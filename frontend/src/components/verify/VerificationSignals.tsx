@@ -1,12 +1,9 @@
 'use client';
 
 import { Card } from '@/components/ui/card';
+import { formatValidThrough } from '@/lib/credentialStatus';
 import { cn } from '@/lib/utils';
-import type {
-    CredentialData,
-    IntegrityStatus,
-    VerificationDetail,
-} from '@/hooks/useCredentialVerification';
+import type { CredentialStatusRecord } from '@/hooks/useCredentialVerification';
 
 type Tone = 'positive' | 'negative' | 'caution' | 'neutral';
 
@@ -50,100 +47,75 @@ function SignalRow({ signal }: { signal: Signal }) {
     );
 }
 
-function integritySignal(status: IntegrityStatus): Signal {
-    if (status === 'match') {
-        return {
-            label: 'Document integrity',
-            state: 'Document Integrity: Authentic',
-            tone: 'positive',
-            means: 'The document was fetched from IPFS and its content hash exactly matches the hash recorded on-chain, so nothing about it has been altered since issuance.',
-            doesNotMean: 'the credential is still valid — an untampered document can still have been revoked.',
-        };
-    }
-    if (status === 'mismatch') {
-        return {
-            label: 'Document integrity',
-            state: 'Document Integrity: Failed',
-            tone: 'negative',
-            means: 'The document retrieved from the on-chain IPFS CID does not hash to the value recorded on-chain. Do not rely on its contents.',
-            doesNotMean: 'the credential was revoked — this is a separate failure of the document itself.',
-        };
-    }
-    return {
-        label: 'Document integrity',
-        state: 'Document Integrity: Unavailable',
-        tone: 'neutral',
-        means: 'The IPFS-hosted document could not be retrieved, so its contents could not be checked against the on-chain hash.',
-        doesNotMean: 'the credential is invalid — only that this one check could not run right now.',
-    };
-}
-
 /**
- * The secondary tier: the independent signals behind the verdict.
+ * The secondary tier: the independent signals behind the verdict, each read
+ * from the contract (review §3.11b).
  *
- * Revocation and document integrity are genuinely separate facts — a revoked
- * credential can still have a perfectly untampered document, and an
- * unrevoked one can have a document that fails its hash check. Presenting them
- * as one blended "status" is the mistake this layout exists to prevent, so each
- * gets its own label, its own state, and an explicit line on what it does *not*
- * establish (ACREDIA-STELLAR#163, #226).
+ * Revocation, expiry and issuer authorization are genuinely separate facts,
+ * so each gets its own label, its own state, and an explicit line on what it
+ * does *not* establish (ACREDIA-STELLAR#226). A token ID only answers status;
+ * whether a particular document is the one issued is checked on the holder's
+ * share page.
  */
 export function VerificationSignals({
     credential,
-    integrityStatus,
-    detail,
     checkedAt,
 }: {
-    credential: CredentialData;
-    integrityStatus: IntegrityStatus | null;
-    detail: VerificationDetail | null;
+    credential: CredentialStatusRecord;
     checkedAt: string;
 }) {
-    const signals: Signal[] = [];
-
-    if (detail) {
-        const onChain = detail.onChainFound && detail.onChainMatch;
-        signals.push({
+    const signals: Signal[] = [
+        {
             label: 'Blockchain record',
-            state: onChain ? 'Blockchain Verified' : 'Not confirmed on-chain',
-            tone: onChain ? 'positive' : 'negative',
-            means: onChain
-                ? 'A record for this token exists on the Stellar ledger and its issuer, holder, and document hash match what this page shows.'
-                : 'The on-chain record for this token is missing or does not match the details held off-chain.',
-            doesNotMean: onChain
-                ? 'the document itself was checked — that is the integrity signal below.'
-                : 'the document was tampered with — that is a separate check.',
-        });
-    }
+            state: 'Found on Stellar',
+            tone: 'positive',
+            means: 'This credential, its issuer and its dates were read directly from the Acredia contract on the Stellar ledger, not from Acredia’s database.',
+            doesNotMean:
+                'anything about who holds it or what it certifies — ask the holder for their share link.',
+        },
+    ];
 
-    const revocationSource = detail?.revocationSource ?? credential.revocation_source ?? null;
+    const revoked = credential.status === 'revoked';
+    const revocationSource = credential.revocation_source;
     signals.push({
         label: 'Revocation status',
-        state: credential.revoked
+        state: revoked
             ? revocationSource === 'platform'
                 ? 'Revoked by platform'
                 : revocationSource === 'issuer'
                   ? 'Revoked by issuer'
                   : 'Revoked'
-            : 'Active',
-        tone: credential.revoked ? 'caution' : 'positive',
-        means: credential.revoked
+            : 'Not revoked',
+        tone: revoked ? 'caution' : 'positive',
+        means: revoked
             ? revocationSource === 'platform'
                 ? 'Acredia (the platform) revoked this credential, not the issuing institution. This override is reserved for incident response — such as a compromised issuer key — and is recorded under a separate on-chain event.'
                 : revocationSource === 'issuer'
                   ? 'The issuing institution has withdrawn this credential.'
                   : 'This credential has been withdrawn.'
             : 'The issuing institution has not withdrawn this credential.',
-        doesNotMean: credential.revoked
+        doesNotMean: revoked
             ? revocationSource === 'platform'
                 ? 'the issuing institution withdrew it — a platform revocation is attributed to Acredia, never silently to the issuer.'
                 : 'the document was forged — revocation is a decision by the issuer, not a tampering signal.'
-            : 'the document is untampered — that is the integrity signal below.',
+            : 'it has not expired — that is the expiry signal below.',
     });
 
-    if (integrityStatus) {
-        signals.push(integritySignal(integrityStatus));
-    }
+    const expired = credential.status === 'expired';
+    const validThrough = credential.expires_at ? formatValidThrough(credential.expires_at) : null;
+    signals.push({
+        label: 'Expiry',
+        state: expired ? 'Expired' : validThrough ? `Valid through ${validThrough}` : 'Does not expire',
+        tone: expired ? 'caution' : 'positive',
+        means: expired
+            ? `The issuer set this credential to be valid through ${validThrough} (UTC), and that date has passed.`
+            : validThrough
+              ? `The issuer set this credential to be valid through ${validThrough} (UTC). The expiry date was fixed at issuance and cannot be changed.`
+              : 'The issuer did not set an expiry date for this credential.',
+        doesNotMean: expired
+            ? 'it was revoked — expiry is set when a credential is issued, not a later decision by the issuer.'
+            : 'it cannot be revoked — that is the revocation signal above.',
+    });
 
     signals.push({
         label: 'Issuer authorization',

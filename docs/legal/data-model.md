@@ -14,12 +14,12 @@ Acredia stores data across three distinct layers with different mutability chara
 │  LAYER            │  CONTENT                    │  MUTABLE?     │
 ├───────────────────┼─────────────────────────────┼───────────────┤
 │  Supabase DB      │  PII (name, email, metadata) │  YES ✓       │
-│  IPFS (Pinata)    │  Credential docs + metadata* │  YES (unpin) │
-│  Stellar Blockchain│  SHA-256 hash + CID pointer  │  NO ✗        │
+│  Supabase Storage │  Credential documents        │  YES ✓       │
+│  Stellar Blockchain│  SHA-256 hash, wallets, dates│  NO ✗        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-\* Not encrypted today; see the note under Layer 2.
+Until 2026-10-30, credential documents and metadata were also pinned to public IPFS, unencrypted, with a pointer on-chain. That design was retired (codebase review §3.11); see Layer 2.
 
 ---
 
@@ -39,21 +39,22 @@ Account deletion is **account-only** (decided 2026-10-29, review §3.10). It rem
 
 **Non-PII columns retained after erasure** (not subject to Art. 17):
 
-- `credentials.blockchain_hash` — SHA-256 one-way hash
-- `credentials.ipfs_hash` — IPFS CID (content address pointer)
+- `credentials.blockchain_hash` — the issuance transaction hash
+- `credentials.document_sha256` — SHA-256 of the credential document
 - `credentials.token_id` — on-chain token identifier
 - `credentials.issued_at`, `credentials.revoked` — audit timestamps
 
 ---
 
-## Layer 2 — IPFS / Pinata
+## Layer 2 — Supabase Storage (private documents)
 
-> **⚠ Correction (2026-10-29), under review as §3.11 of the codebase review.** This section previously said credential documents and metadata are encrypted with AES-256-GCM before upload. **They are not**: the encryption helper exists in `src/lib/ipfsServer.ts` but is never called, and documents and metadata are pinned in plain form. Their IPFS addresses are public on-chain, so the content is readable by anyone who looks them up. The design for fixing this is the next item of work.
+Credential documents (PDFs, images) are stored in the private Supabase Storage bucket `credential-documents`, under the issuing institution's folder with a random file name. The credential itself (a W3C VC / Open Badges 3.0 JSON document) is stored in `credentials.metadata` (Layer 1). Since 2026-10-30 nothing is pinned to IPFS.
 
-Credential documents (PDFs, images) and metadata JSON objects are pinned to IPFS through Pinata when a credential is issued.
+- **Nothing is public.** Documents are served only through signed URLs that expire after 5 minutes: to the credential holder, to members of the issuing institution, and to anyone the holder gives the credential's share link (`/credentials/<share_token>`, a random UUID). A credential's token ID alone shows only its issuer, dates and status.
+- **Anchored, not published.** The document's SHA-256 is recorded inside the credential, so the on-chain hash covers it. The share page lets the viewer's browser check the document against that digest.
+- Account deletion does **not** remove documents: the credentials stay verifiable (§3.10).
 
-- Account deletion does **not** unpin them: the credentials stay verifiable (§3.10).
-- Unpinning only stops Pinata from hosting the content. Copies already fetched or pinned elsewhere on IPFS are outside Acredia's control.
+> **History.** Before 2026-10-30 these documents and the metadata were pinned to public IPFS without encryption, and their IPFS address was stored on-chain, where anyone could read it. This document previously said they were encrypted with AES-256-GCM; they were not. Content pinned under that design may have been copied by third parties and cannot be recalled. On testnet, the redeploy retires those credentials.
 
 ---
 
@@ -62,11 +63,15 @@ Credential documents (PDFs, images) and metadata JSON objects are pinned to IPFS
 When a credential is issued, the following is written on-chain:
 
 ```
-token_id         → unique identifier for this credential NFT
-blockchain_hash  → SHA256(canonical-JSON(credential metadata))
-issuer_wallet    → Stellar public key of the issuing institution
-student_wallet   → Stellar public key of the student
+token_id         → unique identifier for this credential
+credential_hash  → SHA256(canonical-JSON(credential metadata))
+issuer           → Stellar public key of the issuing institution
+student          → Stellar public key of the student
+issued_at        → ledger time of issuance
+expires_at       → optional expiry time, fixed at issuance
 ```
+
+There is no pointer to the credential's content or document.
 
 ### Why the hash is not personal data
 
@@ -74,13 +79,13 @@ Under **GDPR Recital 26**:
 
 > *"The principles of data protection should therefore not apply to anonymous information, namely information which does not relate to an identified or identifiable natural person or to personal data rendered anonymous in such a manner that the data subject is not or no longer identifiable."*
 
-The `blockchain_hash` is a one-way SHA-256 digest of the credential metadata. Without access to the original metadata document, an observer **cannot reverse the hash** to identify the individual.
+The `credential_hash` is a one-way SHA-256 digest of the credential metadata. Without access to the original metadata document, an observer **cannot reverse the hash** to identify the individual.
 
-> **⚠ To revisit (2026-10-29).** This paragraph previously added that Acredia deletes the metadata on erasure, and concluded the hash is anonymous. Neither holds today: account deletion retains credentials (§3.10), and the metadata is publicly readable on IPFS (§3.11). Whether the on-chain hash and IPFS pointer are personal data must be re-assessed with the §3.11 design and confirmed by counsel.
+> **⚠ For counsel (updated 2026-10-30).** This paragraph previously added that Acredia deletes the metadata on erasure, and concluded the hash is anonymous. Account deletion now retains credentials (§3.10), so the metadata remains in Acredia's private database. Since §3.11 the metadata is no longer public and there is no on-chain pointer to it, but the holder's wallet address sits next to the hash on-chain. Whether the on-chain record is personal data must be confirmed by counsel.
 
 ### Why it cannot be erased
 
-Blockchain records are technically immutable. There is no `DELETE` operation on Stellar's ledger. Attempting to comply with Art. 17 by deleting the underlying PII (DB + IPFS) achieves the same practical outcome: the credential hash remains on-chain, but without the metadata it is meaningless.
+Blockchain records are technically immutable. There is no `DELETE` operation on Stellar's ledger. Attempting to comply with Art. 17 by deleting the underlying PII (database and Storage) achieves the same practical outcome: the credential hash remains on-chain, but without the metadata it is meaningless.
 
 We rely on the exemption in **GDPR Art. 17(3)(b)**:
 
@@ -96,7 +101,7 @@ Academic credential verification serves a legitimate public-interest function. T
 |------|-----------|-------|
 | Account profile and login | Until the account is deleted | Contract |
 | Student roster records and credentials | Retained as the institution's records; not removed by account deletion | Institution (controller) |
-| IPFS credential documents | Retained with the credential; not unpinned on account deletion | Institution (controller) |
+| Credential documents (private Storage) | Retained with the credential; not removed by account deletion | Institution (controller) |
 | Verification logs | 90 days (auto-purge via `purge_old_verification_logs()`) | Legitimate interest |
 | Erasure request records | 7 years | Legal compliance |
 | On-chain hash records | Permanent | Art. 17(3)(b) GDPR |
@@ -133,7 +138,7 @@ POST /api/account/erase   (bearer token required)
 204 No Content → client signs out → redirect to /
 ```
 
-Nothing is unpinned and no credential, roster or institution data is changed.
+No credential, document, roster or institution data is changed.
 
 ---
 
@@ -142,9 +147,9 @@ Nothing is unpinned and no credential, roster or institution data is changed.
 - [GDPR Art. 17 — Right to erasure](https://gdpr-info.eu/art-17-gdpr/)
 - [GDPR Recital 26 — Anonymous data](https://gdpr-info.eu/recitals/no-26/)
 - [GDPR Art. 17(3)(b) — Exemption](https://gdpr-info.eu/art-17-gdpr/)
-- [Pinata Unpin API](https://docs.pinata.cloud/api-reference/endpoint/unpin-file)
 - [Stellar Ledger Immutability](https://developers.stellar.org/docs/learn/fundamentals)
 - `frontend/supabase/migrations/20260801000000_gdpr_erasure.sql` — original SQL migration
 - `frontend/supabase/migrations/20261029020000_fix_account_erasure.sql` — account-only erasure, erasure records outlive the account
+- `frontend/supabase/migrations/20261030000000_private_credential_documents.sql` — private document bucket, share tokens, expiry; IPFS pin registration dropped
 - `frontend/src/app/api/account/erase/route.ts` — API route
 - `frontend/src/app/legal/privacy/page.tsx` — Privacy Policy

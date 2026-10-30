@@ -6,7 +6,7 @@ This document describes the testing strategy and structural patterns utilized fo
 
 ## 🏗️ Core Design Pattern
 
-Academic credential operations rely heavily on decentralized components (Stellar Soroban smart contracts, IPFS storage networks) and modern database APIs (Supabase). To ensure stable, local, and CI-compatible testing without hitting live blockchain node environments or third-party networks, we implement **fully mocked integration / E2E tests**.
+Academic credential operations rely heavily on decentralized components (Stellar Soroban smart contracts, private document storage) and modern database APIs (Supabase). To ensure stable, local, and CI-compatible testing without hitting live blockchain node environments or third-party networks, we implement **fully mocked integration / E2E tests**.
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -14,7 +14,7 @@ Academic credential operations rely heavily on decentralized components (Stellar
 └───────────────────────────┬────────────────────────────┘
                             ▼ Mocks (using Vitest)
  ┌─────────────────┬─────────────────┬─────────────────┐
- │   IPFS Service  │  Stellar Network│  Supabase Client│
+ │ Document upload │  Stellar Network│  Supabase Client│
  └─────────────────┴─────────────────┴─────────────────┘
 ```
 
@@ -26,7 +26,7 @@ Located in [e2e.lifecycle.test.ts](./e2e.lifecycle.test.ts):
 
 ### 1. Successful Credential Issuance Lifecycle
 
-- **Strategy**: Mock IPFS file and metadata storage, simulate a successful transaction sign and broadcast on the Stellar network (obtaining a valid token ID), and assert that the Supabase client inserts the exact metadata payload, mapping the token correctly.
+- **Strategy**: Mock the private document upload, simulate a successful transaction sign and broadcast on the Stellar network (obtaining a valid token ID), and assert that the Supabase client inserts the exact metadata payload, mapping the token correctly.
 
 ### 2. Failed Wallet Signing (Freighter Rejection)
 

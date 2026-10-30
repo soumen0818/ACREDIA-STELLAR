@@ -65,10 +65,9 @@ test('issues, verifies, and revokes a credential', async ({ page }) => {
     // and the verdict is asserted separately below (ACREDIA-STELLAR#226).
     await expect(page.getByRole('heading', { name: 'Credential Verification', level: 1 })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Credential Verified ✓' })).toBeVisible();
-    await expect(page.getByText('Blockchain Verified')).toBeVisible();
-    // Distinct end-to-end CID ↔ on-chain-hash integrity signal (ACREDIA-STELLAR#163) —
-    // separate from the revoked/verified status above.
-    await expect(page.getByText('Document Integrity: Authentic')).toBeVisible();
+    await expect(page.getByText('Found on Stellar')).toBeVisible();
+    // A token ID shows status only (review §3.11b): nothing about the holder.
+    await expect(page.getByText('Ada Lovelace')).toHaveCount(0);
 
     // Every former tab is deep-linkable now, so the revoke flow can start from
     // the URL instead of replaying a click path.
@@ -82,9 +81,7 @@ test('issues, verifies, and revokes a credential', async ({ page }) => {
     await page.goto('/verify?token=1');
     await expect(page.getByRole('heading', { name: 'Credential Revoked' })).toBeVisible();
     await expect(page.getByText('This credential has been revoked')).toBeVisible();
-    // Revocation and document integrity are independent signals: a revoked
-    // credential's original document can still be untampered.
-    await expect(page.getByText('Document Integrity: Authentic')).toBeVisible();
+    await expect(page.getByText('Revoked by issuer')).toBeVisible();
 });
 
 test('institution console sections are deep-linkable and reachable on mobile', async ({ page }) => {
@@ -252,7 +249,7 @@ test('the verification verdict leads the page at every size', async ({ page }) =
             {
                 id: 'cred-1',
                 token_id: '1',
-                ipfs_hash: 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi',
+                ipfs_hash: null,
                 blockchain_hash:
                     'a3f1c9e2b7d84f5a1c0e6b9d2f7a4c8e1b5d9f3a7c2e6b0d4f8a1c5e9b3d7f2a',
                 metadata: {
@@ -299,17 +296,50 @@ test('the verification verdict leads the page at every size', async ({ page }) =
 
     // Technical identifiers are collapsed until asked for, then copyable — and
     // long hashes must not blow out the narrow viewport.
-    const cid = page.getByText('bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi');
-    await expect(cid).toBeHidden();
+    const hash = page.getByText('a3f1c9e2b7d84f5a1c0e6b9d2f7a4c8e1b5d9f3a7c2e6b0d4f8a1c5e9b3d7f2a');
+    await expect(hash).toBeHidden();
 
     await page.getByRole('button', { name: /Technical details/ }).click();
-    await expect(cid).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Copy IPFS CID' })).toBeVisible();
+    await expect(hash).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Copy On-chain credential hash' })).toBeVisible();
+    // The holder's wallet is not part of a status check.
+    await expect(page.getByText(studentWallet)).toHaveCount(0);
 
     const overflowsExpanded = await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
     );
     expect(overflowsExpanded, 'expanded hashes must not overflow at 390px').toBe(false);
+});
+
+test('an expired credential reads as expired, not revoked', async ({ page }) => {
+    await seedE2eState(
+        page,
+        createE2eState({
+            issuedCredentials: [
+                {
+                    id: 'cred-1',
+                    token_id: '1',
+                    ipfs_hash: null,
+                    blockchain_hash: 'e2e-tx-1',
+                    metadata: null,
+                    issued_at: '2020-01-01T00:00:00.000Z',
+                    // Valid through 2020-12-31 (UTC).
+                    expires_at: '2021-01-01T00:00:00.000Z',
+                    revoked: false,
+                    issuer_wallet_address: issuerWallet,
+                    student_wallet_address: studentWallet,
+                },
+            ],
+        }),
+    );
+    await installE2eRoutes(page);
+
+    await page.goto('/verify?token=1');
+    await expect(page.getByRole('heading', { name: 'Credential Expired' })).toBeVisible();
+    await expect(
+        page.getByText('This credential was valid through December 31, 2020 (UTC)'),
+    ).toBeVisible();
+    await expect(page.getByText('Not revoked')).toBeVisible();
 });
 
 test('every verification state shares one heading', async ({ page }) => {

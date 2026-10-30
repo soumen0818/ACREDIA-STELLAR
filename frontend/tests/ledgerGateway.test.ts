@@ -4,7 +4,10 @@ import { executeLedgerOperation } from '../src/lib/ledgerGateway';
 import { createE2eSigner } from '../src/lib/e2eLedger';
 import { createKeypairSigner } from '../src/lib/stellarSigner';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+});
 
 function seed() {
     const state = {
@@ -13,6 +16,8 @@ function seed() {
         authorizedIssuers: ['issuer'],
         nextTokenId: 5,
     };
+    // E2E mode is a build-time switch (src/lib/e2e.ts).
+    vi.stubEnv('NEXT_PUBLIC_E2E', 'true');
     vi.stubGlobal('window', { __ACREDIA_E2E__: state, sessionStorage: { setItem: vi.fn() } });
     return state;
 }

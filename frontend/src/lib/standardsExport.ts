@@ -1,4 +1,5 @@
 import { getContractAddress } from './stellar';
+import { shareUrl } from './sharedCredential';
 import { runtimeConfig } from './runtimeConfig';
 import {
     CREDENTIAL_HASH_ALGORITHM_V1,
@@ -22,6 +23,8 @@ import {
  */
 export interface StandardsExportCredentialRow {
     tokenId: string;
+    /** The holder's share token; when known, the export links to the share page (review §3.11b). */
+    shareToken?: string | null;
     metadata?: unknown;
     metadataSchemaVersion?: number | null;
     hashAlgorithm?: string | null;
@@ -59,12 +62,14 @@ function isVerifiableCredentialDocument(metadata: unknown): metadata is AcrediaV
     );
 }
 
-function verifyUrl(tokenId: string): string {
-    if (typeof window === 'undefined') {
-        return `/verify?token=${encodeURIComponent(tokenId)}`;
+function verifyUrl(tokenId: string, shareToken?: string | null): string {
+    const origin = typeof window === 'undefined' ? '' : window.location.origin;
+    // The share page proves the details in this export against the chain; a
+    // bare token ID can only confirm its status.
+    if (shareToken) {
+        return shareUrl(origin, shareToken);
     }
-
-    return `${window.location.origin}/verify?token=${encodeURIComponent(tokenId)}`;
+    return `${origin}/verify?token=${encodeURIComponent(tokenId)}`;
 }
 
 /**
@@ -155,7 +160,7 @@ export async function buildStandardsExportDocument(
         credentialHash,
         hashAlgorithm,
         canonicalizationAlgorithm: 'sha256:canonical-json (see docs/verifiable-credentials.md)',
-        verifyUrl: verifyUrl(row.tokenId),
+        verifyUrl: verifyUrl(row.tokenId, row.shareToken),
         hashCoversThisDocument,
     };
 

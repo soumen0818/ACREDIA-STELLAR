@@ -16,22 +16,6 @@ export function getContractAddress(contractName: keyof typeof CONTRACTS) {
     return address;
 }
 
-// Stellar Network Configuration
-export const STELLAR_CONFIG = {
-    testnet: {
-        horizonUrl: runtimeConfig.stellar.horizonUrl,
-        sorobanRpcUrl: runtimeConfig.stellar.sorobanRpcUrl,
-        networkPassphrase: runtimeConfig.stellar.networkPassphrase,
-        networkName: runtimeConfig.stellar.networkName,
-    },
-    mainnet: {
-        horizonUrl: runtimeConfig.stellar.horizonUrl,
-        sorobanRpcUrl: runtimeConfig.stellar.sorobanRpcUrl,
-        networkPassphrase: runtimeConfig.stellar.networkPassphrase,
-        networkName: runtimeConfig.stellar.networkName,
-    },
-};
-
 // Active network - uses the validated runtime selection.
 export const activeNetwork = {
     kind: runtimeConfig.stellar.kind,
@@ -45,11 +29,17 @@ export const activeNetwork = {
 // Instantiate Soroban SDK Server helper
 export const sorobanServer = new rpc.Server(activeNetwork.sorobanRpcUrl);
 
-// Stellar-specific explorer URL helpers
+// Explorer links come from the validated network profile, so they follow the
+// network the app runs on (testnet, mainnet or a custom explorer) instead of
+// being written into components (review §3.4).
+function explorerUrl(path: string): string {
+    return `${activeNetwork.explorerBaseUrl.replace(/\/+$/, '')}/${path}`;
+}
+
 export function getExplorerTxUrl(txHash: string): string {
-    return `https://stellar.expert/explorer/${activeNetwork.networkName}/tx/${txHash}`;
+    return explorerUrl(`tx/${txHash}`);
 }
 
 export function getExplorerAddressUrl(address: string): string {
-    return `https://stellar.expert/explorer/${activeNetwork.networkName}/account/${address}`;
+    return explorerUrl(`account/${address}`);
 }

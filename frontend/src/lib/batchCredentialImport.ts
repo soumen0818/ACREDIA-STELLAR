@@ -12,6 +12,7 @@ export const CSV_TEMPLATE_COLUMNS = [
     'gpa',
     'issueDate',
     'evidenceUrl',
+    'expiresAt',
 ] as const;
 
 const REQUIRED_CSV_COLUMNS: Array<(typeof CSV_TEMPLATE_COLUMNS)[number]> = [
@@ -46,6 +47,8 @@ export interface CsvCredentialRow {
     gpa?: string;
     issueDate: string;
     evidenceUrl?: string;
+    /** Optional `YYYY-MM-DD`; the credential is valid through this date (UTC). */
+    expiresAt?: string;
 }
 
 export interface CsvParseResult {
@@ -89,6 +92,7 @@ export function parseCredentialCsv(fileText: string): CsvParseResult {
         gpa: cell(record, 'gpa') || undefined,
         issueDate: cell(record, 'issueDate'),
         evidenceUrl: cell(record, 'evidenceUrl') || undefined,
+        expiresAt: cell(record, 'expiresAt') || undefined,
     }));
 
     return { rows, parseErrors };
@@ -114,6 +118,7 @@ export function validateCsvRow(
             degree: row.degree,
             gpa: row.gpa,
             issueDate: row.issueDate,
+            expiresAt: row.expiresAt,
         },
         isWalletAddressValid,
     );
@@ -172,6 +177,8 @@ export function buildCsvTemplateString(): string {
         '3.8',
         '2026-05-15',
         'https://example.edu/evidence/jane-doe.pdf',
+        // expiresAt: leave empty for a credential that never expires.
+        '',
     ]
         .map((value) => `"${value.replace(/"/g, '""')}"`)
         .join(',');

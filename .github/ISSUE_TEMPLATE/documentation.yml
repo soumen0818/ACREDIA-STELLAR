@@ -90,5 +90,5 @@ body:
           required: true
         - label: I included setup steps from a clean clone.
           required: true
-        - label: I removed or redacted all secrets, service-role keys, Pinata JWTs, and Stellar secret keys.
+        - label: I removed or redacted all secrets, service-role keys, API keys, and Stellar secret keys.
           required: true

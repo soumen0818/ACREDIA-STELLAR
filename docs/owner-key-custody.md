@@ -140,7 +140,7 @@ stellar contract invoke --network testnet --source <CURRENT_OWNER_IDENTITY> \
   --id <CONTRACT_ID> -- transfer_owner --new_owner <MULTISIG_ACCOUNT>
 ```
 
-Record the transaction hash and `own_xfer` event before proceeding.
+Record the transaction hash and `owner_transfer_proposed` event before proceeding.
 
 ### Step 3 — Build one acceptance envelope and collect two signatures
 
@@ -181,7 +181,7 @@ stellar contract invoke --network testnet --source <FUNDED_READ_ACCOUNT> \
   --id <CONTRACT_ID> -- get_owner
 ```
 
-Record the `own_acpt` event and transaction hash. Rehearse one authorized
+Record the `owner_transfer_accepted` event and transaction hash. Rehearse one authorized
 issuer operation with two holders and prove a one-holder attempt fails. Repeat
 for `pause`, `unpause`, and upgrade proposal/cancellation as allowed by the
 current upgrade policy. Record every transaction hash and result.
@@ -197,7 +197,7 @@ for mainnet. It should be treated as burned after the handover is confirmed.
 
 - [ ] Multisig account created with 2-of-3 threshold, all holders verified.
 - [ ] Transfer rehearsed on testnet, all steps above executed and logged.
-- [ ] `own_xfer` and `own_acpt` events confirmed on testnet ledger.
+- [ ] `owner_transfer_proposed` and `owner_transfer_accepted` events confirmed on testnet ledger.
 - [ ] `get_owner()` on testnet returns the multisig address, not a dev key.
 - [ ] Mainnet deploy initializes directly to the multisig account (owner key
       never touches a developer workstation for the mainnet deployment).

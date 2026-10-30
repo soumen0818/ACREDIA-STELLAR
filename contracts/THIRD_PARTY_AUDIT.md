@@ -3,7 +3,7 @@
 **Issue**: [#280 — No independent smart-contract audit](https://github.com/soumen0818/ACREDIA-STELLAR/issues/280)
 **Status**: Audit not yet engaged — this document prepares the scope, hands the
 internal self-review to the auditor, and tracks findings.
-**Last reviewed**: 2026-09-29
+**Last reviewed**: 2026-10-30 (interface changed before the redeploy: constructor, expiry, hash-only storage, typed events; see codebase review §3.8 / §3.11)
 
 > **This document does not replace the audit**. When a third-party report is
 > delivered, it is published here in `contracts/` and the tracking tables below
@@ -19,13 +19,13 @@ as a starting point, not as a clean bill of health:
 
 | ID | Severity | Finding | State |
 |----|----------|---------|-------|
-| F-1 | Medium | `initialize()` auth fixed; deploy-time owner race remains | **Partial — constructor required before mainnet** |
+| F-1 | Medium | `initialize()` auth fixed; deploy-time owner race remains | **Fixed (2026-10-30)** — `__constructor` sets the owner at deploy; please review |
 | F-2 | Low | `upgrade()` emitted no event | **Fixed** |
 | F-3 | Low | `migrate()` emitted no event | **Fixed** |
 | F-4 | Info | `initialize()` emitted no event | **Fixed** |
 | F-5 | Medium | No owner override for `revoke_credential` | **Fixed** (`admin_revoke_credential`, distinct event) |
 | F-6 | Low | `revoke_issuer` no-op still emits `iss_rev` | **Fixed** (event only on change) |
-| F-7 | Info | No length cap on `ipfs_uri` | **Fixed** (`MAX_IPFS_URI_LEN`, `IpfsUriTooLarge = 17`) |
+| F-7 | Info | No length cap on `ipfs_uri` | **Superseded (2026-10-30)** — the URI was removed; code 17 retired |
 | F-8 | Info | `read_owner()` uses `.unwrap()` | **Accepted** (safe, invariant upheld) |
 
 ---
@@ -73,11 +73,25 @@ scope document presented to the auditor.
 
 ### 2.5 Economic / DoS surface
 
-- Unbounded `ipfs_uri`: storage cost borne by the contract vs. the issuer.
 - Permissionless `bump_credential`: can an adversary grief the contract by
   bumping TTLs of every entry, inflating the contract's ledger footprint?
 - Storage growth: is there any mechanism that lets an unprivileged caller grow
   per-entry or instance storage unboundedly?
+
+### 2.6 Changes made after the internal review (2026-10-30)
+
+Please give these specific attention; they were made before the testnet redeploy:
+
+- **Constructor**: `__constructor(owner)` replaces `initialize`. It stores the owner without
+  `require_auth()` because the owner is a multisig account; the deploy runbook's immediate
+  `get_owner()` check is the compensating control. Is that acceptable?
+- **Hash-only storage**: credentials store `credential_hash` and no URI; the content is held
+  privately off-chain.
+- **Expiry**: optional `expires_at`, validated as strictly in the future at issuance and fixed
+  thereafter; `credential_status` reports `Revoked` over `Expired`, and a credential is expired
+  when `ledger timestamp >= expires_at`.
+- **Typed events** (`#[contractevent]`) replace `events().publish`; issuer authorization calls are
+  idempotent and return `Result`.
 
 ---
 

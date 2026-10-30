@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
-import { uploadToIPFS, uploadJSONToIPFS, getIPFSUrl } from './ipfs';
+import { uploadCredentialDocument } from './credentialDocumentUpload';
+import { documentEvidenceId } from './credentialDocuments';
+import { expiryDateToTimestamp } from './credentialValidation';
 import {
     issueCredentialOnStellar,
     generateCredentialHash,
@@ -30,6 +32,8 @@ export interface CredentialData {
     major?: string;
     gpa?: string;
     issueDate: string;
+    /** Optional `YYYY-MM-DD`; the credential is valid through this date (UTC). */
+    expiresAt?: string;
     subjects?: Subject[];
     institutionId: string;
     institutionName: string;
@@ -45,7 +49,7 @@ export interface CredentialData {
  */
 export type CredentialMetadata = AcrediaVerifiableCredential;
 
-export type CredentialIssueProgressStep = 'upload-ipfs' | 'sign-transaction' | 'save-database';
+export type CredentialIssueProgressStep = 'store-document' | 'sign-transaction' | 'save-database';
 
 export async function issueCredential(
     data: CredentialData,
@@ -54,14 +58,11 @@ export async function issueCredential(
 ): Promise<{
     tokenId: string;
     transactionHash: string;
-    ipfsHash: string;
-    metadataHash: string;
 }> {
+    const expiresAt = data.expiresAt?.trim() ? expiryDateToTimestamp(data.expiresAt.trim()) : null;
     const e2eState = getE2eState();
     if (e2eState?.enabled) {
-        onProgress?.('upload-ipfs');
-        const fileCID = `e2e-file-${data.file.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
-        const metadataPath = 'e2e-metadata-cid';
+        onProgress?.('store-document');
         const tokenId = String(e2eState.nextTokenId ?? 1);
         const transactionHash = `e2e-tx-${tokenId}`;
 
@@ -71,7 +72,8 @@ export async function issueCredential(
             state.issuedCredentials.unshift({
                 id: `cred-${tokenId}`,
                 token_id: tokenId,
-                ipfs_hash: metadataPath,
+                share_token: crypto.randomUUID(),
+                ipfs_hash: null,
                 blockchain_hash: transactionHash,
                 metadata: {
                     credentialData: {
@@ -84,6 +86,8 @@ export async function issueCredential(
                     },
                 },
                 issued_at: new Date().toISOString(),
+                expires_at:
+                    expiresAt === null ? null : new Date(expiresAt * 1000).toISOString(),
                 revoked: false,
                 issuer_wallet_address: data.institutionWallet,
                 student_wallet_address: data.studentWallet,
@@ -96,20 +100,14 @@ export async function issueCredential(
 
         onProgress?.('save-database');
 
-        return {
-            tokenId,
-            transactionHash,
-            ipfsHash: fileCID,
-            metadataHash: metadataPath,
-        };
+        return { tokenId, transactionHash };
     }
 
     try {
-        onProgress?.('upload-ipfs');
-        debugLog('Uploading credential file to IPFS.');
-        const fileCID = await uploadToIPFS(data.file);
-        const fileUrl = getIPFSUrl(fileCID);
-        debugLog('Credential file uploaded to IPFS.');
+        onProgress?.('store-document');
+        debugLog('Storing the credential document privately.');
+        const document = await uploadCredentialDocument(data.file);
+        debugLog('Credential document stored.');
 
         debugLog('Generating credential metadata as a W3C VC / Open Badges 3.0 document.');
         const metadata: CredentialMetadata = buildAcrediaVerifiableCredential(
@@ -126,14 +124,12 @@ export async function issueCredential(
                 subjects: data.subjects,
             },
             runtimeConfig.stellar.explorerBaseUrl,
-            fileUrl,
+            {
+                id: documentEvidenceId(document.sha256),
+                description: `SHA-256 of the source document uploaded by ${data.institutionName} at issuance. The document is held privately by Acredia.`,
+            },
         );
         validateVerifiableCredential(metadata);
-
-        debugLog('Uploading credential metadata to IPFS.');
-        const metadataPath = await uploadJSONToIPFS(metadata);
-        const metadataUrl = `ipfs://${metadataPath}`;
-        debugLog('Credential metadata uploaded to IPFS.');
 
         debugLog('Generating credential hash.');
         const credentialHash = await generateCredentialHash(metadata);
@@ -144,19 +140,10 @@ export async function issueCredential(
         const { tokenId, transactionHash } = await issueCredentialOnStellar(
             data.studentWallet,
             credentialHash,
-            metadataUrl,
+            expiresAt,
             issuer,
         );
-        // eslint-disable-next-line no-console
-        console.log('✅ Credential issued! Token ID:', tokenId);
-        // eslint-disable-next-line no-console
-        console.log('✅ Transaction:', transactionHash);
-
-        // Step 5: (Skipped) Registry handled atomically by Stellar contract
-
-        // Step 6: Save to Supabase database
-        // eslint-disable-next-line no-console
-        console.log('💾 Saving to database...');
+        debugLog(`Credential issued on Stellar. Token ID: ${tokenId}`);
 
         if (!data.institutionId) {
             throw new Error('Missing institution ID. Please refresh and try again.');
@@ -170,20 +157,26 @@ export async function issueCredential(
             .eq('wallet_address', data.studentWallet)
             .maybeSingle();
 
-        const { error: dbError } = await supabase.from('credentials').insert({
+        // An upsert, not an insert: the indexer may already have written a
+        // status-only row for this token from the chain event (review §3.11c).
+        const { error: dbError } = await supabase.from('credentials').upsert({
             student_id: studentData?.id || null,
             student_wallet_address: data.studentWallet,
             institution_id: data.institutionId,
             issuer_wallet_address: data.institutionWallet, // Store issuer wallet
             token_id: tokenId,
-            ipfs_hash: metadataPath, // Store full path (CID/filename)
+            // No IPFS content: only the hash is on-chain (review §3.11).
+            ipfs_hash: null,
+            document_path: document.path,
+            document_sha256: document.sha256,
+            expires_at: expiresAt === null ? null : new Date(expiresAt * 1000).toISOString(),
             blockchain_hash: transactionHash,
             metadata,
             metadata_schema_version: CREDENTIAL_METADATA_SCHEMA_VERSION,
             hash_algorithm: CREDENTIAL_HASH_ALGORITHM,
             issued_at: new Date().toISOString(),
             revoked: false,
-        });
+        }, { onConflict: 'token_id' });
 
         if (dbError) {
             captureException(dbError, { context: 'db_save_credential' });
@@ -208,12 +201,7 @@ export async function issueCredential(
             body: JSON.stringify({ type: 'issued', tokenId }),
         }).catch((err) => captureException(err, { context: 'triggerIssuedEmail' }));
 
-        return {
-            tokenId,
-            transactionHash,
-            ipfsHash: fileCID,
-            metadataHash: metadataPath,
-        };
+        return { tokenId, transactionHash };
     } catch (error) {
         recordMetric('issuance.failure', 1, {
             credentialType: data.credentialType,

@@ -46,7 +46,8 @@ function institutionState() {
             {
                 id: 'cred-1',
                 token_id: '1',
-                ipfs_hash: 'e2e-metadata-cid',
+                share_token: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+                ipfs_hash: null,
                 blockchain_hash: 'e2e-tx-1',
                 metadata: {
                     credentialData: {
@@ -118,7 +119,7 @@ test.describe('WCAG 2.1 AA accessibility audit', () => {
         await installE2eRoutes(page);
 
         await expectNoViolations(page, '/verify?token=1');
-        await expectNoViolations(page, '/credentials/1');
+        await expectNoViolations(page, '/credentials/3f2504e0-4f89-41d3-9a0c-0305e82c3301');
         // Where partners copy the embeddable verify widget from (ACREDIA-STELLAR#304).
         await expectNoViolations(page, '/docs/api');
     });

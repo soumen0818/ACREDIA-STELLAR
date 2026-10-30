@@ -286,8 +286,9 @@ export async function POST(request: NextRequest) {
 ### `requireInstitutionRequest(request)`
 
 Use for endpoints only credential **issuers** may call — anything that spends a
-shared, server-held resource on the caller's behalf (for example the IPFS
-pinning routes, which use the server-only `PINATA_JWT`).
+shared, server-held resource on the caller's behalf (for example the
+credential document upload route, which writes to private Storage with the
+service-role key).
 
 It authenticates the caller, then resolves their role through the shared
 [`resolveUserRole()`](src/lib/roleResolver.ts) resolver, so it can never drift
@@ -312,7 +313,7 @@ export async function POST(request: NextRequest) {
 > [!IMPORTANT]
 > Pair this guard with a **per-user** quota, not just a per-IP one. Pass
 > `identifier: auth.userId` to `enforceRateLimit()` so a single account cannot
-> sidestep its quota by rotating source addresses. See the IPFS routes for the
+> sidestep its quota by rotating source addresses. See `POST /api/institution/documents` for the
 > pattern: a coarse per-IP limit *before* the auth check (so anonymous floods
 > cannot drive token verification), then a per-account quota after it.
 

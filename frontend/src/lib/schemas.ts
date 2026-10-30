@@ -44,8 +44,8 @@ export type CredentialMetadataPayload = z.infer<typeof CredentialMetadataSchema>
 // This is the shape built by `buildAcrediaVerifiableCredential` in
 // verifiableCredential.ts and produced for every new credential issuance.
 // `credentialService.ts` validates the built document against this schema
-// before it is uploaded to IPFS / hashed on-chain, so a malformed document
-// never gets anchored.
+// before it is hashed and anchored on-chain, so a malformed document never
+// gets anchored.
 
 const jsonLdContextEntrySchema = z.union([z.string(), z.record(z.string(), z.unknown())]);
 

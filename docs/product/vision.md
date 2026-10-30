@@ -20,7 +20,7 @@ For **educational institutions** that need to issue credentials their graduates 
 - **Trust is centralized.** A single database is a single point of failure and a single point of control.
 
 ### Solution
-Acredia gives each credential a **cryptographic fingerprint anchored on-chain** and stores the supporting document on decentralized storage (IPFS). Verification recomputes and matches that fingerprint — proving authenticity **without a phone call and without exposing private data**.
+Acredia gives each credential a **cryptographic fingerprint anchored on-chain** and keeps the credential and its document in private storage, shared only by the holder. Verification recomputes and matches that fingerprint — proving authenticity **without a phone call and without exposing private data**.
 
 - **Institutions** issue credentials in minutes and can revoke them if needed, with a full audit trail.
 - **Students** hold their credentials for life in a wallet-linked dashboard and share a link or QR code.
@@ -128,7 +128,7 @@ matching the product, the claim is the bug.
 **Principle:** *Issuers pay; verification is always free.* Free, unlimited public verification maximizes network value and adoption; institutions capture that value and pay for issuance and tooling.
 
 ### Revenue streams
-1. **Per-credential issuance fee** — a small fee per issued credential (covers on-chain + IPFS costs plus margin). Naturally usage-based and aligned with institution value.
+1. **Per-credential issuance fee** — a small fee per issued credential (covers on-chain and storage costs plus margin). Naturally usage-based and aligned with institution value.
 2. **Institution subscription tiers** — recurring plans bundling issuance volume, seats, branding, analytics, and support.
 3. **Verification API / partner access (roadmap)** — paid, higher-limit API keys and embeddable widgets for ATS/HR platforms that verify at scale (public one-off verification stays free).
 4. **Value-added services (later)** — custom credential templates/branding, bulk import tooling, SSO, and premium support/SLAs.
@@ -142,7 +142,7 @@ matching the product, the claim is the bug.
 
 **Always free:** public verification for employers and individuals (no account, no fee).
 
-**Unit-economics note:** on Stellar testnet the on-chain cost is effectively zero; on mainnet the marginal cost per credential is sub-cent plus IPFS pinning — so the per-credential fee is almost entirely margin, and free verification costs only read/RPC and bandwidth.
+**Unit-economics note:** on Stellar testnet the on-chain cost is effectively zero; on mainnet the marginal cost per credential is sub-cent plus document storage — so the per-credential fee is almost entirely margin, and free verification costs only read/RPC and bandwidth.
 
 ---
 
@@ -176,7 +176,7 @@ matching the product, the claim is the bug.
 
 **Trust & reliability**
 - Verification success rate and p95 verification latency.
-- Credential availability (IPFS pin health); incidents.
+- Credential availability (database and document storage health); incidents.
 
 **Business**
 - MRR/ARR by tier; per-credential revenue; gross margin per credential.

@@ -4,6 +4,7 @@ import { getSiteUrl } from '@/lib/siteUrl';
 import { structuredLog } from '@/lib/debug';
 import { enforceRateLimit } from '@/lib/rateLimit';
 import { canWrite, resolveInstitutionForUser } from '@/lib/institutionMembership';
+import { shareUrl } from '@/lib/sharedCredential';
 
 // Coarse per-IP guard against anonymous floods before auth runs.
 const NOTIFICATIONS_TRIGGER_IP_LIMIT = {
@@ -89,7 +90,11 @@ export async function POST(request: NextRequest) {
         }
 
         const appUrl = getSiteUrl();
-        const credentialUrl = `${appUrl}/verify/${tokenId}`;
+        // The email goes to the holder, so it links to their share page,
+        // which they can pass on. `/verify/{id}` was a 404 (review §5.6 #5).
+        const credentialUrl = credential.share_token
+            ? shareUrl(appUrl, credential.share_token)
+            : `${appUrl}/verify?token=${encodeURIComponent(tokenId)}`;
         const studentName = credential.metadata?.credentialData?.studentName || 'Student';
 
         const jobPayload = {

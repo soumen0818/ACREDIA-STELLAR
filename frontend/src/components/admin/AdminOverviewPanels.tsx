@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 const RESULT_LABELS: Record<string, string> = {
     verified: 'Verified',
     revoked: 'Revoked',
+    expired: 'Expired',
     not_found: 'Not found',
     mismatch: 'Hash mismatch',
     chain_unavailable: 'Chain unavailable',
@@ -20,6 +21,7 @@ const RESULT_LABELS: Record<string, string> = {
 const RESULT_ORDER = [
     'verified',
     'revoked',
+    'expired',
     'not_found',
     'mismatch',
     'chain_unavailable',

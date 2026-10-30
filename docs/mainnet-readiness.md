@@ -106,7 +106,7 @@ A full audit covering all API routes, RLS, supply chain, CI/CD, secrets, and
 OWASP Top 10:2025 produced ten findings. All are resolved, including:
 
 - An **unauthenticated IPFS upload endpoint** that let anyone pin files to the
-  project's Pinata account — now requires an authenticated institution
+  project's Pinata account — fixed, and since removed with IPFS (review §3.11)
 - An **IDOR** allowing anyone to change any user's notification settings
 - **Seven dependency vulnerabilities** — now zero
 - CSP hardened to a per-request nonce (no `unsafe-inline` for scripts)
@@ -305,7 +305,7 @@ Once every blocker above is cleared:
 ## 6. What does *not* change at cutover
 
 - Database schema, RLS, and all off-chain data — Supabase is network-agnostic
-- IPFS/Pinata storage
+- Private credential storage (Supabase Storage)
 - Authentication, provisioning, and invitations
 - The public verification flow
 

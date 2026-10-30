@@ -67,6 +67,33 @@ export default tseslint.config(
     },
   },
   {
+    // Network-specific Stellar URLs (review §3.4).
+    //
+    // Explorer links hardcoded to testnet would have pointed every "view on
+    // explorer" link at the wrong network after the mainnet cutover. The
+    // network profile in runtimeConfig.ts is the only place these may appear;
+    // everything else uses the helpers in @/lib/stellar or runtimeConfig.
+    files: ['src/**/*.ts', 'src/**/*.tsx'],
+    ignores: ['src/lib/runtimeConfig.ts'],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "Literal[value=/stellar\\.expert\\/explorer\\/|horizon(-testnet)?\\.stellar\\.org|soroban-testnet\\.stellar\\.org|sorobanrpc\\.com/]",
+          message:
+            "Network-specific Stellar URL. Use getExplorerTxUrl/getExplorerAddressUrl from '@/lib/stellar' or runtimeConfig.stellar instead.",
+        },
+        {
+          selector:
+            "TemplateElement[value.raw=/stellar\\.expert\\/explorer\\/|horizon(-testnet)?\\.stellar\\.org|soroban-testnet\\.stellar\\.org|sorobanrpc\\.com/]",
+          message:
+            "Network-specific Stellar URL. Use getExplorerTxUrl/getExplorerAddressUrl from '@/lib/stellar' or runtimeConfig.stellar instead.",
+        },
+      ],
+    },
+  },
+  {
     files: ['**/debug.ts'],
     rules: {
       "no-console": "off"

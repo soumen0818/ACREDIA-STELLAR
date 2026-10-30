@@ -7,11 +7,10 @@ import { CredentialFacts } from '@/components/verify/CredentialFacts';
 import { TechnicalDetails } from '@/components/verify/TechnicalDetails';
 import { VerificationSignals } from '@/components/verify/VerificationSignals';
 import { VerificationVerdict } from '@/components/verify/VerificationVerdict';
+import { formatValidThrough } from '@/lib/credentialStatus';
 import type {
-    CredentialData,
-    IntegrityStatus,
+    CredentialStatusRecord,
     RevocationSource,
-    VerificationDetail,
 } from '@/hooks/useCredentialVerification';
 
 function formatDate(value: string): string {
@@ -35,39 +34,38 @@ function revocationLine(source: RevocationSource, revokedAt: string | null): str
     return `This credential has been revoked${on} and should no longer be relied on.`;
 }
 
+/** The verdict's supporting line for a revoked or expired credential; shared with the share page. */
+export function verdictLine(credential: CredentialStatusRecord): string | undefined {
+    if (credential.status === 'revoked') {
+        return revocationLine(credential.revocation_source, credential.revoked_at);
+    }
+    if (credential.status === 'expired' && credential.expires_at) {
+        return `This credential was valid through ${formatValidThrough(credential.expires_at)} (UTC) and should no longer be relied on.`;
+    }
+    return undefined;
+}
+
 /**
- * A completed verification, in strict priority order: the verdict, then the
+ * A completed status check, in strict priority order: the verdict, then the
  * human facts, then the signals behind it, then the cryptographic proof.
  */
 export function VerificationReport({
     credential,
-    integrityStatus,
-    detail,
     checkedAt,
 }: {
-    credential: CredentialData;
-    integrityStatus: IntegrityStatus | null;
-    detail: VerificationDetail | null;
+    credential: CredentialStatusRecord;
     checkedAt: string;
 }) {
-    const revoked = credential.revoked;
-    const revocationSource = detail?.revocationSource ?? credential.revocation_source ?? null;
-
     return (
         <div className="space-y-4">
             <VerificationVerdict
-                kind={revoked ? 'revoked' : 'verified'}
-                line={revoked ? revocationLine(revocationSource, credential.revoked_at) : undefined}
+                kind={credential.status === 'valid' ? 'verified' : credential.status}
+                line={verdictLine(credential)}
             />
 
             <CredentialFacts credential={credential} />
 
-            <VerificationSignals
-                credential={credential}
-                integrityStatus={integrityStatus}
-                detail={detail}
-                checkedAt={checkedAt}
-            />
+            <VerificationSignals credential={credential} checkedAt={checkedAt} />
 
             <TechnicalDetails credential={credential} />
 

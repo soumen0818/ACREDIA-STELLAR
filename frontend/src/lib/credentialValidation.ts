@@ -19,6 +19,7 @@ export interface CredentialValidationInput {
     degree: string;
     gpa?: string;
     issueDate: string;
+    expiresAt?: string;
     subjects: CredentialValidationSubject[];
     file: CredentialValidationFile | null;
 }
@@ -34,6 +35,8 @@ export interface CommonCredentialFields {
     degree: string;
     gpa?: string;
     issueDate: string;
+    /** Optional `YYYY-MM-DD`: the credential is valid through this date (UTC). */
+    expiresAt?: string;
 }
 
 export function parseIssueDate(value: string): Date | null {
@@ -52,6 +55,21 @@ export function parseIssueDate(value: string): Date | null {
     }
 
     return date;
+}
+
+/**
+ * The on-chain `expires_at` (Unix seconds) for an expiry date `YYYY-MM-DD`.
+ *
+ * A credential is valid *through* its expiry date, in UTC, so it expires at
+ * midnight UTC at the start of the following day. Returns null for an
+ * invalid date.
+ */
+export function expiryDateToTimestamp(value: string): number | null {
+    const date = parseIssueDate(value);
+    if (!date) {
+        return null;
+    }
+    return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate() + 1) / 1000;
 }
 
 /**
@@ -93,6 +111,19 @@ export function validateCommonCredentialFields(
         const gpa = Number(input.gpa);
         if (!Number.isFinite(gpa) || gpa < 0 || gpa > 10) {
             errors.push('Please enter a valid GPA');
+        }
+    }
+
+    const expiry = input.expiresAt?.trim();
+    if (expiry) {
+        const expiresAt = expiryDateToTimestamp(expiry);
+        if (expiresAt === null) {
+            errors.push('Please enter a valid expiry date (YYYY-MM-DD)');
+        } else if (expiresAt * 1000 <= Date.now()) {
+            // The contract rejects an expiry that is not in the future.
+            errors.push('Expiry date cannot be in the past');
+        } else if (issueDate && expiry < input.issueDate.trim()) {
+            errors.push('Expiry date cannot be before the issue date');
         }
     }
 

@@ -37,7 +37,7 @@ describe('runtime config environment validation', () => {
         errorSpy.mockRestore();
     });
 
-    it('exposes a typed server runtime config for admin and pinata settings', async () => {
+    it('exposes a typed server runtime config for admin settings, and no IPFS config', async () => {
         vi.stubEnv('NODE_ENV', 'test');
         vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://example.supabase.co');
         vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'anon');
@@ -46,6 +46,9 @@ describe('runtime config environment validation', () => {
 
         expect(serverRuntimeConfig.admin.emailAllowlist).toEqual([]);
         expect(serverRuntimeConfig.debug.enableLogs).toBe(false);
+        // IPFS/Pinata is retired (review §3.11c).
+        expect(serverRuntimeConfig).not.toHaveProperty('ipfs');
+        expect(serverRuntimeConfig).not.toHaveProperty('pinning');
     });
 
     it('enforces single-switch network profiles for testnet/mainnet defaults', async () => {
@@ -88,6 +91,7 @@ describe('runtime config environment validation', () => {
     it.each([
         'CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK',
         'CD7WU5XRV4KDGKMLDB2IYSCRMMH5FEM45XI235XEFAO6AS2TS7BPSIZH',
+        'CD3NAUTBD5JXFNJVB7DGJW2ALLLEEYBYC5PQ3IQIL7JSSGBDL2VZOY4U',
     ])('refuses to boot on mainnet with known testnet contract %s', async (contractId) => {
         // Degrading past this would let the app issue and verify real
         // credentials against a testnet contract while appearing healthy —

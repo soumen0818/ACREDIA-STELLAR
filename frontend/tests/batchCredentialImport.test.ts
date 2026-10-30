@@ -33,8 +33,8 @@ describe('parseCredentialCsv', () => {
         const text = toCsvText(
             [...CSV_TEMPLATE_COLUMNS],
             [
-                ['Jane Doe', validRow.studentWalletAddress, 'jane@example.edu', 'diploma', 'BSc', 'CS', '3.8', '2025-01-01', ''],
-                ['John Roe', validRow.studentWalletAddress, '', 'certificate', 'Cert', '', '', '2025-02-01', ''],
+                ['Jane Doe', validRow.studentWalletAddress, 'jane@example.edu', 'diploma', 'BSc', 'CS', '3.8', '2025-01-01', '', ''],
+                ['John Roe', validRow.studentWalletAddress, '', 'certificate', 'Cert', '', '', '2025-02-01', '', '2099-12-31'],
             ],
         );
 
@@ -45,6 +45,19 @@ describe('parseCredentialCsv', () => {
         expect(rows[1].rowNumber).toBe(2);
         expect(rows[0].studentName).toBe('Jane Doe');
         expect(rows[1].studentEmail).toBeUndefined();
+        // expiresAt is optional: empty means the credential never expires.
+        expect(rows[0].expiresAt).toBeUndefined();
+        expect(rows[1].expiresAt).toBe('2099-12-31');
+    });
+
+    it('validates an optional expiry date: future accepted, past or malformed rejected', () => {
+        expect(validateCsvRow({ ...validRow, expiresAt: '2099-12-31' }, () => true)).toEqual([]);
+        expect(validateCsvRow({ ...validRow, expiresAt: '2000-01-01' }, () => true)).toContain(
+            'Expiry date cannot be in the past',
+        );
+        expect(validateCsvRow({ ...validRow, expiresAt: '31/12/2099' }, () => true)).toContain(
+            'Please enter a valid expiry date (YYYY-MM-DD)',
+        );
     });
 
     it('reports missing required columns instead of guessing', () => {

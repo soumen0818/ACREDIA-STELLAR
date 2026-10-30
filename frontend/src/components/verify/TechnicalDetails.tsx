@@ -5,10 +5,9 @@ import { ChevronDown } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { CopyableValue } from '@/components/verify/CopyableValue';
 import { cn } from '@/lib/utils';
-import { getIPFSUrl } from '@/lib/ipfs';
-import { activeNetwork, getExplorerAddressUrl, getExplorerTxUrl } from '@/lib/stellar';
+import { activeNetwork, getExplorerAddressUrl } from '@/lib/stellar';
 import { runtimeConfig } from '@/lib/runtimeConfig';
-import type { CredentialData } from '@/hooks/useCredentialVerification';
+import type { CredentialStatusRecord } from '@/hooks/useCredentialVerification';
 
 /**
  * The tertiary tier: cryptographic proof, on demand.
@@ -17,7 +16,7 @@ import type { CredentialData } from '@/hooks/useCredentialVerification';
  * minority who audit them. Collapsed by default, but always rendered so a
  * printed record carries the full proof (`print:block`).
  */
-export function TechnicalDetails({ credential }: { credential: CredentialData }) {
+export function TechnicalDetails({ credential }: { credential: CredentialStatusRecord }) {
     const [open, setOpen] = useState(false);
 
     const rows: Array<{ label: string; value: string; href?: string; hrefLabel?: string }> = [
@@ -26,23 +25,7 @@ export function TechnicalDetails({ credential }: { credential: CredentialData })
     ];
 
     if (credential.on_chain_hash) {
-        rows.push({ label: 'On-chain document hash', value: credential.on_chain_hash });
-    }
-    if (credential.blockchain_hash) {
-        rows.push({
-            label: 'Issuance transaction',
-            value: credential.blockchain_hash,
-            href: getExplorerTxUrl(credential.blockchain_hash),
-            hrefLabel: 'View',
-        });
-    }
-    if (credential.ipfs_hash) {
-        rows.push({
-            label: 'IPFS CID',
-            value: credential.ipfs_hash,
-            href: getIPFSUrl(credential.ipfs_hash),
-            hrefLabel: 'Open',
-        });
+        rows.push({ label: 'On-chain credential hash', value: credential.on_chain_hash });
     }
     if (credential.issuer_wallet_address) {
         rows.push({
@@ -52,14 +35,8 @@ export function TechnicalDetails({ credential }: { credential: CredentialData })
             hrefLabel: 'View',
         });
     }
-    if (credential.student_wallet_address) {
-        rows.push({
-            label: 'Holder wallet',
-            value: credential.student_wallet_address,
-            href: getExplorerAddressUrl(credential.student_wallet_address),
-            hrefLabel: 'View',
-        });
-    }
+    // No holder wallet or issuance transaction: both identify the holder, and
+    // a token ID shows status only (review §3.11b).
 
     return (
         <Card className="p-5 sm:p-6">

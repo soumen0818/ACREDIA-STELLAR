@@ -4,7 +4,7 @@
  * `OpenBadgeCredential` profile.
  *
  * This is the single source of truth for the document shape: the exact
- * object built here is what gets uploaded to IPFS and canonically hashed
+ * object built here is what is stored privately and canonically hashed
  * on-chain at issuance time (see `credentialService.ts` and
  * `buildCanonicalCredentialPayloadV2` in `credentialHash.ts`), and it is also
  * what the student-dashboard/public "download standards-compliant credential"
@@ -166,13 +166,16 @@ function accountUrl(explorerBaseUrl: string, wallet: string): string {
  * @param explorerBaseUrl Stellar Expert explorer base URL for the active
  *   network (e.g. `runtimeConfig.stellar.explorerBaseUrl`), used to build
  *   resolvable `issuer.id` / `credentialSubject.id` URIs.
- * @param evidenceUrl Public IPFS gateway URL of the uploaded source document
- *   (transcript/diploma scan), if any.
+ * @param evidence The source document (transcript/diploma scan), if any.
+ *   For an uploaded document, `id` is `urn:sha256:<hex>` (see
+ *   `documentEvidenceId`): the document is stored privately and its digest,
+ *   which the on-chain hash covers, is what identifies it here. CSV-issued
+ *   credentials may instead reference the institution's own URL.
  */
 export function buildAcrediaVerifiableCredential(
     data: BuildVerifiableCredentialInput,
     explorerBaseUrl: string,
-    evidenceUrl?: string | null,
+    evidence?: { id: string; description: string } | null,
 ): AcrediaVerifiableCredential {
     const achievementType = ACHIEVEMENT_TYPE_BY_CREDENTIAL_TYPE[data.credentialType] ?? 'Achievement';
     const achievementId = `urn:acredia:achievement:${slugify(data.institutionWallet)}:${slugify(
@@ -188,13 +191,13 @@ export function buildAcrediaVerifiableCredential(
         });
     }
 
-    const evidence: AcrediaEvidence[] = evidenceUrl
+    const evidenceItems: AcrediaEvidence[] = evidence
         ? [
               {
-                  id: evidenceUrl,
+                  id: evidence.id,
                   type: ['Evidence'],
                   name: 'Original credential document',
-                  description: `Source document uploaded by ${data.institutionName} at issuance.`,
+                  description: evidence.description,
               },
           ]
         : [];
@@ -205,7 +208,8 @@ export function buildAcrediaVerifiableCredential(
         type: ['VerifiableCredential', 'OpenBadgeCredential'],
         name: `${data.credentialType} - ${data.studentName}`,
         description: `Academic credential issued by ${data.institutionName} to ${data.studentName}`,
-        image: evidenceUrl ?? null,
+        // Never a document link: the document is private (review §3.11).
+        image: null,
         issuer: {
             id: accountUrl(explorerBaseUrl, data.institutionWallet),
             type: ['Profile'],
@@ -229,7 +233,7 @@ export function buildAcrediaVerifiableCredential(
             },
             result,
         },
-        evidence,
+        evidence: evidenceItems,
         credentialData: {
             studentName: data.studentName,
             studentWallet: data.studentWallet,

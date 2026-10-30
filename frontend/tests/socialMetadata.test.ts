@@ -19,6 +19,10 @@ function twitterCard(metadata: Metadata): string | undefined {
 // loader is a build-time transform, so under Vitest the import resolves to a
 // plain object and calling it throws "Inter is not a function". Stub it with
 // the shape the layout consumes (`.variable`).
+const VALID_SHARE = '11111111-1111-4111-8111-111111111111';
+const REVOKED_SHARE = '22222222-2222-4222-8222-222222222222';
+const lookups = vi.hoisted(() => [] as Array<[string, string]>);
+
 vi.mock('next/font/google', () => ({
     Inter: () => ({ variable: '--font-sans', className: 'font-sans' }),
 }));
@@ -29,7 +33,12 @@ vi.mock('@/lib/serverAuth', () => ({
             select: vi.fn(() => ({
                 eq: vi.fn((col: string, val: string) => ({
                     maybeSingle: vi.fn(async () => {
-                        if (table === 'credentials' && val === '1001') {
+                        lookups.push([col, val]);
+                        // Share pages are addressed by share token only (review §3.11b).
+                        if (col !== 'share_token') {
+                            return { data: null, error: null };
+                        }
+                        if (table === 'credentials' && val === '11111111-1111-4111-8111-111111111111') {
                             return {
                                 data: {
                                     token_id: '1001',
@@ -50,7 +59,7 @@ vi.mock('@/lib/serverAuth', () => ({
                                 error: null,
                             };
                         }
-                        if (table === 'credentials' && val === 'revoked-token') {
+                        if (table === 'credentials' && val === '22222222-2222-4222-8222-222222222222') {
                             return {
                                 data: {
                                     token_id: 'revoked-token',
@@ -82,6 +91,7 @@ describe('Social Preview & Open Graph Metadata', () => {
 
     beforeEach(() => {
         process.env = { ...originalEnv };
+        lookups.length = 0;
     });
 
     it('resolves canonical base URL from NEXT_PUBLIC_SITE_URL', () => {
@@ -111,9 +121,9 @@ describe('Social Preview & Open Graph Metadata', () => {
         expect(twitterCard(verifyMetadata)).toBe('summary_large_image');
     });
 
-    it('generates credential-specific Open Graph metadata for valid tokens', async () => {
+    it('generates credential-specific Open Graph metadata for a share link', async () => {
         const metadata = await generateCredentialMetadata({
-            params: Promise.resolve({ token: '1001' }),
+            params: Promise.resolve({ token: VALID_SHARE }),
         });
 
         expect(metadata.title).toContain('Master of Computer Science');
@@ -122,27 +132,44 @@ describe('Social Preview & Open Graph Metadata', () => {
 
         expect(metadata.openGraph?.title).toContain('Master of Computer Science');
         expect(metadata.openGraph?.description).toContain('Alice Johnson');
-        expect(metadata.openGraph?.url).toBe('/credentials/1001');
+        expect(metadata.openGraph?.url).toBe(`/credentials/${VALID_SHARE}`);
 
         expect(twitterCard(metadata)).toBe('summary_large_image');
     });
 
+    it('keeps share pages out of search engines', async () => {
+        for (const token of [VALID_SHARE, '00000000-0000-4000-8000-000000000000', '1001']) {
+            const metadata = await generateCredentialMetadata({ params: Promise.resolve({ token }) });
+            expect(metadata.robots).toEqual({ index: false, follow: false });
+        }
+    });
+
     it('handles revoked credentials with descriptive status in Open Graph preview', async () => {
         const metadata = await generateCredentialMetadata({
-            params: Promise.resolve({ token: 'revoked-token' }),
+            params: Promise.resolve({ token: REVOKED_SHARE }),
         });
 
         expect(metadata.description).toContain('Revoked');
         expect(metadata.description).toContain('MIT');
     });
 
-    it('handles non-existent or fallback tokens gracefully', async () => {
+    it('falls back to a generic preview for an unknown share link', async () => {
         const metadata = await generateCredentialMetadata({
-            params: Promise.resolve({ token: '999999' }),
+            params: Promise.resolve({ token: '00000000-0000-4000-8000-000000000000' }),
         });
 
-        expect(metadata.title).toContain('#999999');
-        expect(metadata.openGraph?.url).toBe('/credentials/999999');
+        expect(metadata.title).toBe('Academic Credential');
+        expect(JSON.stringify(metadata)).not.toMatch(/Alice|Bob/);
+    });
+
+    it('never looks a credential up by token ID, which shows status only', async () => {
+        const metadata = await generateCredentialMetadata({
+            params: Promise.resolve({ token: '1001' }),
+        });
+
+        expect(lookups).toEqual([]);
+        expect(metadata.title).toBe('Academic Credential');
+        expect(JSON.stringify(metadata)).not.toContain('Alice');
     });
 
     it('simulates external crawler user agents (LinkedIn, Twitterbot, Facebook)', () => {
