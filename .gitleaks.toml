@@ -14,6 +14,10 @@ regexes = [
   # Secret seeds (S...) are intentionally NOT allowlisted and remain blocked.
   '''C[A-Z2-7]{55}''',
   '''G[A-Z2-7]{55}''',
+  # The fixed share-token UUID used by test fixtures (it also appears with its
+  # last digit cut off, as an invalid token). Only this value: real API keys
+  # can be UUIDs too.
+  '''(?i)3f2504e0-4f89-41d3-9a0c-0305e82c330''',
 ]
 
 [[rules]]
