@@ -226,6 +226,23 @@ Two informational warnings, both transitive and not exploitable in this contract
 - `paste 1.0.15` — unmaintained (RUSTSEC-2024-0436).
 - `spin 0.9.8` — yanked version.
 
+**RUSTSEC-2026-0387 (2026-10-30)**: `crypto-bigint 0.5.5` has timing variability in
+operations meant to be constant-time; the fix is in `>= 0.7.6`. It is ignored in
+`.cargo/audit.toml`, `audit.toml` and `deny.toml` because:
+
+- It reaches this crate only through `soroban-env-host` (via `k256`/`p256`/`elliptic-curve`
+  0.13), which is compiled for native builds: tests and the local test environment.
+  `cargo tree -i crypto-bigint@0.5.5 --target wasm32v1-none -e normal` prints nothing, so the
+  deployed WASM does not contain it. On-chain signature checks run in the validators' host,
+  not in code built from this `Cargo.lock`.
+- A timing side channel needs secret-key material processed by the vulnerable code; the
+  tests use throwaway keys.
+- It cannot be upgraded: every `soroban-env-host` release up to 30.0.0 requires `k256`/`p256`
+  0.13, which require `crypto-bigint` 0.5.
+
+Remove the ignore once `soroban-sdk` depends on `crypto-bigint >= 0.7.6`; `cargo audit` will
+then no longer report it.
+
 **Automated CI Gate (#299)**:
 Supply-chain security and dependency hygiene are now enforced automatically in `.github/workflows/ci.yml` under the `smart-contracts` job:
 - **`cargo audit`**: Installed via `taiki-e/install-action` (pinned to a commit SHA, v2.87.29) and runs on every push and pull request touching `main`/`master`. Fails CI immediately if any vulnerability advisory is detected in `contracts/Cargo.lock`. Configured in `contracts/.cargo/audit.toml` with the informational unmaintained advisory for `paste 1.0.15` documented and ignored.

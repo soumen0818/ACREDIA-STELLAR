@@ -9,6 +9,11 @@ all-features = true
 ignore = [
     # paste 1.0.15 is an unmaintained transitive dependency of soroban-sdk, tracked in contracts/SECURITY_AUDIT.md F-9
     "RUSTSEC-2024-0436",
+    # crypto-bigint 0.5.5 timing variability, a native-only dependency of
+    # soroban-env-host (k256/p256 0.13); not in the contract WASM. No Soroban
+    # release offers the fix yet. Tracked in contracts/SECURITY_AUDIT.md F-9;
+    # drop when soroban-sdk moves to crypto-bigint >= 0.7.6.
+    "RUSTSEC-2026-0387",
 ]
 
 # 2. License compliance
