@@ -48,10 +48,10 @@ beforeEach(() => {
     vi.useFakeTimers();
     rpc = createRpcStub();
 
-    // `stellar.ts` builds an `rpc.Server` at module scope against a real URL,
-    // so it is mocked rather than imported.
+    // `sorobanServer.ts` builds an `rpc.Server` at module scope against a real
+    // URL, so it is mocked rather than imported.
+    vi.doMock('../src/lib/sorobanServer', () => ({ sorobanServer: rpc }));
     vi.doMock('../src/lib/stellar', () => ({
-        sorobanServer: rpc,
         activeNetwork: {
             networkPassphrase: NETWORK_PASSPHRASE,
             networkName: 'testnet',

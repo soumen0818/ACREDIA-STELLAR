@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
+
+// No user and no connected wallet, which is exactly when the old prompt
+// appeared.
+vi.mock('../src/contexts/AuthContext', () => ({ useAuth: () => ({ user: null }) }));
+vi.mock('../src/contexts/StellarContext', () => ({ useStellarAccount: () => ({ address: null }) }));
+
 import { StudentOverview } from '../src/components/console/overview/StudentOverview';
 
 /**
@@ -51,8 +57,6 @@ describe('students table writes stay server-side', () => {
 });
 
 describe('student overview copy', () => {
-    // Rendered without providers: no user and no connected wallet, which is
-    // exactly when the old prompt appeared.
     const html = renderToStaticMarkup(<StudentOverview />);
 
     it('does not claim a wallet is needed to view credentials', () => {

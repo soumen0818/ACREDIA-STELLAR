@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
 import { safeGetSession } from '@/lib/supabase';
-import { ApiKeysManager } from '@/app/dashboard/settings/ApiKeysManager';
+import { ApiKeysManager } from '@/app/(console)/dashboard/settings/ApiKeysManager';
 import { AccountInformationPanel } from '@/components/settings/AccountInformationPanel';
 import { CONTACT_EMAIL, CONTACT_MAILTO } from '@/lib/contact';
 

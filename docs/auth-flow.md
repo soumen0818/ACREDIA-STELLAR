@@ -152,7 +152,9 @@ function MyComponent() {
 }
 ```
 
-The `AuthProvider` (which wraps the app) handles:
+The `AuthProvider` handles the following. It wraps only the consoles,
+`/dashboard/*` and `/admin/*` (`app/(console)/layout.tsx`), so the Supabase
+client stays off the public pages; `useAuth()` throws anywhere else.
 
 1. Fetching the initial session via `safeGetSession()`.
 2. Listening for `onAuthStateChange` events (login, logout, token refresh).

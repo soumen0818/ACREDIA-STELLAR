@@ -9,7 +9,8 @@ import {
     TransactionBuilder,
     xdr,
 } from '@stellar/stellar-sdk';
-import { activeNetwork, getContractAddress, sorobanServer } from './stellar';
+import { activeNetwork, getContractAddress } from './stellar';
+import { sorobanServer } from './sorobanServer';
 import { debugLog, debugWarn, captureException } from './debug';
 import { generateCanonicalCredentialHash } from './credentialHash';
 import { credentialHashHexToScVal } from './credentialHashEncoding';

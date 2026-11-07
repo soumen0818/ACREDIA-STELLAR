@@ -70,19 +70,9 @@ interface StellarContextType {
     disconnect: () => void;
 }
 
-const StellarContext = createContext<StellarContextType>({
-    address: null,
-    walletId: null,
-    walletName: null,
-    capabilities: null,
-    signer: null,
-    isMobile: false,
-    hasNoUsableWallet: false,
-    hasNoMessageSigningWallet: false,
-    isConnecting: false,
-    connect: async () => {},
-    disconnect: () => {},
-});
+// No default value: a component outside the provider would otherwise see
+// "no wallet connected" and give no sign that the provider is missing.
+const StellarContext = createContext<StellarContextType | null>(null);
 
 export const StellarProvider = ({ children }: { children: React.ReactNode }) => {
     const [address, setAddress] = useState<string | null>(null);
@@ -241,4 +231,12 @@ export const StellarProvider = ({ children }: { children: React.ReactNode }) => 
     );
 };
 
-export const useStellarAccount = () => useContext(StellarContext);
+export const useStellarAccount = () => {
+    const context = useContext(StellarContext);
+    if (!context) {
+        // Mounted by app/(console)/layout.tsx and app/claim/layout.tsx only,
+        // so the wallet stack stays off every other page (review §4.1).
+        throw new Error('useStellarAccount must be used within a StellarProvider');
+    }
+    return context;
+};

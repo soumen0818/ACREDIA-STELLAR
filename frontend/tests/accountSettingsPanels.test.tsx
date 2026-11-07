@@ -23,7 +23,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('../src/components/settings/AccountInformationPanel', () => ({
     AccountInformationPanel: () => null,
 }));
-vi.mock('../src/app/dashboard/settings/ApiKeysManager', () => ({ ApiKeysManager: () => null }));
+vi.mock('../src/app/(console)/dashboard/settings/ApiKeysManager', () => ({ ApiKeysManager: () => null }));
 
 import { AccountSettingsPanels } from '../src/components/settings/AccountSettingsPanels';
 

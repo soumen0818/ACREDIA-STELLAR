@@ -1,4 +1,3 @@
-import { rpc } from '@stellar/stellar-sdk';
 import { debugWarn } from './debug';
 import { runtimeConfig } from './runtimeConfig';
 
@@ -25,9 +24,6 @@ export const activeNetwork = {
     networkName: runtimeConfig.stellar.networkName,
     explorerBaseUrl: runtimeConfig.stellar.explorerBaseUrl,
 };
-
-// Instantiate Soroban SDK Server helper
-export const sorobanServer = new rpc.Server(activeNetwork.sorobanRpcUrl);
 
 // Explorer links come from the validated network profile, so they follow the
 // network the app runs on (testnet, mainnet or a custom explorer) instead of

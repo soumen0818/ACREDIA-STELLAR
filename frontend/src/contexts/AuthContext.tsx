@@ -16,12 +16,9 @@ interface AuthContextType {
     signOut: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({
-    user: null,
-    loading: true,
-    userRole: 'loading',
-    signOut: async () => {},
-});
+// No default value: a component outside the provider would otherwise see a
+// session that never finishes loading, with no sign the provider is missing.
+const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
@@ -101,7 +98,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
     const context = useContext(AuthContext);
-    if (context === undefined) {
+    if (!context) {
+        // Mounted by app/(console)/layout.tsx only (review §4.1).
         throw new Error('useAuth must be used within an AuthProvider');
     }
     return context;
