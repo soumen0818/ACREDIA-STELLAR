@@ -16,6 +16,14 @@ const webServerEnv = {
     // Enables E2E test mode (fake session, signer and ledger) for this dev
     // server only; it can never be on in a production build (src/lib/e2e.ts).
     NEXT_PUBLIC_E2E: 'true',
+    // Next.js loads a developer's .env.local into this server too, but never
+    // over a variable that is already set, even to ''. These are pinned so a
+    // local copy of .env.local.example cannot change what is tested: its
+    // site URL sends the widget's popup to port 3000 instead of this server,
+    // and its placeholder Upstash URL makes every rate-limited request fail.
+    NEXT_PUBLIC_SITE_URL: '',
+    UPSTASH_REDIS_REST_URL: '',
+    UPSTASH_REDIS_REST_TOKEN: '',
 };
 
 // Deliberately not 3000: that port is shared with roughly every other web

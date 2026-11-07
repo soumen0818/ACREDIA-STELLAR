@@ -165,10 +165,13 @@ and [the deployment record](2026-10-30-testnet.md).
 
 You change, in **Vercel → Project → Settings → Environment Variables**:
 
-- [ ] `NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT` = `NEW_CONTRACT_ID`
-- [ ] `NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT` = `NEW_CONTRACT_ID`
-- [ ] Delete `PINATA_JWT`, `NEXT_PUBLIC_PINATA_GATEWAY` and any `SECONDARY_PINNING_*`
-- [ ] Your local `frontend/.env.local`: the same changes
+- [x] `NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT` = `NEW_CONTRACT_ID`
+- [x] `NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT` = `NEW_CONTRACT_ID`
+- [x] Delete `PINATA_JWT`, `NEXT_PUBLIC_PINATA_GATEWAY` and any `SECONDARY_PINNING_*`
+- [x] Your local `frontend/.env.local`: the same changes
+
+> **Done 2026-11-07** (production environment updated by the project lead; the
+> local file has the new contract ID and no Pinata variables).
 
 Then redeploy the frontend.
 
@@ -179,6 +182,8 @@ Then redeploy the frontend.
       serving them (copies others fetched cannot be recalled).
 - [ ] Stop the pin-keeper worker if it runs anywhere (`npm run worker:pin-keeper` no longer exists).
 - [ ] Restart the indexer (`scripts/indexer.ts`) with the new contract ID; it now reads the typed events.
+      It needs `@stellar/stellar-sdk` 17.4.0 or later: testnet was on protocol 30 by 2026-11-07,
+      and older versions throw on `getLatestLedger`.
 
 ## 7. Smoke test (testnet)
 
