@@ -13,6 +13,10 @@ describe('Route Loading and Error Boundaries', () => {
         return inGroup ?? join(appDir, route);
     };
 
+    // `contact` and `issuers` are deliberately absent: their pages render
+    // without waiting on data (the issuer list loads in the browser, with its
+    // own skeleton), and a loading boundary would only send the content hidden
+    // behind a fallback until a script swaps it in (review §4.3).
     const expectedDataFetchingRoutes = [
         'credentials/[token]',
         'admin/institutions',
@@ -21,8 +25,6 @@ describe('Route Loading and Error Boundaries', () => {
         'admin/settings',
         'dashboard/credentials',
         'dashboard/settings',
-        'contact',
-        'issuers',
         'docs/api',
         'verify',
     ];
@@ -54,6 +56,14 @@ describe('Route Loading and Error Boundaries', () => {
                 existsSync(loadingPath),
                 `Missing loading.tsx for route: ${route}`,
             ).toBe(true);
+        }
+    });
+
+    it('keeps static marketing pages free of loading boundaries', () => {
+        // A loading.tsx above these pages streams their content behind its
+        // fallback, invisible without JavaScript (review §4.3).
+        for (const dir of ['', 'about', 'contact', 'issuers', 'legal', 'solutions']) {
+            expect(existsSync(join(appDir, dir, 'loading.tsx')), `Unexpected loading.tsx in app/${dir}`).toBe(false);
         }
     });
 

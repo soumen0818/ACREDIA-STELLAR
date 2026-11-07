@@ -1,7 +1,4 @@
-'use client';
-
 import Link from 'next/link';
-import { motion } from 'framer-motion';
 import {
     ArrowRight,
     Boxes,
@@ -16,13 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { SiteNavbar } from '@/components/marketing/SiteNavbar';
 import { SiteFooter } from '@/components/marketing/SiteFooter';
-
-const fadeUp = {
-    initial: { opacity: 0, y: 24 },
-    whileInView: { opacity: 1, y: 0 },
-    viewport: { once: true, margin: '-80px' },
-    transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] as const },
-};
+import { revealDelay } from '@/components/marketing/reveal';
 
 const problems = [
     'Paper and PDF credentials are easy to forge or alter',
@@ -81,12 +72,7 @@ export default function AboutPage() {
                 {/* Hero */}
                 <section className="bg-app-wash">
                     <div className="container-shell py-16 text-center sm:py-24">
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.5 }}
-                            className="mx-auto max-w-3xl"
-                        >
+                        <div className="mx-auto max-w-3xl">
                             <span className="badge-gold">
                                 <Sparkles className="h-3.5 w-3.5" />
                                 Our mission
@@ -101,7 +87,7 @@ export default function AboutPage() {
                                 giving students lifelong ownership of their achievements on the
                                 Stellar network.
                             </p>
-                        </motion.div>
+                        </div>
                     </div>
                 </section>
 
@@ -109,17 +95,14 @@ export default function AboutPage() {
                 <section className="border-y border-border bg-muted">
                     <div className="container-shell grid grid-cols-2 gap-8 py-10 sm:grid-cols-4">
                         {stats.map((stat, i) => (
-                            <motion.div
+                            <div
                                 key={stat.label}
-                                initial={{ opacity: 0, y: 16 }}
-                                whileInView={{ opacity: 1, y: 0 }}
-                                viewport={{ once: true }}
-                                transition={{ duration: 0.45, delay: i * 0.08, ease: [0.22, 1, 0.36, 1] }}
-                                className="text-center"
+                                className="reveal text-center"
+                                style={revealDelay(i)}
                             >
                                 <p className="text-3xl font-bold text-foreground">{stat.value}</p>
                                 <p className="mt-1 text-sm text-muted-foreground">{stat.label}</p>
-                            </motion.div>
+                            </div>
                         ))}
                     </div>
                 </section>
@@ -127,10 +110,7 @@ export default function AboutPage() {
                 {/* Problem / Solution */}
                 <section className="section-pad">
                     <div className="container-shell grid gap-6 lg:grid-cols-2">
-                        <motion.div
-                            {...fadeUp}
-                            className="rounded-3xl border border-border bg-card p-8 shadow-sm sm:p-10"
-                        >
+                        <div className="reveal rounded-3xl border border-border bg-card p-8 shadow-sm sm:p-10">
                             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
                                 <FileWarning className="h-6 w-6" />
                             </div>
@@ -147,12 +127,11 @@ export default function AboutPage() {
                                     </li>
                                 ))}
                             </ul>
-                        </motion.div>
+                        </div>
 
-                        <motion.div
-                            {...fadeUp}
-                            transition={{ ...fadeUp.transition, delay: 0.08 }}
-                            className="rounded-3xl border border-border bg-card p-8 shadow-sm sm:p-10"
+                        <div
+                            className="reveal rounded-3xl border border-border bg-card p-8 shadow-sm sm:p-10"
+                            style={revealDelay(1)}
                         >
                             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-success/10 text-success">
                                 <ShieldCheck className="h-6 w-6" />
@@ -170,28 +149,27 @@ export default function AboutPage() {
                                     </li>
                                 ))}
                             </ul>
-                        </motion.div>
+                        </div>
                     </div>
                 </section>
 
                 {/* Architecture */}
                 <section className="section-pad bg-muted">
                     <div className="container-shell">
-                        <motion.div {...fadeUp} className="mx-auto max-w-2xl text-center">
+                        <div className="reveal mx-auto max-w-2xl text-center">
                             <span className="eyebrow justify-center">Technology</span>
                             <h2 className="section-heading mt-3">Built on a modern, open stack</h2>
                             <p className="section-copy mx-auto mt-4 text-center">
                                 Acredia combines blockchain, decentralized storage, and smart
                                 contracts into one trustworthy experience.
                             </p>
-                        </motion.div>
+                        </div>
                         <div className="mt-14 grid gap-6 sm:grid-cols-2">
                             {architecture.map((item, i) => (
-                                <motion.div
+                                <div
                                     key={item.title}
-                                    {...fadeUp}
-                                    transition={{ ...fadeUp.transition, delay: (i % 2) * 0.06 }}
-                                    className="flex items-start gap-4 rounded-2xl border border-border bg-card p-7 shadow-sm"
+                                    className="reveal flex items-start gap-4 rounded-2xl border border-border bg-card p-7 shadow-sm"
+                                    style={revealDelay(i % 2)}
                                 >
                                     <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                                         <item.icon className="h-6 w-6" />
@@ -204,7 +182,7 @@ export default function AboutPage() {
                                             {item.description}
                                         </p>
                                     </div>
-                                </motion.div>
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -213,10 +191,7 @@ export default function AboutPage() {
                 {/* Why Stellar */}
                 <section className="section-pad">
                     <div className="container-shell">
-                        <motion.div
-                            {...fadeUp}
-                            className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm lg:grid lg:grid-cols-2"
-                        >
+                        <div className="reveal overflow-hidden rounded-3xl border border-border bg-card shadow-sm lg:grid lg:grid-cols-2">
                             <div className="bg-brand-mesh p-8 sm:p-12">
                                 <span className="badge-gold">
                                     <Zap className="h-3.5 w-3.5" />
@@ -248,17 +223,14 @@ export default function AboutPage() {
                                     ))}
                                 </ul>
                             </div>
-                        </motion.div>
+                        </div>
                     </div>
                 </section>
 
                 {/* CTA */}
                 <section className="pb-20 sm:pb-24">
                     <div className="container-shell">
-                        <motion.div
-                            {...fadeUp}
-                            className="overflow-hidden rounded-3xl bg-brand-mesh px-6 py-16 text-center sm:px-12"
-                        >
+                        <div className="reveal overflow-hidden rounded-3xl bg-brand-mesh px-6 py-16 text-center sm:px-12">
                             <div className="mx-auto max-w-2xl">
                                 <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
                                     Join the future of academic credentials
@@ -284,7 +256,7 @@ export default function AboutPage() {
                                     </Button>
                                 </div>
                             </div>
-                        </motion.div>
+                        </div>
                     </div>
                 </section>
             </main>

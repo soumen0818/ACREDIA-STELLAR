@@ -332,7 +332,7 @@ All deployments, metadata hashes, and transaction executions can be publicly ver
 | Layer | Technology | Purpose |
 |---|---|---|
 | **Frontend** | Next.js 16 (App Router), React 19, TypeScript | Web app + server API routes |
-| **UI / styling** | Tailwind CSS v4, Radix UI, Framer Motion, Lucide | Design system, accessible primitives, motion, icons |
+| **UI / styling** | Tailwind CSS v4, Radix UI, Lucide | Design system, accessible primitives, icons; motion is CSS-only |
 | **Auth** | Supabase Auth | Email/password sessions and JWTs |
 | **Wallet** | Stellar Wallets Kit (`@creit.tech/stellar-wallets-kit`) | Multi-wallet connection & transaction signing — see [Supported wallets](#supported-wallets) |
 | **Smart contract** | Rust + Soroban SDK | `AcrediaCredential` — issuance, authorization, revocation |

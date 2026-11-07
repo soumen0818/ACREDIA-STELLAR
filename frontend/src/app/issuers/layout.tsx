@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
     title: 'Verified Issuer Registry — Acredia',
@@ -6,4 +7,6 @@ export const metadata: Metadata = {
         'Public directory of institutions verified and authorised on the Stellar blockchain to issue tamper-proof academic credentials via Acredia.',
 };
 
-export { default } from './page';
+export default function IssuersLayout({ children }: { children: ReactNode }) {
+    return children;
+}

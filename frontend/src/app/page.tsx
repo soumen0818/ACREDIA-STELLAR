@@ -1,8 +1,5 @@
-'use client';
-
 import Link from 'next/link';
 import Image from 'next/image';
-import { motion } from 'framer-motion';
 import {
     ArrowRight,
     Award,
@@ -20,13 +17,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { SiteNavbar } from '@/components/marketing/SiteNavbar';
 import { SiteFooter } from '@/components/marketing/SiteFooter';
-
-const fadeUp = {
-    initial: { opacity: 0, y: 24 },
-    whileInView: { opacity: 1, y: 0 },
-    viewport: { once: true, margin: '-80px' },
-    transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] as const },
-};
+import { revealDelay } from '@/components/marketing/reveal';
 
 const heroStats = [
     { value: '3–5s', label: 'To verify a credential' },
@@ -107,12 +98,7 @@ export default function Home() {
                 {/* ── Hero ─────────────────────────────────────────────── */}
                 <section className="relative overflow-hidden bg-app-wash">
                     <div className="container-shell relative grid items-center gap-12 py-16 sm:py-20 lg:grid-cols-2 lg:gap-8 lg:py-28">
-                        <motion.div
-                            initial={{ opacity: 0, y: 24 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                            className="max-w-xl"
-                        >
+                        <div className="max-w-xl">
                             <span className="badge-gold">
                                 <Sparkles className="h-3.5 w-3.5" />
                                 Academic credentials on Stellar
@@ -156,36 +142,26 @@ export default function Home() {
                                     </div>
                                 ))}
                             </dl>
-                        </motion.div>
+                        </div>
 
                         {/* Hero visual */}
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.96 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ duration: 0.7, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-                            className="relative mx-auto w-full max-w-[260px] sm:max-w-xs lg:ml-auto lg:mr-0 lg:max-w-md"
-                        >
-                            <motion.div
-                                animate={{ y: [0, -14, 0] }}
-                                transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-                            >
-                                <Image
-                                    src="/auth-illustration.png"
-                                    alt="Students holding verified academic credentials secured on the Stellar blockchain"
-                                    width={960}
-                                    height={1130}
-                                    priority
-                                    className="h-auto w-full"
-                                />
-                            </motion.div>
-                        </motion.div>
+                        <div className="relative mx-auto w-full max-w-[260px] sm:max-w-xs lg:ml-auto lg:mr-0 lg:max-w-md">
+                            <Image
+                                src="/auth-illustration.png"
+                                alt="Students holding verified academic credentials secured on the Stellar blockchain"
+                                width={960}
+                                height={1130}
+                                priority
+                                className="h-auto w-full"
+                            />
+                        </div>
                     </div>
                 </section>
 
                 {/* ── How it works ─────────────────────────────────────── */}
                 <section className="section-pad">
                     <div className="container-shell">
-                        <motion.div {...fadeUp} className="mx-auto max-w-2xl text-center">
+                        <div className="reveal mx-auto max-w-2xl text-center">
                             <span className="eyebrow justify-center">How it works</span>
                             <h2 className="section-heading mt-3">
                                 From issuance to verification in three steps
@@ -194,15 +170,14 @@ export default function Home() {
                                 A single, trusted flow that connects institutions, students, and the
                                 people who need to verify credentials.
                             </p>
-                        </motion.div>
+                        </div>
 
                         <div className="mt-14 grid gap-6 md:grid-cols-3">
                             {steps.map((step, i) => (
-                                <motion.div
+                                <div
                                     key={step.title}
-                                    {...fadeUp}
-                                    transition={{ ...fadeUp.transition, delay: i * 0.08 }}
-                                    className="relative rounded-2xl border border-border bg-card p-7 shadow-sm transition-shadow hover:shadow-md"
+                                    className="reveal relative rounded-2xl border border-border bg-card p-7 shadow-sm transition-shadow hover:shadow-md"
+                                    style={revealDelay(i)}
                                 >
                                     <span className="text-sm font-bold text-gold">{step.step}</span>
                                     <div className="mt-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -214,7 +189,7 @@ export default function Home() {
                                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
                                         {step.description}
                                     </p>
-                                </motion.div>
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -223,7 +198,7 @@ export default function Home() {
                 {/* ── Features ─────────────────────────────────────────── */}
                 <section className="section-pad bg-secondary/40">
                     <div className="container-shell">
-                        <motion.div {...fadeUp} className="mx-auto max-w-2xl text-center">
+                        <div className="reveal mx-auto max-w-2xl text-center">
                             <span className="eyebrow justify-center">Why Acredia</span>
                             <h2 className="section-heading mt-3">
                                 Built for trust at every step
@@ -232,15 +207,14 @@ export default function Home() {
                                 Everything you need to eliminate credential fraud and make
                                 verification effortless.
                             </p>
-                        </motion.div>
+                        </div>
 
                         <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                             {features.map((feature, i) => (
-                                <motion.div
+                                <div
                                     key={feature.title}
-                                    {...fadeUp}
-                                    transition={{ ...fadeUp.transition, delay: (i % 3) * 0.06 }}
-                                    className="group rounded-2xl border border-border bg-card p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md"
+                                    className="reveal group rounded-2xl border border-border bg-card p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md"
+                                    style={revealDelay(i % 3)}
                                 >
                                     <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
                                         <feature.icon className="h-6 w-6" />
@@ -251,7 +225,7 @@ export default function Home() {
                                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
                                         {feature.description}
                                     </p>
-                                </motion.div>
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -286,10 +260,9 @@ export default function Home() {
                                 cta: 'Explore for students',
                             },
                         ].map((card) => (
-                            <motion.div
+                            <div
                                 key={card.eyebrow}
-                                {...fadeUp}
-                                className="flex flex-col rounded-3xl border border-border bg-card p-8 shadow-sm sm:p-10"
+                                className="reveal flex flex-col rounded-3xl border border-border bg-card p-8 shadow-sm sm:p-10"
                             >
                                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
                                     <card.icon className="h-6 w-6" />
@@ -316,7 +289,7 @@ export default function Home() {
                                         </Link>
                                     </Button>
                                 </div>
-                            </motion.div>
+                            </div>
                         ))}
                     </div>
                 </section>
@@ -324,10 +297,7 @@ export default function Home() {
                 {/* ── Final CTA ────────────────────────────────────────── */}
                 <section className="pb-20 sm:pb-24">
                     <div className="container-shell">
-                        <motion.div
-                            {...fadeUp}
-                            className="relative overflow-hidden rounded-3xl bg-brand-mesh px-6 py-16 text-center sm:px-12"
-                        >
+                        <div className="reveal relative overflow-hidden rounded-3xl bg-brand-mesh px-6 py-16 text-center sm:px-12">
                             <div className="relative mx-auto max-w-2xl">
                                 <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
                                     Ready to make credentials fraud-proof?
@@ -353,7 +323,7 @@ export default function Home() {
                                     </Button>
                                 </div>
                             </div>
-                        </motion.div>
+                        </div>
                     </div>
                 </section>
             </main>

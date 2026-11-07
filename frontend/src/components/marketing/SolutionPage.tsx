@@ -1,19 +1,10 @@
-'use client';
-
 import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SiteNavbar } from '@/components/marketing/SiteNavbar';
 import { SiteFooter } from '@/components/marketing/SiteFooter';
-
-const fadeUp = {
-    initial: { opacity: 0, y: 24 },
-    whileInView: { opacity: 1, y: 0 },
-    viewport: { once: true, margin: '-80px' },
-    transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] as const },
-};
+import { revealDelay } from '@/components/marketing/reveal';
 
 interface Item {
     icon: LucideIcon;
@@ -56,12 +47,7 @@ export function SolutionPage({
                 {/* Hero */}
                 <section className="bg-app-wash">
                     <div className="container-shell py-16 text-center sm:py-24">
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.5 }}
-                            className="mx-auto max-w-3xl"
-                        >
+                        <div className="mx-auto max-w-3xl">
                             <span className="badge-gold">
                                 <EyebrowIcon className="h-3.5 w-3.5" />
                                 {eyebrow}
@@ -84,24 +70,23 @@ export function SolutionPage({
                                     <Link href="/auth/login">Sign in to dashboard</Link>
                                 </Button>
                             </div>
-                        </motion.div>
+                        </div>
                     </div>
                 </section>
 
                 {/* Features */}
                 <section className="section-pad">
                     <div className="container-shell">
-                        <motion.div {...fadeUp} className="mx-auto max-w-2xl text-center">
+                        <div className="reveal mx-auto max-w-2xl text-center">
                             <span className="eyebrow justify-center">Capabilities</span>
                             <h2 className="section-heading mt-3">Everything you need</h2>
-                        </motion.div>
+                        </div>
                         <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                             {features.map((feature, i) => (
-                                <motion.div
+                                <div
                                     key={feature.title}
-                                    {...fadeUp}
-                                    transition={{ ...fadeUp.transition, delay: (i % 3) * 0.06 }}
-                                    className="group rounded-2xl border border-border bg-card p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md"
+                                    className="reveal group rounded-2xl border border-border bg-card p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md"
+                                    style={revealDelay(i % 3)}
                                 >
                                     <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
                                         <feature.icon className="h-6 w-6" />
@@ -112,7 +97,7 @@ export function SolutionPage({
                                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
                                         {feature.description}
                                     </p>
-                                </motion.div>
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -121,17 +106,16 @@ export function SolutionPage({
                 {/* How it works */}
                 <section className="section-pad bg-secondary/40">
                     <div className="container-shell">
-                        <motion.div {...fadeUp} className="mx-auto max-w-2xl text-center">
+                        <div className="reveal mx-auto max-w-2xl text-center">
                             <span className="eyebrow justify-center">How it works</span>
                             <h2 className="section-heading mt-3">Get started in three steps</h2>
-                        </motion.div>
+                        </div>
                         <div className="mt-14 grid gap-6 md:grid-cols-3">
                             {steps.map((step, i) => (
-                                <motion.div
+                                <div
                                     key={step.title}
-                                    {...fadeUp}
-                                    transition={{ ...fadeUp.transition, delay: i * 0.08 }}
-                                    className="relative rounded-2xl border border-border bg-card p-7 shadow-sm"
+                                    className="reveal relative rounded-2xl border border-border bg-card p-7 shadow-sm"
+                                    style={revealDelay(i)}
                                 >
                                     <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
                                         {i + 1}
@@ -142,7 +126,7 @@ export function SolutionPage({
                                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
                                         {step.description}
                                     </p>
-                                </motion.div>
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -151,17 +135,16 @@ export function SolutionPage({
                 {/* Benefits */}
                 <section className="section-pad">
                     <div className="container-shell">
-                        <motion.div {...fadeUp} className="mx-auto max-w-2xl text-center">
+                        <div className="reveal mx-auto max-w-2xl text-center">
                             <span className="eyebrow justify-center">Benefits</span>
                             <h2 className="section-heading mt-3">Why Acredia</h2>
-                        </motion.div>
+                        </div>
                         <div className="mt-14 grid gap-6 sm:grid-cols-2">
                             {benefits.map((benefit, i) => (
-                                <motion.div
+                                <div
                                     key={benefit.title}
-                                    {...fadeUp}
-                                    transition={{ ...fadeUp.transition, delay: (i % 2) * 0.06 }}
-                                    className="flex items-start gap-4 rounded-2xl border border-border bg-card p-6 shadow-sm"
+                                    className="reveal flex items-start gap-4 rounded-2xl border border-border bg-card p-6 shadow-sm"
+                                    style={revealDelay(i % 2)}
                                 >
                                     <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gold/12 text-gold">
                                         <benefit.icon className="h-5 w-5" />
@@ -174,7 +157,7 @@ export function SolutionPage({
                                             {benefit.description}
                                         </p>
                                     </div>
-                                </motion.div>
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -183,10 +166,7 @@ export function SolutionPage({
                 {/* CTA */}
                 <section className="pb-20 sm:pb-24">
                     <div className="container-shell">
-                        <motion.div
-                            {...fadeUp}
-                            className="overflow-hidden rounded-3xl bg-brand-mesh px-6 py-16 text-center sm:px-12"
-                        >
+                        <div className="reveal overflow-hidden rounded-3xl bg-brand-mesh px-6 py-16 text-center sm:px-12">
                             <div className="mx-auto max-w-2xl">
                                 <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
                                     {ctaTitle}
@@ -211,7 +191,7 @@ export function SolutionPage({
                                     </Button>
                                 </div>
                             </div>
-                        </motion.div>
+                        </div>
                     </div>
                 </section>
             </main>

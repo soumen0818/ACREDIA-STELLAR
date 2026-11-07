@@ -175,9 +175,14 @@
         scrollbar-color: color-mix(in srgb, var(--primary) 28%, transparent) transparent;
     }
 
+    /* `clip`, not `hidden`: both stop sideways scrolling, but `hidden` made
+       <body> a scroll container that never scrolls. Sticky elements (the
+       site navbar) stuck to it and scrolled away with the page, and
+       scroll-driven animations (`.reveal`) measured against it and never
+       ran. */
     html,
     body {
-        overflow-x: hidden;
+        overflow-x: clip;
     }
 
     /* ── Custom scrollbar (WebKit / Chromium / Safari) ──────────────────
@@ -365,6 +370,43 @@
             transparent 100%
         );
         background-size: 800px 100%;
+    }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Scroll reveal (marketing pages, review §4.3)
+
+   `.reveal` fades a section up as it scrolls into view, driven by scroll
+   position in CSS alone. Content is visible by default: the fade applies only
+   where the browser supports scroll-driven animations and the user has not
+   asked for reduced motion, so an older browser, disabled JavaScript or slow
+   hydration never leaves it hidden. Never put it on the hero.
+
+   The reduced-motion guard is needed here: the global rule above shortens
+   time-based animations, but a scroll-driven one has no duration to shorten.
+
+   `--reveal-delay` (a length) staggers items that enter together, e.g. a row
+   of cards: each starts fading that much further into its entry. A
+   scroll-driven animation ignores `animation-delay`.
+   ────────────────────────────────────────────────────────────────────────── */
+@supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+        .reveal {
+            animation: reveal-up linear both;
+            animation-timeline: view();
+            animation-range: entry var(--reveal-delay, 0px) entry calc(var(--reveal-delay, 0px) + 160px);
+        }
+    }
+}
+
+@keyframes reveal-up {
+    from {
+        opacity: 0;
+        transform: translateY(24px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
     }
 }
 

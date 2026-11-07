@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { headers } from 'next/headers';
 import './globals.css';
-import { Providers } from '@/components/providers';
 import { Toaster } from '@/components/ui/sonner';
 
 import { APP_IDENTITY_META_CONTENT, APP_IDENTITY_META_NAME } from '@/lib/appIdentity';
@@ -92,10 +91,11 @@ export default async function RootLayout({
     return (
         <html lang="en" className={inter.variable} suppressHydrationWarning>
             <body className="font-sans antialiased" suppressHydrationWarning>
-                <Providers>
-                    {children}
-                    <Toaster position="top-right" />
-                </Providers>
+                {/* No app-wide providers: the session and wallet are mounted by
+                    app/(console)/layout.tsx and app/claim/layout.tsx only, so
+                    public pages ship without them (review §4.1). */}
+                {children}
+                <Toaster position="top-right" />
             </body>
         </html>
     );

@@ -1,5 +1,3 @@
-'use client';
-
 import {
     Award,
     Building2,
