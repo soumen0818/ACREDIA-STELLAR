@@ -1,15 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-    BarChart,
-    Bar,
-    XAxis,
-    YAxis,
-    Tooltip,
-    ResponsiveContainer,
-    CartesianGrid,
-} from 'recharts';
+import dynamic from 'next/dynamic';
 import { CheckCircle, Download, Eye, TrendingUp, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -17,6 +9,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { captureException } from '@/lib/debug';
 import { safeGetSession } from '@/lib/supabase';
 import { toast } from 'sonner';
+
+const CHART_HEIGHT = 220;
+
+// recharts is ~350 KB; it is fetched only once a chart is shown, not with the
+// page (review §4.1). Client-only: recharts measures the DOM. The placeholder
+// takes the chart's height so the card does not jump when it arrives.
+const MonthlyBarChart = dynamic(() => import('./MonthlyBarChart').then((mod) => mod.MonthlyBarChart), {
+    ssr: false,
+    loading: () => <Skeleton className="w-full rounded-lg" style={{ height: CHART_HEIGHT }} />,
+});
 
 interface AnalyticsData {
     issuedOverTime: { month: string; count: number }[];
@@ -56,12 +58,12 @@ export function InstitutionAnalytics() {
     const [data, setData] = useState<AnalyticsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [mounted, setMounted] = useState(false);
     const [exporting, setExporting] = useState(false);
 
-    // Guard recharts from SSR — only render charts after client mount
+    // Start fetching the chart code now, alongside the data, rather than once
+    // the data has arrived and the charts first render.
     useEffect(() => {
-        setMounted(true);
+        void import('./MonthlyBarChart');
     }, []);
 
     useEffect(() => {
@@ -186,17 +188,7 @@ export function InstitutionAnalytics() {
                 <h3 className="mb-4 text-base font-semibold text-foreground">
                     Credentials issued (last 12 months)
                 </h3>
-                {mounted && (
-                    <ResponsiveContainer width="100%" height={220}>
-                        <BarChart data={issuedOverTime}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                            <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                            <Tooltip />
-                            <Bar dataKey="count" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                )}
+                <MonthlyBarChart data={issuedOverTime} height={CHART_HEIGHT} />
             </Card>
 
             {/* Verifications over time */}
@@ -204,17 +196,7 @@ export function InstitutionAnalytics() {
                 <h3 className="mb-4 text-base font-semibold text-foreground">
                     Verifications (last 12 months)
                 </h3>
-                {mounted && (
-                    <ResponsiveContainer width="100%" height={220}>
-                        <BarChart data={verificationsOverTime}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                            <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                            <Tooltip />
-                            <Bar dataKey="count" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                )}
+                <MonthlyBarChart data={verificationsOverTime} height={CHART_HEIGHT} />
             </Card>
 
             {/* Top verified credentials + CSV export */}
