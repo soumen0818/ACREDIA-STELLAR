@@ -83,9 +83,12 @@ export default async function RootLayout({
     children: React.ReactNode;
 }>) {
     // Reading headers() here opts this layout into dynamic rendering, which is
-    // what lets Next.js discover the per-request nonce (see src/middleware.ts)
+    // what lets Next.js discover the per-request nonce (see src/proxy.ts)
     // and automatically add it to the inline scripts Next.js itself injects for
     // hydration — without this, script-src's 'nonce-...' would block them.
+    // Every page depends on it, static marketing pages included: see
+    // docs/decisions/0007-csp-nonce-on-every-page.md. CI checks the build for
+    // prerendered pages (scripts/check-dynamic-pages.mjs).
     await headers();
 
     return (

@@ -2,7 +2,15 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { buildCspString } from './lib/securityHeaders';
 
-export function middleware(request: NextRequest) {
+/**
+ * Runs before every page and API request (Next.js 16 `proxy`, formerly
+ * `middleware`; Node.js runtime).
+ *
+ * Every page is rendered per request so that it can carry this nonce: static
+ * pages cannot, and Next.js emits inline scripts on every page that the
+ * policy allows only through it. See docs/decisions/0007-csp-nonce-on-every-page.md.
+ */
+export function proxy(request: NextRequest) {
     const requestId = crypto.randomUUID();
 
     // Per-request nonce for the Content-Security-Policy script-src directive.
@@ -32,9 +40,18 @@ export function middleware(request: NextRequest) {
 
 export const config = {
     matcher: [
-        // Run on everything except static assets and Next's internal image
-        // optimizer, so page navigations get a fresh CSP nonce. API routes are
-        // included too, so the x-request-id behavior below is unchanged.
-        '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+        {
+            // Run on everything except static assets and Next's internal image
+            // optimizer, so page navigations get a fresh CSP nonce. API routes
+            // are included too, so every API response carries an x-request-id.
+            source: '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+            // Not for `next/link` prefetches, as the Next.js CSP guide advises:
+            // they return route data, not a document, so there is no script for
+            // a nonce to cover, and skipping them saves a proxy call per link.
+            missing: [
+                { type: 'header', key: 'next-router-prefetch' },
+                { type: 'header', key: 'purpose', value: 'prefetch' },
+            ],
+        },
     ],
 };

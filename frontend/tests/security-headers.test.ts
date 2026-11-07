@@ -265,7 +265,7 @@ describe('buildSecurityHeaders', () => {
         expect(keys).toContain('Permissions-Policy');
     });
 
-    it('does not include Content-Security-Policy (set per-request by middleware instead)', () => {
+    it('does not include Content-Security-Policy (set per-request by the proxy instead)', () => {
         const groups = buildSecurityHeaders(false);
         const keys = groups[0].headers.map((h) => h.key);
         expect(keys).not.toContain('Content-Security-Policy');

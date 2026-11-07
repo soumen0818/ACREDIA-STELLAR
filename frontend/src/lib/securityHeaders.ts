@@ -15,8 +15,8 @@ export interface SecurityHeader {
 //
 // Resolves Issue #236 — script-src uses a per-request nonce + 'strict-dynamic'
 // instead of 'unsafe-inline'/'unsafe-eval'. The nonce is generated per request
-// in src/middleware.ts (build-time next.config.ts headers() cannot produce a
-// fresh nonce per request), so the CSP header itself is emitted by middleware,
+// in src/proxy.ts (build-time next.config.ts headers() cannot produce a
+// fresh nonce per request), so the CSP header itself is emitted by the proxy,
 // not by buildSecurityHeaders() below. 'unsafe-eval' is kept ONLY in
 // development, because Next.js's dev-mode HMR/react-refresh runtime relies on
 // eval(); it is never present in the production policy.
@@ -139,7 +139,7 @@ export interface HeaderGroup {
 
 // Static (non-nonce) security headers, applied via next.config.ts headers().
 // Content-Security-Policy is NOT included here: it needs a fresh per-request
-// nonce and is applied by src/middleware.ts instead. See buildCspString above.
+// nonce and is applied by src/proxy.ts instead. See buildCspString above.
 export function buildSecurityHeaders(isProduction: boolean): HeaderGroup[] {
     const headers: SecurityHeader[] = [
         { key: 'X-Frame-Options', value: 'DENY' },

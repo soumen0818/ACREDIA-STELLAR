@@ -156,6 +156,11 @@ jobs:
           NEXT_PUBLIC_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
           NEXT_PUBLIC_ENABLE_DEBUG_LOGS: "false"
 
+      # A prerendered page has no CSP nonce, so its scripts are blocked in
+      # production; only the production build shows it (ADR 0007).
+      - name: Check every page renders per request (CSP nonce)
+        run: node scripts/check-dynamic-pages.mjs
+
   browser-e2e:
     name: Browser E2E & A11y
     needs: build
