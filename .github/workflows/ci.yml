@@ -126,6 +126,20 @@ jobs:
     defaults:
       run:
         working-directory: ./frontend
+    # Job-level, so `next start` in the Lighthouse step runs with the
+    # configuration the build was made with.
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder"
+      SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
+      NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT: "CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK"
+      NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT: "CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK"
+      NEXT_PUBLIC_CHAIN_ID: "testnet"
+      NEXT_PUBLIC_NETWORK_NAME: "testnet"
+      NEXT_PUBLIC_HORIZON_URL: "https://horizon-testnet.stellar.org"
+      NEXT_PUBLIC_SOROBAN_RPC_URL: "https://soroban-testnet.stellar.org"
+      NEXT_PUBLIC_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+      NEXT_PUBLIC_ENABLE_DEBUG_LOGS: "false"
 
     steps:
       - name: Checkout Repository
@@ -143,23 +157,31 @@ jobs:
 
       - name: Run Next.js Build
         run: npm run build
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder"
-          SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
-          NEXT_PUBLIC_CREDENTIAL_NFT_CONTRACT: "CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK"
-          NEXT_PUBLIC_CREDENTIAL_REGISTRY_CONTRACT: "CARWFW27MJ3OJADAUAHI3TDFHIL62YMLVEKTUTMSNXOMH7JJTNZKC3DK"
-          NEXT_PUBLIC_CHAIN_ID: "testnet"
-          NEXT_PUBLIC_NETWORK_NAME: "testnet"
-          NEXT_PUBLIC_HORIZON_URL: "https://horizon-testnet.stellar.org"
-          NEXT_PUBLIC_SOROBAN_RPC_URL: "https://soroban-testnet.stellar.org"
-          NEXT_PUBLIC_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
-          NEXT_PUBLIC_ENABLE_DEBUG_LOGS: "false"
 
       # A prerendered page has no CSP nonce, so its scripts are blocked in
       # production; only the production build shows it (ADR 0007).
       - name: Check every page renders per request (CSP nonce)
         run: node scripts/check-dynamic-pages.mjs
+
+      # Initial client JS per page, gzipped, against its group's budget
+      # (review §4.1). Code loaded on demand is not counted.
+      - name: Check bundle budgets
+        run: node scripts/check-bundle-budget.mjs
+
+      # Mobile Lighthouse, median of 3 runs, on /, /verify, /auth/login and a
+      # share page (review §6.7). Thresholds are in lighthouserc.json. Pinned,
+      # and run with npx rather than installed: it is 160 MB of packages that
+      # no other job needs.
+      - name: Lighthouse CI
+        run: npx --yes @lhci/cli@0.15.1 autorun --config=lighthouserc.json
+
+      - name: Upload Lighthouse reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lighthouse-reports
+          path: frontend/.lighthouseci-reports/
+          retention-days: 14
 
   browser-e2e:
     name: Browser E2E & A11y
