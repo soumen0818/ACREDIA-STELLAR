@@ -6,12 +6,15 @@ import { SiteNavbar } from '@/components/marketing/SiteNavbar';
 import { SiteFooter } from '@/components/marketing/SiteFooter';
 import { ContactForm } from '@/components/marketing/ContactForm';
 import { CONTACT_EMAIL, CONTACT_MAILTO, TWITTER_HANDLE, TWITTER_URL, hasTwitter } from '@/lib/contact';
+import { pageMetadata } from '@/lib/pageMetadata';
 
-export const metadata: Metadata = {
-    title: 'Contact — Acredia',
+export const metadata: Metadata = pageMetadata({
+    title: 'Contact',
     description:
         'Get in touch with the Acredia team about issuing credentials, verification, partnerships, or support.',
-};
+    path: '/contact',
+    card: 'own',
+});
 
 function XMark({ className }: { className?: string }) {
     return (
@@ -44,7 +47,7 @@ const reasons = [
 
 export default function ContactPage() {
     return (
-        <div className="flex min-h-screen flex-col">
+        <div className="flex min-h-dvh flex-col">
             <SiteNavbar />
 
             <main className="flex-1">

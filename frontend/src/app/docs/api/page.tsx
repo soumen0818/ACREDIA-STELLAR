@@ -1,6 +1,7 @@
 import { Card } from '@/components/ui/card';
 import { Metadata } from 'next';
 import { getSiteUrl } from '@/lib/siteUrl';
+import { pageMetadata } from '@/lib/pageMetadata';
 import {
     WIDGET_DOCS_URL,
     WIDGET_SCRIPT_PATHS,
@@ -17,10 +18,13 @@ const THEME_PROPERTY_EXAMPLES: Record<(typeof WIDGET_THEME_PROPERTIES)[number], 
     '--acredia-widget-font': '"Inter", sans-serif',
 };
 
-export const metadata: Metadata = {
-    title: 'API Documentation | Acredia',
-    description: 'Documentation for Acredia Public Verification API and Embeddable Widget',
-};
+export const metadata: Metadata = pageMetadata({
+    title: 'API documentation',
+    description:
+        'Documentation for Acredia Public Verification API and Embeddable Widget',
+    path: '/docs/api',
+    card: 'own',
+});
 
 export default function ApiDocsPage() {
     // Derived, never hardcoded: the embed snippet previously pointed at

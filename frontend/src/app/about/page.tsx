@@ -65,7 +65,7 @@ const stats = [
 
 export default function AboutPage() {
     return (
-        <div className="min-h-screen bg-background text-foreground">
+        <div className="min-h-dvh bg-background text-foreground">
             <SiteNavbar />
 
             <main>

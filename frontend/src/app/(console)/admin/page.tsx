@@ -177,7 +177,7 @@ function AdminDashboardContent() {
             {!address ? (
                 <ConnectWalletNotice message="Connect the contract owner wallet to load system statistics and manage issuer authorizations." />
             ) : isChecking ? (
-                <div className="flex min-h-[calc(100vh-16rem)] items-center justify-center lg:min-h-[calc(100vh-12rem)]">
+                <div className="flex min-h-[calc(100dvh-16rem)] items-center justify-center lg:min-h-[calc(100dvh-12rem)]">
                     <Card className="w-full max-w-xl p-8 text-center">
                         <Skeleton className="mx-auto h-5 w-56" />
                         <Skeleton className="mx-auto mt-4 h-4 w-full max-w-md" />

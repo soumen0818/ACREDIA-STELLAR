@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { enforceRateLimit } from '@/lib/rateLimit';
-import { runtimeConfig } from '@/lib/runtimeConfig';
+import { createRegistryClient, fetchVerifiedIssuers } from '@/lib/issuerRegistry';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,49 +31,24 @@ export async function GET(request: NextRequest) {
     });
     if (rateLimitResponse) return rateLimitResponse;
 
-    const { url: supabaseUrl, anonKey } = runtimeConfig.supabase;
+    const client = createRegistryClient();
 
-    if (!supabaseUrl || !anonKey) {
+    if (!client) {
         return NextResponse.json(
             { success: false, error: 'Service temporarily unavailable.' },
             { status: 503 },
         );
     }
 
-    const client = createClient(supabaseUrl, anonKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    // Only expose public, non-PII columns of verified institutions.
-    // email is excluded (PII); name and wallet are public business identifiers.
-    const { data, error } = await client
-        .from('institutions')
-        .select('id, name, wallet_address, authorization_tx_hash, created_at')
-        .eq('verified', true)
-        .order('created_at', { ascending: false });
-
-    if (error) {
+    let issuers;
+    try {
+        issuers = await fetchVerifiedIssuers(client);
+    } catch {
         return NextResponse.json(
             { success: false, error: 'Failed to fetch issuer registry.' },
             { status: 500 },
         );
     }
-
-    const issuers = (data ?? []).map(
-        (row: {
-            id: string;
-            name: string;
-            wallet_address: string | null;
-            authorization_tx_hash: string | null;
-            created_at: string;
-        }) => ({
-            id: row.id,
-            name: row.name,
-            wallet_address: row.wallet_address,
-            authorization_tx_hash: row.authorization_tx_hash,
-            verified_at: row.created_at,
-        }),
-    );
 
     return NextResponse.json(
         { success: true, issuers },

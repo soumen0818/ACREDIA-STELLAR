@@ -1,12 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { CONTACT_EMAIL } from '@/lib/contact';
+import { pageMetadata } from '@/lib/pageMetadata';
 
-export const metadata: Metadata = {
-    title: 'Privacy Policy — Acredia',
+export const metadata: Metadata = pageMetadata({
+    title: 'Privacy Policy',
     description:
         'How Acredia collects, uses, and protects your personal data, your GDPR rights, and how on-chain immutability is handled.',
-};
+    path: '/legal/privacy',
+    card: 'site',
+});
 
 const LAST_UPDATED = '30 October 2026';
 

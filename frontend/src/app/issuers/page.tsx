@@ -2,11 +2,16 @@ import Link from 'next/link';
 import { ShieldCheck } from 'lucide-react';
 import { SiteNavbar } from '@/components/marketing/SiteNavbar';
 import { SiteFooter } from '@/components/marketing/SiteFooter';
+import { loadVerifiedIssuersForPage } from '@/lib/issuerRegistry';
 import { IssuerRegistry } from './IssuerRegistry';
 
-export default function IssuersPage() {
+export default async function IssuersPage() {
+    // Rendered into the HTML so search engines and link previews see the
+    // registry (review §4.5); the client only filters it.
+    const issuers = await loadVerifiedIssuersForPage();
+
     return (
-        <div className="flex min-h-screen flex-col">
+        <div className="flex min-h-dvh flex-col">
             <SiteNavbar />
 
             <main className="flex-1">
@@ -31,7 +36,7 @@ export default function IssuersPage() {
 
                 {/* Search + list */}
                 <section className="container-shell py-10">
-                    <IssuerRegistry />
+                    <IssuerRegistry initialIssuers={issuers} />
 
                     {/* How to verify note */}
                     <div className="mx-auto mt-12 max-w-2xl rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">

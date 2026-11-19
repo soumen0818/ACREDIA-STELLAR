@@ -23,14 +23,14 @@ interface AuthShellProps {
 
 export function AuthShell({ title, subtitle, children, footer, variant = 'default' }: AuthShellProps) {
     return (
-        <div className="grid min-h-screen lg:grid-cols-2">
+        <div className="grid min-h-dvh lg:grid-cols-2">
             {/* Brand panel */}
             <div className="relative hidden flex-col overflow-hidden bg-brand-mesh px-10 py-10 lg:flex xl:px-14">
                 {/* Top: brand + value points (above the illustration) */}
                 <div className="relative z-10">
                     <Link href="/" className="flex items-center gap-2.5">
                         <Image
-                            src="/Acredia.png"
+                            src="/logo.png"
                             alt=""
                             width={40}
                             height={40}
@@ -71,7 +71,7 @@ export function AuthShell({ title, subtitle, children, footer, variant = 'defaul
             </div>
 
             {/* Form panel */}
-            <div className="flex min-h-screen flex-col justify-center bg-background px-5 py-10 sm:px-6 lg:min-h-0 lg:px-12">
+            <div className="flex min-h-dvh flex-col justify-center bg-background px-5 py-10 sm:px-6 lg:min-h-0 lg:px-12">
                 <div className="mx-auto w-full max-w-md">
                     {/* Mobile brand + illustration (desktop shows these in the left panel) */}
                     <div className="mb-7 flex flex-col items-center lg:hidden">
@@ -81,7 +81,7 @@ export function AuthShell({ title, subtitle, children, footer, variant = 'defaul
                             aria-label="Acredia home"
                         >
                             <Image
-                                src="/Acredia.png"
+                                src="/logo.png"
                                 alt=""
                                 width={34}
                                 height={34}

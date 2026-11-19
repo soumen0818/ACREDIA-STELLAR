@@ -16,8 +16,16 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** Prerendered routes that are files, not pages: they run no scripts. */
-const FILE_ROUTE = /\.(?:ico|png|svg|webmanifest|txt|xml|js)$/;
+/**
+ * Whether a prerendered route is a file (an image, robots.txt, a script…)
+ * rather than a page. The build records a file's content type; a page has
+ * none, or text/html. Judged by type, not path, so a file route without an
+ * extension (`/about/opengraph-image`) is not mistaken for a page.
+ */
+function isFile(entry) {
+    const type = entry?.initialHeaders?.['content-type'];
+    return typeof type === 'string' && !type.startsWith('text/html');
+}
 
 /**
  * Prerendered pages that are known and accepted. `/_global-error` is Next.js's
@@ -29,9 +37,10 @@ const ACCEPTED_STATIC_PAGES = new Set(['/_global-error']);
 
 /** The prerendered routes in `manifest` that are pages and not accepted. */
 export function findStaticPages(manifest) {
-    return [...Object.keys(manifest.routes ?? {}), ...Object.keys(manifest.dynamicRoutes ?? {})].filter(
-        (route) => !FILE_ROUTE.test(route) && !ACCEPTED_STATIC_PAGES.has(route),
-    );
+    const prerendered = [...Object.entries(manifest.routes ?? {}), ...Object.entries(manifest.dynamicRoutes ?? {})];
+    return prerendered
+        .filter(([route, entry]) => !isFile(entry) && !ACCEPTED_STATIC_PAGES.has(route))
+        .map(([route]) => route);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
@@ -45,5 +54,5 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         console.error('Keep them dynamic (see docs/decisions/0007-csp-nonce-on-every-page.md).');
         process.exit(1);
     }
-    console.log(`OK: no page is prerendered (${Object.keys(manifest.routes ?? {}).length} prerendered file routes).`);
+    console.log(`OK: no page is prerendered (${Object.keys(manifest.routes ?? {}).length} prerendered routes, all files or accepted).`);
 }

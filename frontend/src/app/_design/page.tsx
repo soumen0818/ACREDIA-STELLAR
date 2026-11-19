@@ -12,7 +12,7 @@ const tokens = [
 
 export default function DesignReferencePage() {
     return (
-        <main className="min-h-screen bg-background text-foreground">
+        <main className="min-h-dvh bg-background text-foreground">
             <div className="container-shell section-stack py-12 sm:py-16">
                 <div className="space-y-4">
                     <p className="text-sm font-semibold uppercase tracking-[0.24em] text-primary">

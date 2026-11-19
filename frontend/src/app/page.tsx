@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -18,6 +19,14 @@ import { Button } from '@/components/ui/button';
 import { SiteNavbar } from '@/components/marketing/SiteNavbar';
 import { SiteFooter } from '@/components/marketing/SiteFooter';
 import { revealDelay } from '@/components/marketing/reveal';
+import { pageMetadata, SITE_DESCRIPTION, SITE_TITLE } from '@/lib/pageMetadata';
+
+export const metadata: Metadata = pageMetadata({
+    title: { absolute: SITE_TITLE },
+    description: SITE_DESCRIPTION,
+    path: '/',
+    card: 'own',
+});
 
 const heroStats = [
     { value: '3–5s', label: 'To verify a credential' },
@@ -91,7 +100,7 @@ const features = [
 
 export default function Home() {
     return (
-        <div className="min-h-screen bg-background text-foreground">
+        <div className="min-h-dvh bg-background text-foreground">
             <SiteNavbar />
 
             <main id="main">

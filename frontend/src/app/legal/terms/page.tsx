@@ -1,11 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { CONTACT_EMAIL } from '@/lib/contact';
+import { pageMetadata } from '@/lib/pageMetadata';
 
-export const metadata: Metadata = {
-    title: 'Terms of Service — Acredia',
-    description: 'Terms and conditions governing use of the Acredia academic credential platform.',
-};
+export const metadata: Metadata = pageMetadata({
+    title: 'Terms of Service',
+    description:
+        'Terms and conditions governing use of the Acredia academic credential platform.',
+    path: '/legal/terms',
+    card: 'site',
+});
 
 const LAST_UPDATED = '30 October 2026';
 

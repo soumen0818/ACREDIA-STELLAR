@@ -17,15 +17,31 @@ describe('SEO & PWA assets', () => {
         });
     });
 
-    it('sitemap.ts returns correct urls', () => {
-        const urls = sitemap();
-        expect(urls.length).toBe(5);
-        const paths = urls.map((u) => u.url);
-        expect(paths).toContain('https://acredia.example');
-        expect(paths).toContain('https://acredia.example/about');
-        expect(paths).toContain('https://acredia.example/verify');
-        expect(paths).toContain('https://acredia.example/solutions/institutions');
-        expect(paths).toContain('https://acredia.example/solutions/students');
+    it('sitemap.ts lists every public page, and nothing private (review §4.5)', () => {
+        const paths = sitemap().map((u) => u.url.replace('https://acredia.example', '') || '/');
+        expect(paths.sort()).toEqual(
+            [
+                '/',
+                '/about',
+                '/contact',
+                '/docs/api',
+                '/issuers',
+                '/legal/dpa',
+                '/legal/privacy',
+                '/legal/terms',
+                '/solutions/institutions',
+                '/solutions/students',
+                '/verify',
+            ].sort(),
+        );
+    });
+
+    it('sitemap.ts points only at pages that exist', () => {
+        for (const { url } of sitemap()) {
+            const route = url.replace('https://acredia.example', '');
+            const page = path.join(process.cwd(), 'src', 'app', route, 'page.tsx');
+            expect(existsSync(page), `${route || '/'} has no page.tsx`).toBe(true);
+        }
     });
 
     it('manifest.ts returns web manifest metadata', () => {

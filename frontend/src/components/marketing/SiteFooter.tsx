@@ -48,7 +48,7 @@ export function SiteFooter() {
                     <div className="max-w-xs">
                         <Link href="/" className="flex items-center gap-2.5" aria-label="Acredia home">
                             <Image
-                                src="/Acredia.png"
+                                src="/logo.png"
                                 alt=""
                                 width={36}
                                 height={36}

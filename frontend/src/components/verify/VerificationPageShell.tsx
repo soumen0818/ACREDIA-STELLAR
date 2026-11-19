@@ -20,7 +20,7 @@ export function VerificationPageShell({
     children: ReactNode;
 }) {
     return (
-        <div className="min-h-screen bg-secondary/30 print:bg-white">
+        <div className="min-h-dvh bg-secondary/30 print:bg-white">
             <div className="print:hidden">
                 <SiteNavbar />
             </div>

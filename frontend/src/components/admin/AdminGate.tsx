@@ -26,7 +26,7 @@ export function AdminGate({
     children?: ReactNode;
 }) {
     return (
-        <div className="flex min-h-[calc(100vh-16rem)] items-center justify-center lg:min-h-[calc(100vh-12rem)]">
+        <div className="flex min-h-[calc(100dvh-16rem)] items-center justify-center lg:min-h-[calc(100dvh-12rem)]">
             <Card className="w-full max-w-xl border-warning/30 bg-warning/8 p-8 text-center sm:p-10">
                 <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-warning/15 text-warning">
                     <Icon className="h-8 w-8" />

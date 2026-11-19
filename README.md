@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="frontend/public/Acredia.png" alt="Acredia Logo" width="150" />
+  <img src="frontend/public/logo.png" alt="Acredia Logo" width="150" />
   
   # ACREDIA
   ### Blockchain-Based Academic Credential Verification System
@@ -994,8 +994,7 @@ that is the separate, owner-signed step below.
 ```
 frontend/
 ├── public/
-│   ├── logo.png                    # Acredia logo
-│   ├── Acredia.png                 # Brand logo (favicon/icon source)
+│   ├── logo.png                    # Acredia logo (320 px; masters in frontend/assets/brand/)
 │   ├── favicon.ico / icon.png      # Site icons
 │   └── auth-illustration.png       # Marketing illustration
 ├── src/

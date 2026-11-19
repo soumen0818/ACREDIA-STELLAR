@@ -57,7 +57,7 @@ export function CredentialClientView({ token }: CredentialClientViewProps) {
     }, [token]);
 
     return (
-        <div className="min-h-screen bg-secondary/30">
+        <div className="min-h-dvh bg-secondary/30">
             <SiteNavbar />
 
             <main className="container mx-auto px-4 py-12">

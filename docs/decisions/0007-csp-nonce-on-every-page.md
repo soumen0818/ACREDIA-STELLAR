@@ -76,7 +76,9 @@ traffic makes the function calls a real cost.
   `scripts/check-dynamic-pages.mjs` after `next build`. It fails if any page
   appears in `.next/prerender-manifest.json`, for example after removing
   `headers()` from the root layout or adding `export const dynamic =
-  'force-static'`.
+  'force-static'`. Prerendered files are fine and are told apart by the
+  content type the build records: the social cards (`opengraph-image`,
+  review §4.5), robots.txt, the sitemap, icons, the widget script.
 - Tests:
   - `tests/proxy.test.ts`: fresh nonce, request ID, and matcher.
   - `tests/security-headers.test.ts`: the policy itself.

@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Metadata } from 'next';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { getMetadataBase, getSiteUrl } from '../src/lib/siteUrl';
@@ -11,6 +13,8 @@ import { generateMetadata as generateCredentialMetadata } from '../src/app/crede
  * tests only assert the card kind, so narrow to the one field rather than
  * discriminating the whole union at every call site.
  */
+const APP = join(process.cwd(), 'src', 'app');
+
 function twitterCard(metadata: Metadata): string | undefined {
     return (metadata.twitter as { card?: string } | null | undefined)?.card;
 }
@@ -110,15 +114,25 @@ describe('Social Preview & Open Graph Metadata', () => {
     it('root layout defines metadataBase to prevent localhost build warnings', () => {
         expect(rootMetadata.metadataBase).toBeDefined();
         expect(rootMetadata.metadataBase instanceof URL).toBe(true);
-        expect(rootMetadata.openGraph?.images).toBeDefined();
         expect(twitterCard(rootMetadata)).toBe('summary_large_image');
+        // The card is a file, app/opengraph-image.tsx (review §4.5).
+        expect(existsSync(join(APP, 'opengraph-image.tsx'))).toBe(true);
+    });
+
+    it('root layout leaves the canonical URL and og:url to each page', () => {
+        // Inherited by every route, these made each page claim to be the home
+        // page (review §4.5).
+        expect(rootMetadata.alternates?.canonical).toBeUndefined();
+        expect(rootMetadata.openGraph).not.toHaveProperty('url');
+        expect(rootMetadata.openGraph).not.toHaveProperty('images');
     });
 
     it('verify layout provides rich verification portal metadata', () => {
         expect(verifyMetadata.title).toContain('Verify');
         expect(verifyMetadata.openGraph?.title).toContain('Verify');
-        expect(verifyMetadata.openGraph?.images).toBeDefined();
+        expect(verifyMetadata.alternates?.canonical).toBe('/verify');
         expect(twitterCard(verifyMetadata)).toBe('summary_large_image');
+        expect(existsSync(join(APP, 'verify', 'opengraph-image.tsx'))).toBe(true);
     });
 
     it('generates credential-specific Open Graph metadata for a share link', async () => {

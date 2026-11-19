@@ -2,30 +2,26 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Building2, ExternalLink, Search, ShieldCheck, AlertCircle } from 'lucide-react';
+import type { PublicIssuer } from '@/lib/issuerRegistry';
 import { getExplorerAddressUrl, getExplorerTxUrl } from '@/lib/stellar';
 
 /**
  * The searchable list on /issuers: the page's only interactive part, so the
  * only part that ships as client JS (review §4.3). The page around it is a
- * Server Component.
+ * Server Component, and renders the list into the HTML (review §4.5).
  */
 
-type Issuer = {
-    id: string;
-    name: string;
-    wallet_address: string | null;
-    authorization_tx_hash: string | null;
-    verified_at: string;
-};
-
-function IssuerCard({ issuer }: { issuer: Issuer }) {
+function IssuerCard({ issuer }: { issuer: PublicIssuer }) {
     const shortAddr = issuer.wallet_address
         ? `${issuer.wallet_address.slice(0, 8)}…${issuer.wallet_address.slice(-6)}`
         : null;
     const shortTx = issuer.authorization_tx_hash
         ? `${issuer.authorization_tx_hash.slice(0, 10)}…`
         : null;
+    // In UTC: the server renders this too, and a date formatted in the
+    // server's time zone and again in the viewer's can differ by a day.
     const verifiedDate = new Date(issuer.verified_at).toLocaleDateString('en-GB', {
+        timeZone: 'UTC',
         day: 'numeric',
         month: 'short',
         year: 'numeric',
@@ -96,10 +92,14 @@ function IssuerCard({ issuer }: { issuer: Issuer }) {
     );
 }
 
-export function IssuerRegistry() {
-    const [issuers, setIssuers] = useState<Issuer[]>([]);
+/**
+ * `initialIssuers` is the list the server rendered, or null when the server
+ * could not read it; the list is then loaded here, from /api/issuers.
+ */
+export function IssuerRegistry({ initialIssuers }: { initialIssuers: PublicIssuer[] | null }) {
+    const [issuers, setIssuers] = useState<PublicIssuer[]>(initialIssuers ?? []);
     const [query, setQuery] = useState('');
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(initialIssuers === null);
     const [error, setError] = useState<string | null>(null);
 
     const fetchIssuers = useCallback(async () => {
@@ -121,8 +121,8 @@ export function IssuerRegistry() {
     }, []);
 
     useEffect(() => {
-        void fetchIssuers();
-    }, [fetchIssuers]);
+        if (initialIssuers === null) void fetchIssuers();
+    }, [initialIssuers, fetchIssuers]);
 
     const filtered = issuers.filter((i) =>
         i.name.toLowerCase().includes(query.toLowerCase()) ||

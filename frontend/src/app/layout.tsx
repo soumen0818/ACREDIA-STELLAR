@@ -5,7 +5,8 @@ import './globals.css';
 import { Toaster } from '@/components/ui/sonner';
 
 import { APP_IDENTITY_META_CONTENT, APP_IDENTITY_META_NAME } from '@/lib/appIdentity';
-import { getMetadataBase, getSiteUrl } from '@/lib/siteUrl';
+import { getMetadataBase } from '@/lib/siteUrl';
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, twitterAccount } from '@/lib/pageMetadata';
 
 const inter = Inter({
     subsets: ['latin'],
@@ -16,11 +17,10 @@ const inter = Inter({
 export const metadata: Metadata = {
     metadataBase: getMetadataBase(),
     title: {
-        default: 'Acredia - Blockchain Academic Credentials',
-        template: '%s | Acredia',
+        default: SITE_TITLE,
+        template: `%s | ${SITE_NAME}`,
     },
-    description:
-        'Secure, tamper-proof academic credentials anchored on the Stellar blockchain.',
+    description: SITE_DESCRIPTION,
     keywords: [
         'academic credentials',
         'blockchain verification',
@@ -30,35 +30,24 @@ export const metadata: Metadata = {
         'NFT degrees',
     ],
     authors: [{ name: 'Acredia Team' }],
-    creator: 'Acredia',
-    publisher: 'Acredia',
-    alternates: {
-        canonical: '/',
-    },
+    creator: SITE_NAME,
+    publisher: SITE_NAME,
+    // No canonical URL or og:url here: Next.js passes these down to every
+    // route, so a value here told search engines that each page was a copy of
+    // the home page. Public pages set their own with pageMetadata() (review
+    // §4.5). The card image is app/opengraph-image.tsx.
     openGraph: {
-        title: 'Acredia - Blockchain Academic Credentials',
-        description:
-            'Secure, tamper-proof academic credentials anchored on the Stellar blockchain.',
-        url: getSiteUrl(),
-        siteName: 'Acredia',
-        images: [
-            {
-                url: '/logo.png',
-                width: 1200,
-                height: 630,
-                alt: 'Acredia - Blockchain Academic Credentials',
-            },
-        ],
+        title: SITE_TITLE,
+        description: SITE_DESCRIPTION,
+        siteName: SITE_NAME,
         type: 'website',
         locale: 'en_US',
     },
     twitter: {
         card: 'summary_large_image',
-        title: 'Acredia - Blockchain Academic Credentials',
-        description:
-            'Secure, tamper-proof academic credentials anchored on the Stellar blockchain.',
-        images: ['/logo.png'],
-        creator: '@acredia',
+        title: SITE_TITLE,
+        description: SITE_DESCRIPTION,
+        ...twitterAccount(),
     },
     // Favicon/icons are provided by the file-based conventions in this directory
     // (src/app/favicon.ico and src/app/icon.png), so the browser's default

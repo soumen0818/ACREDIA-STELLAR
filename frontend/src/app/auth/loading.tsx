@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export default function AuthLoading() {
     return (
-        <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
+        <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-12">
             <Card className="w-full max-w-md p-8 space-y-6">
                 <div className="text-center space-y-2">
                     <Skeleton className="h-8 w-40 mx-auto" />

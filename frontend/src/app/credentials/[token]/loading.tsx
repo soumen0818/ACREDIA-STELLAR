@@ -4,7 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export default function CredentialLoading() {
     return (
-        <div className="min-h-screen bg-secondary/30">
+        <div className="min-h-dvh bg-secondary/30">
             <SiteNavbar />
 
             <main className="container mx-auto px-4 py-12">

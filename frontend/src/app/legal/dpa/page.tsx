@@ -1,12 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { CONTACT_EMAIL } from '@/lib/contact';
+import { pageMetadata } from '@/lib/pageMetadata';
 
-export const metadata: Metadata = {
-    title: 'Data Processing Agreement — Acredia',
+export const metadata: Metadata = pageMetadata({
+    title: 'Data Processing Agreement',
     description:
         'Data Processing Agreement (DPA) template for institutions using Acredia as a data processor.',
-};
+    path: '/legal/dpa',
+    card: 'site',
+});
 
 const LAST_UPDATED = '30 October 2026';
 

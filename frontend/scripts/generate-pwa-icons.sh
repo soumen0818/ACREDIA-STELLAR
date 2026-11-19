@@ -1,6 +1,6 @@
 #!/bin/bash
 # generate-pwa-icons.sh - Regenerates the web app manifest icons (ACREDIA-STELLAR#303)
-# from public/logo.png. Requires ImageMagick 7 (`magick`).
+# from assets/brand/logo-on-white.png. Requires ImageMagick 7 (`magick`).
 #
 # Outputs, all referenced by src/app/manifest.ts:
 #   public/icons/icon-192.png           192x192, purpose "any"
@@ -17,7 +17,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-SOURCE="public/logo.png"
+SOURCE="assets/brand/logo-on-white.png"
 OUT_DIR="public/icons"
 mkdir -p "$OUT_DIR"
 

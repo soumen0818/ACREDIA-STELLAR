@@ -63,7 +63,7 @@ function SidebarContent({
                     onClick={onNavigate}
                 >
                     <Image
-                        src="/Acredia.png"
+                        src="/logo.png"
                         alt=""
                         width={34}
                         height={34}
@@ -257,7 +257,7 @@ export function ConsoleShell({
     }, [mobileOpen]);
 
     return (
-        <div className="min-h-screen bg-secondary/30">
+        <div className="min-h-dvh bg-secondary/30">
             {/* Desktop sidebar */}
             <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-border bg-background lg:block">
                 <SidebarContent nav={nav} onSignOut={handleSignOut} />
@@ -295,7 +295,7 @@ export function ConsoleShell({
                         {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
                     </Button>
                     <Image
-                        src="/Acredia.png"
+                        src="/logo.png"
                         alt=""
                         width={30}
                         height={30}
