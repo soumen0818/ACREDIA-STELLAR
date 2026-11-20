@@ -59,7 +59,6 @@ describe('resolveInstitutionForUser', () => {
             institution_users: [
                 { institution_id: INST_A, auth_user_id: USER_A, role: 'owner', status: 'active' },
             ],
-            institutions: [],
         });
 
         const membership = await resolveInstitutionForUser(client, USER_A);
@@ -77,7 +76,6 @@ describe('resolveInstitutionForUser', () => {
                 { institution_id: INST_A, auth_user_id: USER_A, role: 'owner', status: 'active' },
                 { institution_id: INST_A, auth_user_id: USER_B, role: 'issuer', status: 'active' },
             ],
-            institutions: [],
         });
 
         const first = await resolveInstitutionForUser(client, USER_A);
@@ -93,7 +91,6 @@ describe('resolveInstitutionForUser', () => {
             institution_users: [
                 { institution_id: INST_A, auth_user_id: USER_A, role: 'owner', status: 'invited' },
             ],
-            institutions: [],
         });
 
         expect(await resolveInstitutionForUser(client, USER_A)).toBeNull();
@@ -109,58 +106,39 @@ describe('resolveInstitutionForUser', () => {
                     status: 'deactivated',
                 },
             ],
-            institutions: [],
         });
 
         expect(await resolveInstitutionForUser(client, USER_A)).toBeNull();
     });
 
-    it('falls back to the deprecated column so a pre-backfill institution keeps access', async () => {
-        const client = makeClient({
-            institution_users: [],
-            institutions: [{ id: INST_A, auth_user_id: USER_A }],
-        });
+    it('returns null for a user with no membership row', async () => {
+        const client = makeClient({ institution_users: [] });
 
-        const membership = await resolveInstitutionForUser(client, USER_A);
-
-        expect(membership).toEqual({
-            institutionId: INST_A,
-            role: 'owner',
-            status: 'active',
-        });
+        expect(await resolveInstitutionForUser(client, USER_A)).toBeNull();
+        expect(await resolveInstitutionIdForUser(client, USER_A)).toBeNull();
     });
 
-    it('does not let a removed POC regain access through the legacy column (Issue #307)', async () => {
-        // The original POC was removed from the Team page, but the deprecated
-        // single-login column still names them. Before the fix, the fallback
-        // resolved them straight back to `owner`.
+    it('denies a removed member — no legacy column fallback (Issue #308)', async () => {
+        // After dropping institutions.auth_user_id, a removed member can never
+        // regain access through the old column; only institution_users is checked.
         const client = makeClient({
             institution_users: [
                 { institution_id: INST_A, auth_user_id: USER_A, role: 'owner', status: 'deactivated' },
             ],
-            institutions: [{ id: INST_A, auth_user_id: USER_A }],
         });
 
         expect(await resolveInstitutionForUser(client, USER_A)).toBeNull();
         expect(await isMemberOfInstitution(client, USER_A, INST_A)).toBe(false);
     });
 
-    it('does not let a pending invitee act through the legacy column before accepting', async () => {
+    it('denies a pending invitee — invited status is not active (Issue #308)', async () => {
         const client = makeClient({
             institution_users: [
                 { institution_id: INST_A, auth_user_id: USER_A, role: 'owner', status: 'invited' },
             ],
-            institutions: [{ id: INST_A, auth_user_id: USER_A }],
         });
 
         expect(await resolveInstitutionForUser(client, USER_A)).toBeNull();
-    });
-
-    it('returns null for a user with no membership and no legacy row', async () => {
-        const client = makeClient({ institution_users: [], institutions: [] });
-
-        expect(await resolveInstitutionForUser(client, USER_A)).toBeNull();
-        expect(await resolveInstitutionIdForUser(client, USER_A)).toBeNull();
     });
 });
 
@@ -169,10 +147,6 @@ describe('cross-institution isolation', () => {
         institution_users: [
             { institution_id: INST_A, auth_user_id: USER_A, role: 'owner', status: 'active' },
             { institution_id: INST_B, auth_user_id: USER_B, role: 'owner', status: 'active' },
-        ],
-        institutions: [
-            { id: INST_A, auth_user_id: USER_A },
-            { id: INST_B, auth_user_id: USER_B },
         ],
     });
 
@@ -197,7 +171,6 @@ describe('cross-institution isolation', () => {
                     status: 'deactivated',
                 },
             ],
-            institutions: [],
         });
 
         expect(await isMemberOfInstitution(withDeactivated, USER_A, INST_B)).toBe(false);
@@ -233,13 +206,19 @@ describe('resolveInstitutionOwnerId', () => {
             ],
         });
 
-        expect(await resolveInstitutionOwnerId(client, INST_A, 'legacy-user')).toBe(USER_A);
+        expect(await resolveInstitutionOwnerId(client, INST_A)).toBe(USER_A);
     });
 
-    it('falls back to the deprecated column when no owner membership exists', async () => {
+    it('returns null when no owner membership exists', async () => {
         const client = makeClient({ institution_users: [] });
 
-        expect(await resolveInstitutionOwnerId(client, INST_A, 'legacy-user')).toBe('legacy-user');
+        expect(await resolveInstitutionOwnerId(client, INST_A)).toBeNull();
+    });
+
+    it('does not accept a legacy fallback parameter — signature no longer has one (Issue #308)', () => {
+        // resolveInstitutionOwnerId now takes only (client, institutionId).
+        // This compile-time check ensures the function signature is clean.
+        expect(resolveInstitutionOwnerId.length).toBe(2);
     });
 });
 
@@ -280,12 +259,6 @@ describe('membership migration', () => {
         );
     });
 
-    it('deprecates rather than drops the single-login column', () => {
-        expect(migration).toContain('ALTER COLUMN auth_user_id DROP NOT NULL');
-        expect(migration).toContain('DEPRECATED (Issue #238)');
-        expect(migration).not.toMatch(/ALTER TABLE public\.institutions\s+DROP COLUMN auth_user_id/);
-    });
-
     it('routes every institution-scoped policy through membership', () => {
         expect(migration).toContain('CREATE OR REPLACE FUNCTION public.user_institution_ids');
         expect(migration).toContain('CREATE OR REPLACE FUNCTION public.user_issuer_institution_ids');
@@ -311,3 +284,35 @@ describe('membership migration', () => {
         expect(migration).toContain('trg_sync_institution_user_status');
     });
 });
+
+describe('drop-column migration (Issue #308)', () => {
+    const migration = readFileSync(
+        join(process.cwd(), 'supabase', 'migrations', '20261121000000_drop_institutions_auth_user_id.sql'),
+        'utf8',
+    );
+
+    it('is transactional', () => {
+        expect(migration).toContain('BEGIN;');
+        expect(migration).toContain('COMMIT;');
+    });
+
+    it('drops the foreign key before dropping the column', () => {
+        const fkPos = migration.indexOf('DROP CONSTRAINT IF EXISTS institutions_auth_user_id_fkey');
+        const colPos = migration.indexOf('DROP COLUMN IF EXISTS auth_user_id');
+        expect(fkPos).toBeGreaterThan(-1);
+        expect(colPos).toBeGreaterThan(-1);
+        expect(fkPos).toBeLessThan(colPos);
+    });
+
+    it('drops the institutions column, not the students column', () => {
+        expect(migration).toContain('ALTER TABLE public.institutions');
+        expect(migration).toContain('DROP COLUMN IF EXISTS auth_user_id');
+        // Must never touch the students table
+        expect(migration).not.toMatch(/ALTER TABLE public\.students/);
+    });
+
+    it('documents that students.auth_user_id is intentionally kept', () => {
+        expect(migration).toMatch(/students\.auth_user_id/i);
+    });
+});
+

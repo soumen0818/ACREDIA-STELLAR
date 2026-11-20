@@ -57,29 +57,6 @@ export function normalizeMemberRole(role: InstitutionRole | string | null | unde
 }
 
 /**
- * Whether the user has any membership row at all, in any status.
- *
- * Gates the legacy `institutions.auth_user_id` fallback: that column predates
- * memberships, so it may only speak for users the membership table has never
- * heard of. A member who was removed (`deactivated`) or has not accepted yet
- * (`invited`) must not regain access through it (Issue #307).
- */
-async function hasAnyMembership(client: SupabaseClient, userId: string): Promise<boolean> {
-    const { data, error } = await client
-        .from('institution_users')
-        .select('id')
-        .eq('auth_user_id', userId)
-        .limit(1)
-        .maybeSingle();
-
-    if (error) {
-        throw error;
-    }
-
-    return data !== null && data !== undefined;
-}
-
-/**
  * Resolves which institution a user acts for, and with what role.
  *
  * This is the single place institution ownership is resolved. Before Issue
@@ -91,11 +68,8 @@ async function hasAnyMembership(client: SupabaseClient, userId: string): Promise
  * Only `active` memberships resolve — an `invited` member has not accepted yet
  * and a `deactivated` one has been offboarded, so neither may act.
  *
- * Falls back to the deprecated `institutions.auth_user_id` column only when the
- * user has no membership row at all, so an institution provisioned before the
- * backfill (or during a rollback) never loses access — while a removed member
- * cannot regain it through that column. The fallback is removed with the
- * column itself.
+ * The deprecated `institutions.auth_user_id` column is no longer consulted
+ * (Issue #308). All memberships must exist in `institution_users`.
  */
 export async function resolveInstitutionForUser(
     client: SupabaseClient,
@@ -110,45 +84,18 @@ export async function resolveInstitutionForUser(
         .limit(1)
         .maybeSingle();
 
-    if (!error && membership?.institution_id) {
-        return {
-            institutionId: membership.institution_id as string,
-            role: (membership.role as InstitutionRole) ?? 'issuer',
-            status: (membership.status as MembershipStatus) ?? 'active',
-        };
-    }
-
     if (error) {
         throw error;
     }
 
-    if (await hasAnyMembership(client, userId)) {
+    if (!membership?.institution_id) {
         return null;
     }
 
-    const { data: legacy, error: legacyError } = await client
-        .from('institutions')
-        .select('id')
-        .eq('auth_user_id', userId)
-        .maybeSingle();
-
-    // A failed lookup is not the same as "no institution": letting a database
-    // error fall through as `null` would report a 404 during an outage and
-    // hide it. Callers distinguish the two by the thrown error.
-    if (legacyError) {
-        throw legacyError;
-    }
-
-    if (!legacy?.id) {
-        return null;
-    }
-
-    // A row surviving only on the deprecated column is the original single
-    // login, which is exactly what `owner` means.
     return {
-        institutionId: legacy.id as string,
-        role: 'owner',
-        status: 'active',
+        institutionId: membership.institution_id as string,
+        role: (membership.role as InstitutionRole) ?? 'issuer',
+        status: (membership.status as MembershipStatus) ?? 'active',
     };
 }
 
@@ -177,7 +124,7 @@ export async function isMemberOfInstitution(
     userId: string,
     institutionId: string,
 ): Promise<boolean> {
-    const { data } = await client
+    const { data, error } = await client
         .from('institution_users')
         .select('institution_id')
         .eq('auth_user_id', userId)
@@ -185,35 +132,22 @@ export async function isMemberOfInstitution(
         .eq('status', 'active')
         .maybeSingle();
 
-    if (data?.institution_id) {
-        return true;
+    if (error) {
+        throw error;
     }
 
-    if (await hasAnyMembership(client, userId)) {
-        return false;
-    }
-
-    const { data: legacy } = await client
-        .from('institutions')
-        .select('id')
-        .eq('id', institutionId)
-        .eq('auth_user_id', userId)
-        .maybeSingle();
-
-    return Boolean(legacy?.id);
+    return Boolean(data?.institution_id);
 }
 
 /**
  * Resolves the auth user to notify on behalf of an institution — its owner.
  *
- * Falls back to the deprecated `institutions.auth_user_id` (passed in by the
- * caller, which has usually already selected it) when no owner membership
- * exists, so notifications keep reaching someone during the migration window.
+ * Returns the `auth_user_id` of the first active owner membership, or `null`
+ * when no owner membership exists.
  */
 export async function resolveInstitutionOwnerId(
     client: SupabaseClient,
     institutionId: string,
-    legacyAuthUserId?: string | null,
 ): Promise<string | null> {
     const { data } = await client
         .from('institution_users')
@@ -225,5 +159,5 @@ export async function resolveInstitutionOwnerId(
         .limit(1)
         .maybeSingle();
 
-    return (data?.auth_user_id as string | undefined) ?? legacyAuthUserId ?? null;
+    return (data?.auth_user_id as string | undefined) ?? null;
 }

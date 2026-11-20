@@ -82,7 +82,7 @@ export async function POST(
         // 1. Fetch institution
         const { data: institution, error: institutionError } = await supabase
             .from('institutions')
-            .select('id, name, email, auth_user_id, invited_at')
+            .select('id, name, email, invited_at')
             .eq('id', parsedId.data)
             .maybeSingle();
 
@@ -181,7 +181,20 @@ export async function POST(
             // Acceptance is checked per membership (Issue #307), so the POC's
             // pending membership must move to the same window — otherwise a
             // regenerated link would be refused as expired.
-            if (institution.auth_user_id) {
+            // Look up the owner's membership rather than the deprecated column.
+            const { data: ownerMembership } = await supabase
+                .from('institution_users')
+                .select('auth_user_id')
+                .eq('institution_id', institution.id)
+                .in('role', ['owner', 'poc'])
+                .eq('status', 'invited')
+                .order('created_at', { ascending: true })
+                .limit(1)
+                .maybeSingle();
+
+            const pocMemberUserId = ownerMembership?.auth_user_id ?? null;
+
+            if (pocMemberUserId) {
                 const { error: membershipUpdateError } = await supabase
                     .from('institution_users')
                     .update({
@@ -189,7 +202,7 @@ export async function POST(
                         invite_expires_at: inviteExpiresAt,
                     })
                     .eq('institution_id', institution.id)
-                    .eq('auth_user_id', institution.auth_user_id)
+                    .eq('auth_user_id', pocMemberUserId)
                     .eq('status', 'invited');
 
                 if (membershipUpdateError) {

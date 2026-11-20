@@ -85,13 +85,12 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Nothing pending: either already accepted, or a legacy POC whose
-        // institution predates memberships.
+        // Nothing pending: either already accepted, or no memberships at all.
         if (acceptable.length === 0) {
             const active = memberships.find((row) => row.status === 'active');
 
             // Every membership was removed: the old invite link must not
-            // reopen access through the legacy single-login column.
+            // reopen access.
             if (!active && memberships.length > 0) {
                 return NextResponse.json(
                     {
@@ -103,11 +102,18 @@ export async function POST(request: NextRequest) {
                 );
             }
 
-            const institutionQuery = supabase.from('institutions').select('id, name, invite_accepted_at');
-            const { data: institution, error: institutionError } = await (active
-                ? institutionQuery.eq('id', active.institution_id)
-                : institutionQuery.eq('auth_user_id', authCheck.userId)
-            ).maybeSingle();
+            if (!active) {
+                return NextResponse.json(
+                    { success: false, error: 'No institution is linked to this account' },
+                    { status: 404 },
+                );
+            }
+
+            const { data: institution, error: institutionError } = await supabase
+                .from('institutions')
+                .select('id, name, invite_accepted_at')
+                .eq('id', active.institution_id)
+                .maybeSingle();
 
             if (institutionError) {
                 structuredLog('ERROR', 'Failed to load institution for invite acceptance', requestId, {
@@ -126,18 +132,11 @@ export async function POST(request: NextRequest) {
                 );
             }
 
-            if (!institution.invite_accepted_at && !active) {
-                await supabase
-                    .from('institutions')
-                    .update({ invite_accepted_at: now.toISOString() })
-                    .eq('id', institution.id);
-            }
-
             return NextResponse.json({
                 success: true,
-                alreadyAccepted: Boolean(active),
+                alreadyAccepted: true,
                 institution: { id: institution.id, name: institution.name },
-                role: normalizeMemberRole(active?.role ?? 'owner'),
+                role: normalizeMemberRole(active.role),
             });
         }
 

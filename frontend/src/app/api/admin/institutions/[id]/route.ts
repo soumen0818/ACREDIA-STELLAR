@@ -57,7 +57,7 @@ export async function GET(
         const { data: institution, error: institutionError } = await supabase
             .from('institutions')
             .select(
-                'id, name, email, wallet_address, verified, status, authorization_tx_hash, auth_user_id, created_at',
+                'id, name, email, wallet_address, verified, status, authorization_tx_hash, created_at',
             )
             .eq('id', parsedId.data)
             .maybeSingle();
@@ -79,7 +79,7 @@ export async function GET(
             );
         }
 
-        // Fetch POC profile if auth_user_id exists
+        // Fetch POC profile via the owner membership row (Issue #308: auth_user_id column dropped).
         let pocProfile: {
             id: string;
             fullName: string | null;
@@ -89,11 +89,23 @@ export async function GET(
             deactivatedReason: string | null;
         } | null = null;
 
-        if (institution.auth_user_id) {
+        const { data: ownerMembership } = await supabase
+            .from('institution_users')
+            .select('auth_user_id')
+            .eq('institution_id', parsedId.data)
+            .eq('status', 'active')
+            .in('role', ['owner', 'poc'])
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+
+        const pocUserId = ownerMembership?.auth_user_id ?? null;
+
+        if (pocUserId) {
             const { data: profile } = await supabase
                 .from('profiles')
                 .select('id, full_name, email, is_active, deactivated_at, deactivated_reason')
-                .eq('id', institution.auth_user_id)
+                .eq('id', pocUserId)
                 .maybeSingle();
 
             if (profile) {

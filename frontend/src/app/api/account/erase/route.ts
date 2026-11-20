@@ -37,15 +37,14 @@ async function hasOrganisationalTie(serviceClient: ServiceClient, user: User): P
         return true;
     }
 
-    const [profile, membership, contact] = await Promise.all([
+    const [profile, membership] = await Promise.all([
         serviceClient.from('profiles').select('role').eq('id', user.id).maybeSingle(),
         serviceClient.from('institution_users').select('id').eq('auth_user_id', user.id).limit(1),
-        serviceClient.from('institutions').select('id').eq('auth_user_id', user.id).limit(1),
     ]);
 
     // Fail closed: if any lookup errors, treat the account as tied rather
     // than risk deleting an institution's only issuer.
-    if (profile.error || membership.error || contact.error) {
+    if (profile.error || membership.error) {
         throw new Error('Could not determine whether the account belongs to an institution.');
     }
 
@@ -53,8 +52,7 @@ async function hasOrganisationalTie(serviceClient: ServiceClient, user: User): P
     return (
         role === 'admin' ||
         role === 'institution' ||
-        (membership.data?.length ?? 0) > 0 ||
-        (contact.data?.length ?? 0) > 0
+        (membership.data?.length ?? 0) > 0
     );
 }
 
