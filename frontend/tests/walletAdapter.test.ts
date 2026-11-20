@@ -504,6 +504,41 @@ describe('signTransaction', () => {
         ).rejects.toThrow(/no signed transaction/i);
     });
 
+    it('refuses before requesting a signature if the wallet reports the wrong network', async () => {
+        const { stellarKitAdapter } = await loadAdapter();
+        const { WalletNetworkMismatchError } = await import('../src/lib/wallet/types');
+        kitMock.fetchAddress.mockResolvedValueOnce({
+            address: 'GSIGNER',
+            network: 'Public Global Stellar Network ; September 2015',
+        } as never);
+
+        await expect(
+            stellarKitAdapter.signTransaction('RAW_XDR', {
+                networkPassphrase: TESTNET_PASSPHRASE,
+                address: 'GSIGNER',
+            }),
+        ).rejects.toBeInstanceOf(WalletNetworkMismatchError);
+
+        expect(kitMock.signTransaction).not.toHaveBeenCalled();
+    });
+
+    it('proceeds if the wallet reports the correct network', async () => {
+        const { stellarKitAdapter } = await loadAdapter();
+        kitMock.fetchAddress.mockResolvedValueOnce({
+            address: 'GSIGNER',
+            network: TESTNET_PASSPHRASE,
+        } as never);
+
+        await expect(
+            stellarKitAdapter.signTransaction('RAW_XDR', {
+                networkPassphrase: TESTNET_PASSPHRASE,
+                address: 'GSIGNER',
+            }),
+        ).resolves.toBe('SIGNED_XDR');
+
+        expect(kitMock.signTransaction).toHaveBeenCalled();
+    });
+
     it('maps a wallet cancellation to a user rejection', async () => {
         const { stellarKitAdapter } = await loadAdapter();
         const { WalletUserRejectedError } = await import('../src/lib/wallet/types');

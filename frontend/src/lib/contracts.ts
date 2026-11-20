@@ -16,6 +16,12 @@ import { generateCanonicalCredentialHash } from './credentialHash';
 import { credentialHashHexToScVal } from './credentialHashEncoding';
 import { executeLedgerOperation } from './ledgerGateway';
 import type { StellarSigner } from './stellarSigner';
+import {
+    WalletNetworkMismatchError,
+    WalletUserRejectedError,
+    WALLET_MESSAGES,
+    isNetworkMismatchError,
+} from './wallet/types';
 
 export interface CredentialMetadata {
     studentAddress: string;
@@ -141,29 +147,27 @@ export async function invokeContractMethod(
             networkPassphrase: activeNetwork.networkPassphrase,
         });
     } catch (signError: unknown) {
+        if (signError instanceof WalletUserRejectedError) {
+            throw signError;
+        }
+        if (signError instanceof WalletNetworkMismatchError) {
+            throw signError;
+        }
+
         const msg = signError instanceof Error ? signError.message : String(signError);
 
-        // Matched on the message rather than on an error class, so this module
-        // stays free of wallet imports. The wallet signer raises
-        // `WalletUserRejectedError`, whose message says "canceled".
+        // Fallback for cancellation if an untyped error was thrown
         if (/cancel|reject|denied|declined/i.test(msg)) {
-            throw new Error('Transaction signing was canceled by the user.', { cause: signError });
+            throw new WalletUserRejectedError(WALLET_MESSAGES.userCanceled);
         }
 
-        if (
-            msg.includes('Network') ||
-            msg.includes('network') ||
-            msg.includes('testnet') ||
-            msg.includes('mainnet')
-        ) {
-            throw new Error(
-                `Network mismatch: your wallet may be on a different network.\n` +
-                    `Expected: ${activeNetwork.networkName}\n` +
-                    `${msg}`,
-                { cause: signError },
-            );
+        // Fallback for network mismatch: only if error specifically indicates wrong network,
+        // NEVER for generic connection errors (e.g. "Network request failed", "Failed to fetch").
+        if (isNetworkMismatchError(msg)) {
+            throw new WalletNetworkMismatchError(activeNetwork.networkName, null);
         }
-        throw new Error(`Signing error: ${msg}`, { cause: signError });
+
+        throw new Error(WALLET_MESSAGES.signingFailed(msg), { cause: signError });
     }
 
     const signedTx = TransactionBuilder.fromXDR(finalXdr, activeNetwork.networkPassphrase);

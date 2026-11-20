@@ -194,6 +194,50 @@ describe('invokeContractMethod with a keypair signer', () => {
         ).rejects.toThrow(/Network mismatch[\s\S]*testnet/);
     });
 
+    it('does not report a connection error containing "network" as a network mismatch', async () => {
+        const { invokeContractMethod } = await loadContracts();
+        const signer = {
+            address: issuerKeypair.publicKey(),
+            signTransaction: vi.fn(async () => {
+                throw new Error('Network request failed: fetch error');
+            }),
+        };
+
+        const attempt = invokeContractMethod(CONTRACT_ID, 'issue_credential', [], signer);
+        await expect(attempt).rejects.toThrow(/Signing error: Network request failed/);
+        await expect(attempt).rejects.not.toThrow(/Network mismatch/);
+    });
+
+    it('propagates typed WalletNetworkMismatchError directly without text matching', async () => {
+        const { invokeContractMethod } = await loadContracts();
+        const { WalletNetworkMismatchError } = await import('../src/lib/wallet/types');
+        const signer = {
+            address: issuerKeypair.publicKey(),
+            signTransaction: vi.fn(async () => {
+                throw new WalletNetworkMismatchError('testnet', 'public');
+            }),
+        };
+
+        await expect(
+            invokeContractMethod(CONTRACT_ID, 'issue_credential', [], signer),
+        ).rejects.toBeInstanceOf(WalletNetworkMismatchError);
+    });
+
+    it('propagates typed WalletUserRejectedError directly without text matching', async () => {
+        const { invokeContractMethod } = await loadContracts();
+        const { WalletUserRejectedError } = await import('../src/lib/wallet/types');
+        const signer = {
+            address: issuerKeypair.publicKey(),
+            signTransaction: vi.fn(async () => {
+                throw new WalletUserRejectedError();
+            }),
+        };
+
+        await expect(
+            invokeContractMethod(CONTRACT_ID, 'issue_credential', [], signer),
+        ).rejects.toBeInstanceOf(WalletUserRejectedError);
+    });
+
     it('names the signer’s address in the unauthorized-issuer message', async () => {
         const { invokeContractMethod } = await loadContracts();
         const { createKeypairSigner } = await import('../src/lib/stellarSigner');

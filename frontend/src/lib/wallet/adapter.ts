@@ -31,6 +31,7 @@ import { ensureModalA11y } from './modalA11y';
 import { buildWalletModalTheme } from './theme';
 import {
     WalletCapabilityError,
+    WalletNetworkMismatchError,
     WalletUserRejectedError,
     type ConnectedWallet,
     type SignMessageOptions,
@@ -326,6 +327,79 @@ async function validateSigningAccount(activeKit: Kit, expectedAddress: string): 
     }
 }
 
+function networksMatch(reported: string, expectedPassphrase: string, expectedName: string): boolean {
+    const rep = reported.trim();
+    if (rep === expectedPassphrase) return true;
+    if (rep.toLowerCase() === expectedName.toLowerCase()) return true;
+
+    const isTestnet =
+        expectedPassphrase.includes('Test SDF Network') || /testnet/i.test(expectedName);
+    if (isTestnet) {
+        return /testnet/i.test(rep);
+    }
+
+    const isPublic =
+        expectedPassphrase.includes('Public Global Stellar Network') ||
+        /public|mainnet/i.test(expectedName);
+    if (isPublic) {
+        return /public|mainnet/i.test(rep);
+    }
+
+    return false;
+}
+
+/**
+ * Checks whether the wallet reports the network the app expects, and raises
+ * `WalletNetworkMismatchError` if not (Issue #309).
+ *
+ * Before asking for a signature, we inspect what the wallet or kit exposes:
+ * - `getNetwork` on activeKit or selectedModule
+ * - `getNetworkDetails` on selectedModule
+ * - `network` / `networkPassphrase` from `fetchAddress`
+ *
+ * If a network is reported and does not match our expected network, we refuse
+ * with `WalletNetworkMismatchError` before any signature is requested.
+ * If no network is reported, we allow execution to proceed.
+ */
+async function checkWalletNetwork(
+    activeKit: Kit,
+    expectedPassphrase: string,
+    expectedName: string,
+): Promise<void> {
+    try {
+        const anyKit = activeKit as any;
+        let reported: string | null = null;
+
+        if (typeof anyKit.getNetwork === 'function') {
+            const res = await anyKit.getNetwork();
+            reported = typeof res === 'string' ? res : res?.networkPassphrase || res?.network || null;
+        } else if (anyKit.selectedModule && typeof anyKit.selectedModule.getNetwork === 'function') {
+            const res = await anyKit.selectedModule.getNetwork();
+            reported = typeof res === 'string' ? res : res?.networkPassphrase || res?.network || null;
+        } else if (anyKit.selectedModule && typeof anyKit.selectedModule.getNetworkDetails === 'function') {
+            const res = await anyKit.selectedModule.getNetworkDetails();
+            reported = typeof res === 'string' ? res : res?.networkPassphrase || res?.network || null;
+        }
+
+        if (!reported && typeof anyKit.fetchAddress === 'function') {
+            const result = (await anyKit.fetchAddress()) as {
+                address?: string;
+                network?: string;
+                networkPassphrase?: string;
+            };
+            reported = result?.networkPassphrase || result?.network || null;
+        }
+
+        if (reported === null || reported === undefined || reported === '') return;
+
+        if (!networksMatch(reported, expectedPassphrase, expectedName)) {
+            throw new WalletNetworkMismatchError(expectedName, reported);
+        }
+    } catch (error) {
+        if (error instanceof WalletNetworkMismatchError) throw error;
+    }
+}
+
 export const stellarKitAdapter: WalletAdapter = {
     async connect(): Promise<ConnectedWallet> {
         ensureModalA11y();
@@ -400,6 +474,11 @@ export const stellarKitAdapter: WalletAdapter = {
 
         try {
             await validateSigningAccount(activeKit, options.address);
+            await checkWalletNetwork(
+                activeKit,
+                options.networkPassphrase,
+                activeNetwork.networkName,
+            );
             const { signedTxXdr } = await activeKit.signTransaction(xdr, {
                 networkPassphrase: options.networkPassphrase,
                 address: options.address,
@@ -411,6 +490,7 @@ export const stellarKitAdapter: WalletAdapter = {
 
             return signedTxXdr;
         } catch (error) {
+            if (error instanceof WalletNetworkMismatchError) throw error;
             if (isUserRejection(error)) {
                 throw new WalletUserRejectedError('Transaction signing was canceled.');
             }
@@ -431,6 +511,11 @@ export const stellarKitAdapter: WalletAdapter = {
 
         try {
             await validateSigningAccount(activeKit, options.address);
+            await checkWalletNetwork(
+                activeKit,
+                options.networkPassphrase,
+                activeNetwork.networkName,
+            );
             const { signedMessage } = await activeKit.signMessage(message, {
                 networkPassphrase: options.networkPassphrase,
                 address: options.address,
@@ -443,6 +528,7 @@ export const stellarKitAdapter: WalletAdapter = {
             return signedMessage;
         } catch (error) {
             if (error instanceof WalletCapabilityError) throw error;
+            if (error instanceof WalletNetworkMismatchError) throw error;
             // A wallet not in the capability table can still reject with the
             // kit's -3 "not supported" code; report that as a capability gap
             // too rather than as a signing failure the user could retry.

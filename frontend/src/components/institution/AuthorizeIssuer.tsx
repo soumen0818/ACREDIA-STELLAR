@@ -11,6 +11,12 @@ import { authorizeIssuer, getContractOwner, isAuthorizedIssuer } from '@/lib/con
 import { debugLog, debugWarn, captureException } from '@/lib/debug';
 import { safeGetSession } from '@/lib/supabase';
 import { useStellarAccount } from '@/contexts/StellarContext';
+import {
+    WalletNetworkMismatchError,
+    WalletUserRejectedError,
+    WALLET_MESSAGES,
+} from '@/lib/wallet/types';
+import { activeNetwork } from '@/lib/stellar';
 
 export function AuthorizeIssuer() {
     const { address, signer } = useStellarAccount();
@@ -145,11 +151,13 @@ export function AuthorizeIssuer() {
             await checkAuthorization(walletToAuthorize);
         } catch (error: unknown) {
             captureException(error, { context: 'handleAuthorizeWallet' });
-            let msg = (error instanceof Error ? error.message : String(error)) || 'Failed to authorize wallet';
-            if (msg.includes('canceled') || msg.includes('User')) {
-                msg = 'Authorization transaction was canceled.';
-            } else if (msg.includes('Network')) {
-                msg = 'Network mismatch detected. Please check your wallet’s network settings.';
+            let msg: string;
+            if (error instanceof WalletUserRejectedError) {
+                msg = WALLET_MESSAGES.canceled;
+            } else if (error instanceof WalletNetworkMismatchError) {
+                msg = WALLET_MESSAGES.networkMismatch(error.expected || activeNetwork.networkName);
+            } else {
+                msg = (error instanceof Error ? error.message : String(error)) || 'Failed to authorize wallet';
             }
             toast.error(msg, { id: 'authorize' });
         } finally {
