@@ -88,7 +88,7 @@ export async function POST(
         // 1. Fetch target institution
         const { data: institution, error: institutionError } = await supabase
             .from('institutions')
-            .select('id, name, email, auth_user_id')
+            .select('id, name, email')
             .eq('id', parsedId.data)
             .maybeSingle();
 
@@ -110,8 +110,20 @@ export async function POST(
             );
         }
 
-        const oldAuthUserId = institution.auth_user_id;
         const oldPocEmail = institution.email;
+
+        // 2. Find the current active owner via institution_users and deactivate them (never delete).
+        const { data: currentOwner } = await supabase
+            .from('institution_users')
+            .select('auth_user_id')
+            .eq('institution_id', institution.id)
+            .eq('status', 'active')
+            .in('role', ['owner', 'poc'])
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+
+        const oldAuthUserId = (currentOwner?.auth_user_id as string | undefined) ?? null;
 
         // 2. Deactivate old POC (never delete)
         if (oldAuthUserId) {
@@ -219,17 +231,16 @@ export async function POST(
             });
         }
 
-        // 5. Update institution record
+        // 5. Update institution email to reflect the new POC.
         const { error: institutionUpdateError } = await supabase
             .from('institutions')
             .update({
-                auth_user_id: newAuthUserId,
                 email: newPocEmail,
             })
             .eq('id', institution.id);
 
         if (institutionUpdateError) {
-            structuredLog('ERROR', 'Failed to update institution POC', requestId, {
+            structuredLog('ERROR', 'Failed to update institution email for POC handover', requestId, {
                 error: institutionUpdateError,
                 institutionId: institution.id,
             });
