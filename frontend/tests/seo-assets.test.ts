@@ -31,6 +31,7 @@ describe('SEO & PWA assets', () => {
                 '/legal/terms',
                 '/solutions/institutions',
                 '/solutions/students',
+                '/status',
                 '/verify',
             ].sort(),
         );

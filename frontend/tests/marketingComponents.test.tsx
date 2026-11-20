@@ -29,6 +29,20 @@ describe('marketing and verification components', () => {
         expect(revoked).not.toContain('Integrity');
     });
 
+    it('points an unavailable verdict at the status page, and no other verdict (#312)', () => {
+        const unavailable = renderToStaticMarkup(<VerificationVerdict kind="unavailable" />);
+        expect(unavailable).toContain('Verification Unavailable');
+        expect(unavailable).toContain('href="/status"');
+
+        // Also when the page replaces the supporting line with its own error.
+        const withLine = renderToStaticMarkup(<VerificationVerdict kind="unavailable" line="Ledger read timed out." />);
+        expect(withLine).toContain('href="/status"');
+
+        for (const kind of ['verified', 'revoked', 'expired', 'mismatch', 'not-found'] as const) {
+            expect(renderToStaticMarkup(<VerificationVerdict kind={kind} />)).not.toContain('/status');
+        }
+    });
+
     it('renders a reusable section heading for landing-page stories', () => {
         const html = renderToStaticMarkup(
             <BrandSectionHeader title="Built for trust" description="Simple verification for institutions and students." />,

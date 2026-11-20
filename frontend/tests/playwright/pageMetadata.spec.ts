@@ -18,6 +18,7 @@ const PAGES: Array<{ path: string; title: string }> = [
     { path: '/legal/privacy', title: 'Privacy Policy | Acredia' },
     { path: '/legal/terms', title: 'Terms of Service | Acredia' },
     { path: '/legal/dpa', title: 'Data Processing Agreement | Acredia' },
+    { path: '/status', title: 'System status | Acredia' },
     { path: '/auth/login', title: 'Sign in | Acredia' },
     { path: '/claim', title: 'Claim your credentials | Acredia' },
 ];

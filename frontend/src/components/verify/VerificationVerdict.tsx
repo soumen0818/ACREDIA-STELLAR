@@ -1,6 +1,7 @@
 'use client';
 
 import { AlertCircle, AlertTriangle, CheckCircle2, Clock, HelpCircle, ShieldOff } from 'lucide-react';
+import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
 export type VerdictKind =
@@ -109,6 +110,16 @@ export function VerificationVerdict({
                     <p className="mt-1.5 max-w-prose text-sm leading-6 text-muted-foreground">
                         {line ?? verdict.line}
                     </p>
+                    {kind === 'unavailable' && (
+                        // An outage and a bad credential look alike to a
+                        // verifier; the status page tells them apart (#312).
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                            <Link href="/status" className="font-medium text-primary underline">
+                                Check Acredia&apos;s system status
+                            </Link>{' '}
+                            to see whether verification is having an outage.
+                        </p>
+                    )}
                 </div>
             </div>
         </section>

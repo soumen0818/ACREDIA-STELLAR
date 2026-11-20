@@ -44,6 +44,7 @@ describe('Route Loading and Error Boundaries', () => {
         'about',
         'legal',
         'solutions',
+        'status',
         'verify',
         'admin',
         'dashboard',
@@ -62,7 +63,7 @@ describe('Route Loading and Error Boundaries', () => {
     it('keeps static marketing pages free of loading boundaries', () => {
         // A loading.tsx above these pages streams their content behind its
         // fallback, invisible without JavaScript (review §4.3).
-        for (const dir of ['', 'about', 'contact', 'issuers', 'legal', 'solutions']) {
+        for (const dir of ['', 'about', 'contact', 'issuers', 'legal', 'solutions', 'status']) {
             expect(existsSync(join(appDir, dir, 'loading.tsx')), `Unexpected loading.tsx in app/${dir}`).toBe(false);
         }
     });

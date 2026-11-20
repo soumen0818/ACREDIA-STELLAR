@@ -52,7 +52,7 @@ test('public pages carry the nonce on every script and run without CSP violation
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, issuers: [] }) }),
     );
 
-    for (const path of ['/', '/about', '/solutions/students', '/issuers', '/contact', '/legal/privacy', '/verify']) {
+    for (const path of ['/', '/about', '/solutions/students', '/issuers', '/contact', '/legal/privacy', '/status', '/verify']) {
         await expectNonceOnEveryScript(page, path);
         // Hydrated: the navbar's client code ran and wired up the menu button.
         await expect(page.locator('header button').first()).toBeEnabled();
