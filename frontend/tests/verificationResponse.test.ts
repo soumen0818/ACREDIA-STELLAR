@@ -31,6 +31,9 @@ describe('parseVerificationResponse', () => {
             issuer_wallet_address: 'GISSUER',
             on_chain_hash: 'ab'.repeat(32),
             issuer_authorized: false,
+            stale: false,
+            checked_at: null,
+            revocation_may_be_outdated: false,
         });
     });
 
@@ -53,5 +56,56 @@ describe('parseVerificationResponse', () => {
 
     it('reports issuer authorization as unknown when it is missing', () => {
         expect(parseVerificationResponse({ credential: payload.credential }).issuer_authorized).toBeNull();
+    });
+
+    describe('freshness (issue #313)', () => {
+        const valid = { ...payload.credential, status: 'valid' };
+        const CHECKED = '2029-12-31T23:00:00.000Z';
+
+        it('reads a live answer and its check time', () => {
+            const parsed = parseVerificationResponse({
+                credential: valid,
+                verification: { stale: false, checkedAt: CHECKED },
+            });
+            expect(parsed).toMatchObject({ stale: false, checked_at: CHECKED, revocation_may_be_outdated: false });
+        });
+
+        it('reads a stale valid answer as possibly revoked since', () => {
+            const parsed = parseVerificationResponse({
+                credential: valid,
+                verification: { stale: true, checkedAt: CHECKED, revocationStatusMayBeOutdated: true },
+            });
+            expect(parsed).toMatchObject({ status: 'valid', stale: true, checked_at: CHECKED, revocation_may_be_outdated: true });
+        });
+
+        it('assumes a stale unrevoked answer may be outdated unless told otherwise', () => {
+            const parsed = parseVerificationResponse({ credential: valid, verification: { stale: true, checkedAt: CHECKED } });
+            expect(parsed.revocation_may_be_outdated).toBe(true);
+        });
+
+        it('never doubts a stale revocation: revocation is permanent', () => {
+            const parsed = parseVerificationResponse({
+                credential: { ...valid, status: 'revoked' },
+                verification: { stale: true, checkedAt: CHECKED, revocationStatusMayBeOutdated: true },
+            });
+            expect(parsed.revocation_may_be_outdated).toBe(false);
+        });
+
+        it.each([undefined, null, '', 'yesterday', 42])(
+            'fails closed on a stale answer whose age is %s, rather than showing it undated',
+            (checkedAt) => {
+                expect(() =>
+                    parseVerificationResponse({ credential: valid, verification: { stale: true, checkedAt } }),
+                ).toThrow(/unexpected response/);
+            },
+        );
+
+        it('treats an answer from an older server, with no freshness fields, as live', () => {
+            expect(parseVerificationResponse({ credential: valid })).toMatchObject({
+                stale: false,
+                checked_at: null,
+                revocation_may_be_outdated: false,
+            });
+        });
     });
 });

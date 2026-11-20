@@ -61,6 +61,8 @@ export function VerificationReport({
             <VerificationVerdict
                 kind={credential.status === 'valid' ? 'verified' : credential.status}
                 line={verdictLine(credential)}
+                staleAsOf={credential.stale ? credential.checked_at : null}
+                revocationMayBeOutdated={credential.revocation_may_be_outdated}
             />
 
             <CredentialFacts credential={credential} />

@@ -107,6 +107,8 @@ export function CredentialClientView({ token }: CredentialClientViewProps) {
                                           : state.view.status.status
                                 }
                                 line={state.view.card ? verdictLine(state.view.status) : undefined}
+                                staleAsOf={state.view.status.stale ? state.view.status.checked_at : null}
+                                revocationMayBeOutdated={state.view.status.revocation_may_be_outdated}
                             />
 
                             {state.view.card ? (

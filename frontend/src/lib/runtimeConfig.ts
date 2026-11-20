@@ -61,6 +61,15 @@ type ServerRuntimeConfig = {
     cron: {
         secret: string;
     };
+    /**
+     * Extra Soroban RPC endpoints the server tries, in order, when the
+     * network profile's RPC cannot be reached (issue #313). Server-only: the
+     * browser keeps talking to `runtimeConfig.stellar.sorobanRpcUrl`, so the
+     * CSP's connect-src is unchanged. Empty when none are configured.
+     */
+    stellar: {
+        sorobanRpcFallbackUrls: string[];
+    };
     debug: {
         enableLogs: boolean;
     };
@@ -385,6 +394,54 @@ function parseEmailAllowlist(value: string | undefined): string[] {
         .filter(Boolean);
 }
 
+/** More would add a timeout each to a total outage, for little extra resilience. */
+export const MAX_SOROBAN_RPC_FALLBACK_URLS = 3;
+
+/**
+ * `SOROBAN_RPC_FALLBACK_URLS`: a comma- or whitespace-separated list of
+ * Soroban RPC URLs on the same network as the primary (issue #313).
+ *
+ * Fails loudly on a bad entry rather than dropping it: a deploy whose
+ * failover is silently off would only find out during the outage it was
+ * meant for. HTTPS only in production; plain HTTP is allowed elsewhere for a
+ * local RPC. Duplicates, and the primary itself, are dropped.
+ */
+export function parseSorobanRpcFallbackUrls(
+    value: string | undefined,
+    primaryUrl: string,
+    isProduction: boolean,
+): string[] {
+    const name = 'SOROBAN_RPC_FALLBACK_URLS';
+    const entries = (value ?? '').split(/[\s,]+/).map((entry) => entry.trim()).filter(Boolean);
+    const urls: string[] = [];
+
+    for (const [index, entry] of entries.entries()) {
+        // The entry itself is never echoed: a provider URL can carry an API key.
+        const position = `${name} entry ${index + 1}`;
+        if (looksLikePlaceholder(entry)) {
+            configError(`${position} is a placeholder value.`);
+        }
+        let url: URL;
+        try {
+            url = new URL(entry);
+        } catch {
+            configError(`${position} must be a valid URL.`);
+        }
+        if (url.protocol !== 'https:' && !(url.protocol === 'http:' && !isProduction)) {
+            configError(`${position} must be an HTTPS URL${isProduction ? ' in production' : ' (or HTTP outside production)'}.`);
+        }
+        const normalized = url.toString().replace(/\/$/, '');
+        if (normalized !== primaryUrl && !urls.includes(normalized)) {
+            urls.push(normalized);
+        }
+    }
+
+    if (urls.length > MAX_SOROBAN_RPC_FALLBACK_URLS) {
+        configError(`${name} lists ${urls.length} endpoints; at most ${MAX_SOROBAN_RPC_FALLBACK_URLS} are allowed.`);
+    }
+    return urls;
+}
+
 function buildRuntimeConfig(): RuntimeConfig {
     const isProduction = process.env.NODE_ENV === 'production';
     assertNoPublicServerSecrets();
@@ -457,6 +514,13 @@ function buildServerRuntimeConfig(): ServerRuntimeConfig {
             // Deliberately no fallback: a guessable or shared default would
             // make the purge endpoint callable by anyone.
             secret: readEnv('CRON_SECRET') ?? '',
+        },
+        stellar: {
+            sorobanRpcFallbackUrls: parseSorobanRpcFallbackUrls(
+                readEnv('SOROBAN_RPC_FALLBACK_URLS'),
+                runtimeConfig.stellar.sorobanRpcUrl,
+                runtimeConfig.isProduction,
+            ),
         },
         debug: {
             enableLogs: runtimeConfig.debug.enableLogs,

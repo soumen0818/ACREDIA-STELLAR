@@ -3,7 +3,7 @@ import { getServiceRoleClient } from '@/lib/serverAuth';
 import { ContractConfigurationError, BlockchainUnavailableError } from '@/lib/contractReads';
 import { CREDENTIAL_DOCUMENTS_BUCKET } from '@/lib/credentialDocuments';
 import { unixSecondsToIso } from '@/lib/credentialStatus';
-import { readOnChainStatus } from '@/lib/onChainStatus';
+import { freshnessFields, readOnChainStatus } from '@/lib/onChainStatus';
 import { isShareToken, verifyStoredCredential } from '@/lib/sharedCredential';
 import { enforceRateLimit, getRateLimiterMode } from '@/lib/rateLimit';
 import { writeVerificationAuditLog, type VerificationResultType } from '@/lib/verificationAudit';
@@ -129,7 +129,7 @@ export async function GET(
             return notFound();
         }
 
-        const { onChain, status, revoked, issuerAuthorized } = chainStatus;
+        const { onChain, status, revoked, issuerAuthorized, freshness } = chainStatus;
         const content = await verifyStoredCredential({
             metadata: row.metadata,
             schemaVersion: (row.metadata_schema_version as number | null) ?? null,
@@ -163,11 +163,13 @@ export async function GET(
             revoked && (row.revocation_source === 'issuer' || row.revocation_source === 'platform')
                 ? (row.revocation_source as 'issuer' | 'platform')
                 : null;
-        const verified = status === 'valid' && content.ok;
+        // A last known "valid" is not a confirmation (issue #313).
+        const verified = status === 'valid' && content.ok && !freshness.stale;
 
         await log(content.ok ? RESULT_TYPE_BY_STATUS[status] : 'mismatch', 200, {
             chain: { found: true, revoked },
             mismatchReasons: content.ok ? [] : [content.reason],
+            ...(freshness.stale && { errorCategory: 'stale_answer' }),
         });
 
         return NextResponse.json(
@@ -204,6 +206,7 @@ export async function GET(
                     revocationSource,
                     issuerAuthorized,
                     issuerStatus: issuerAuthorized ? 'active' : 'revoked',
+                    ...freshnessFields(freshness),
                 },
             },
             { headers: NO_STORE },

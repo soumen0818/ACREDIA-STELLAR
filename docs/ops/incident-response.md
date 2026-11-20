@@ -250,10 +250,25 @@ credential as "not found".
 
 ### 7.3 Verification down — RPC or Supabase outage
 
-**Soroban RPC down (SEV2):** `/api/verify` returns 503 `chain_unavailable`;
-issuance also fails. Confirm against the provider's status page, then switch
-`NEXT_PUBLIC_SOROBAN_RPC_URL` (and Horizon if needed) to a known-good provider
-and **redeploy**. Switch back once the primary recovers, again with a redeploy.
+**Soroban RPC down (SEV2):** server-side verification reads fail over on
+their own to `SOROBAN_RPC_FALLBACK_URLS`, in order (issue #313). Each endpoint
+gets a 4 s timeout, and one that failed is tried last for 30 s. A failover
+never happens on a contract answer such as "not found". While a fallback
+answers, `/status` shows Verification as **degraded**, and the
+`verification.rpc.fallback_answered` metric rises. When every endpoint fails,
+`/api/verify` and share links serve the **last known answer** if one is cached
+(kept 7 days in Upstash). It is marked `stale: true` with its `checkedAt` time,
+returns `verified: false`, is never cached, and the pages show "as of <time>".
+A credential last seen revoked is still served as revoked, never as valid.
+Without a last known answer the response is 503 `chain_unavailable` (look for
+`verification.stale_served` and the `stale_answer` audit category).
+
+Issuance, and the browser's own wallet reads, still use the primary
+`NEXT_PUBLIC_SOROBAN_RPC_URL` only. If the primary stays down, confirm against
+the provider's status page, then switch it (and Horizon if needed) to a
+known-good provider and **redeploy**. Switch back once it recovers, again with
+a redeploy. A fallback must serve the same network: one that does not is
+detected by its passphrase, logged, and never used.
 
 **Supabase Storage down (SEV3):** status checks and share pages still answer;
 documents cannot be opened, and issuance fails because documents cannot be

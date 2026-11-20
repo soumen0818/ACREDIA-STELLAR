@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceRoleClient } from '@/lib/serverAuth';
 import { ContractConfigurationError, BlockchainUnavailableError } from '@/lib/contractReads';
 import { unixSecondsToIso } from '@/lib/credentialStatus';
-import { readOnChainStatus } from '@/lib/onChainStatus';
+import { freshnessFields, readOnChainStatus } from '@/lib/onChainStatus';
 import { enforceRateLimit, getRateLimiterMode } from '@/lib/rateLimit';
 import {
     writeVerificationAuditLog,
@@ -253,8 +253,8 @@ export async function GET(
             );
         }
 
-        const { onChain, status, revoked, issuerAuthorized } = chainStatus;
-        recordMetric('verification.cache.status', 1, { ...chainStatus.cache, tokenId });
+        const { onChain, status, revoked, issuerAuthorized, freshness } = chainStatus;
+        recordMetric('verification.cache.status', 1, { ...chainStatus.cache, tokenId, stale: freshness.stale });
 
         const labels = await readDisplayLabels(supabase, tokenId, onChain.issuer);
         credentialId = labels.credentialId;
@@ -264,6 +264,7 @@ export async function GET(
             credentialId,
             chain: { found: true, revoked },
             apiKeyContext,
+            ...(freshness.stale && { errorCategory: 'stale_answer' }),
         });
 
         // HTTP Cache-Control: CDN/browsers may cache this public response for the
@@ -271,7 +272,12 @@ export async function GET(
         // propagates to all cached copies within the documented window.
         // stale-while-revalidate lets CDNs serve the old response while they
         // refresh it in the background, preventing latency spikes on expiry.
-        const cacheControl = `public, s-maxage=${RESPONSE_CACHE_MAX_AGE_SECONDS}, stale-while-revalidate=30`;
+        //
+        // A last-known answer served during an outage (issue #313) is never
+        // stored: once the chain is back, the next request must read it.
+        const cacheControl = freshness.stale
+            ? 'private, no-store'
+            : `public, s-maxage=${RESPONSE_CACHE_MAX_AGE_SECONDS}, stale-while-revalidate=30`;
 
         return NextResponse.json(
             {
@@ -289,7 +295,10 @@ export async function GET(
                     onChainHash: onChain.hash,
                 },
                 verification: {
-                    verified: status === 'valid',
+                    // Confirmed valid now. A last known "valid" is not a
+                    // confirmation, so an integration that only reads this
+                    // flag fails closed during an outage (issue #313).
+                    verified: status === 'valid' && !freshness.stale,
                     status,
                     revoked,
                     expired: status === 'expired',
@@ -297,6 +306,7 @@ export async function GET(
                     onChainFound: true,
                     issuerAuthorized,
                     issuerStatus: issuerAuthorized ? 'active' : 'revoked',
+                    ...freshnessFields(freshness),
                 },
             },
             {

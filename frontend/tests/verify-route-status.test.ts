@@ -28,6 +28,8 @@ const cache = vi.hoisted(() => ({
     setCachedRevocationStatus: vi.fn(),
     getCachedIssuerAuthorization: vi.fn(),
     setCachedIssuerAuthorization: vi.fn(),
+    getLastKnownVerification: vi.fn(),
+    setLastKnownVerification: vi.fn(),
 }));
 
 vi.mock('@/lib/serverAuth', () => ({
@@ -54,6 +56,7 @@ vi.mock('@/lib/contractReads', async (importOriginal) => ({
 vi.mock('@/lib/verificationCache', () => ({
     ...cache,
     RESPONSE_CACHE_MAX_AGE_SECONDS: 45,
+    REVOCATION_TTL_SECONDS: 45,
 }));
 
 import { GET } from '@/app/api/verify/[token]/route';
@@ -103,6 +106,8 @@ beforeEach(() => {
     cache.getCachedImmutableData.mockResolvedValue(null);
     cache.getCachedRevocationStatus.mockResolvedValue(null);
     cache.getCachedIssuerAuthorization.mockResolvedValue(null);
+    cache.getLastKnownVerification.mockResolvedValue(null);
+    cache.setLastKnownVerification.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -306,5 +311,164 @@ describe('GET /api/verify/:tokenId — caching', () => {
         expect(chain.isAuthorizedIssuerOnChain).not.toHaveBeenCalled();
         expect(payload.credential.status).toBe('revoked');
         expect(payload.verification.issuerAuthorized).toBe(false);
+    });
+});
+
+/**
+ * Issue #313: when every RPC endpoint fails, the last known answer is served,
+ * dated and flagged; without one, the outage is reported as such. The rule:
+ * "we cannot check right now" is never shown as invalid, and never as valid
+ * without saying how old the answer is.
+ */
+describe('GET /api/verify/:tokenId — outages', () => {
+    const CHECKED_AT = (NOW - 3_600) * 1000; // an hour before the outage
+
+    function lastKnown(overrides: Record<string, unknown> = {}) {
+        return { onChain: onChainCredential(), revoked: false, issuerAuthorized: true, checkedAt: CHECKED_AT, ...overrides };
+    }
+
+    function chainDown() {
+        chain.getCredentialFromChain.mockRejectedValue(new BlockchainUnavailableError('every endpoint failed'));
+    }
+
+    it('answers live with checkedAt now and stale false', async () => {
+        const { response, payload } = await verify();
+
+        expect(response.status).toBe(200);
+        expect(payload.verification).toMatchObject({
+            stale: false,
+            checkedAt: new Date(NOW * 1000).toISOString(),
+            revocationStatusMayBeOutdated: false,
+            issuerStatusMayBeOutdated: false,
+        });
+        expect(response.headers.get('Cache-Control')).toContain('public, s-maxage=45');
+    });
+
+    it('dates a live answer built from the short cache by the cache bound, never later', async () => {
+        cache.getCachedRevocationStatus.mockResolvedValue(false);
+        const { payload } = await verify();
+        expect(payload.verification.checkedAt).toBe(new Date((NOW - 45) * 1000).toISOString());
+    });
+
+    it('records the live answer as the last known one', async () => {
+        await verify();
+        expect(cache.setLastKnownVerification).toHaveBeenCalledWith('7', {
+            onChain: onChainCredential(),
+            revoked: false,
+            issuerAuthorized: true,
+            checkedAt: NOW * 1000,
+        });
+    });
+
+    it('does not rewrite the last known answer when nothing was read live', async () => {
+        cache.getCachedRevocationStatus.mockResolvedValue(false);
+        cache.getCachedIssuerAuthorization.mockResolvedValue(true);
+        await verify();
+        expect(cache.setLastKnownVerification).not.toHaveBeenCalled();
+    });
+
+    it('still answers when recording the last known answer fails', async () => {
+        cache.setLastKnownVerification.mockImplementation(() => {
+            throw new Error('redis exploded');
+        });
+        const { response, payload } = await verify();
+        expect(response.status).toBe(200);
+        expect(payload.verification.verified).toBe(true);
+    });
+
+    it('serves a stale valid answer dated and flagged, never as a live confirmation', async () => {
+        chainDown();
+        cache.getLastKnownVerification.mockResolvedValue(lastKnown());
+
+        const { response, payload } = await verify();
+
+        expect(response.status).toBe(200);
+        expect(payload.credential).toMatchObject({ status: 'valid', revoked: false });
+        expect(payload.verification).toMatchObject({
+            verified: false,
+            status: 'valid',
+            stale: true,
+            checkedAt: new Date(CHECKED_AT).toISOString(),
+            revocationStatusMayBeOutdated: true,
+            issuerStatusMayBeOutdated: true,
+        });
+        // Never stored, so recovery is seen on the next request.
+        expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+        expect(loggedResult()).toMatchObject({ result_type: 'verified', status_code: 200, error_category: 'stale_answer' });
+    });
+
+    it('serves a stale revoked answer as revoked, with its revocation status not in doubt', async () => {
+        chainDown();
+        cache.getLastKnownVerification.mockResolvedValue(lastKnown({ revoked: true }));
+        db.credentialRow = { id: 'cred-7', revoked_at: '2029-12-01T00:00:00Z', revocation_source: 'issuer' };
+
+        const { response, payload } = await verify();
+
+        expect(response.status).toBe(200);
+        expect(payload.credential).toMatchObject({ status: 'revoked', revoked: true, revocationSource: 'issuer' });
+        expect(payload.verification).toMatchObject({
+            verified: false,
+            stale: true,
+            // Revocation is permanent on the contract.
+            revocationStatusMayBeOutdated: false,
+        });
+    });
+
+    it('re-evaluates expiry against the clock for a stale answer', async () => {
+        chainDown();
+        cache.getLastKnownVerification.mockResolvedValue(lastKnown({ onChain: onChainCredential({ expiresAt: NOW - 1 }) }));
+
+        const { payload } = await verify();
+        expect(payload.credential.status).toBe('expired');
+        expect(payload.verification).toMatchObject({ stale: true, expired: true, verified: false });
+    });
+
+    it.each([
+        ['the record read', () => chain.getCredentialFromChain.mockRejectedValue(new BlockchainUnavailableError('timeout of 4000 ms exceeded'))],
+        ['the revocation read', () => chain.isRevokedFromChain.mockRejectedValue(new BlockchainUnavailableError('rpc 503'))],
+        ['the issuer read', () => chain.isAuthorizedIssuerOnChain.mockRejectedValue(new BlockchainUnavailableError('rpc 503'))],
+    ])('falls back to the last known answer when %s fails', async (_name, fail) => {
+        fail();
+        cache.getLastKnownVerification.mockResolvedValue(lastKnown());
+
+        const { response, payload } = await verify();
+        expect(response.status).toBe(200);
+        expect(payload.verification.stale).toBe(true);
+    });
+
+    it('reports a total outage with no last known answer as 503, never as invalid', async () => {
+        chainDown();
+
+        const { response, payload } = await verify();
+
+        expect(response.status).toBe(503);
+        expect(payload).toEqual({ success: false, error: 'Blockchain verification unavailable' });
+        expect(loggedResult()).toMatchObject({ result_type: 'chain_unavailable', status_code: 503 });
+    });
+
+    it('reports an outage as 503 when the last known answer cannot be read either', async () => {
+        chainDown();
+        cache.getLastKnownVerification.mockRejectedValue(new Error('redis down'));
+
+        expect((await verify()).response.status).toBe(503);
+    });
+
+    it('never answers "not found" from the cache: a missing credential is only said live', async () => {
+        chain.getCredentialFromChain.mockResolvedValue(null);
+        cache.getLastKnownVerification.mockResolvedValue(lastKnown());
+
+        const { response } = await verify();
+        expect(response.status).toBe(404);
+        expect(cache.getLastKnownVerification).not.toHaveBeenCalled();
+    });
+
+    it('does not paper over a configuration error with an old answer', async () => {
+        const { ContractConfigurationError } = await import('@/lib/contractReads');
+        chain.getCredentialFromChain.mockRejectedValue(new ContractConfigurationError());
+        cache.getLastKnownVerification.mockResolvedValue(lastKnown());
+
+        const { response } = await verify();
+        expect(response.status).toBe(500);
+        expect(cache.getLastKnownVerification).not.toHaveBeenCalled();
     });
 });

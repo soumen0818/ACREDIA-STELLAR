@@ -24,6 +24,15 @@ export interface CredentialStatusRecord {
     on_chain_hash: string | null;
     /** Whether the issuer is still authorized on the contract; null if unknown. */
     issuer_authorized: boolean | null;
+    /**
+     * Issue #313: true when the ledger could not be read and this is the last
+     * known answer. Always shown with `checked_at`, its age.
+     */
+    stale: boolean;
+    /** When the answer was last confirmed from the ledger (ISO 8601), or null if not stated. */
+    checked_at: string | null;
+    /** A stale answer for an unrevoked credential: it may have been revoked since `checked_at`. */
+    revocation_may_be_outdated: boolean;
 }
 
 function normalizeRevocationSource(value: unknown): RevocationSource {
@@ -49,6 +58,13 @@ export function parseVerificationResponse(payload: {
         throw new Error('Verification unavailable: unexpected response.');
     }
     const text = (value: unknown) => (typeof value === 'string' ? value : null);
+    const checkedAt = text(verification.checkedAt);
+    const checkedAtValid = checkedAt !== null && !Number.isNaN(Date.parse(checkedAt));
+    const stale = verification.stale === true;
+    // A last known answer is only ever shown with its age (issue #313).
+    if (stale && !checkedAtValid) {
+        throw new Error('Verification unavailable: unexpected response.');
+    }
     return {
         token_id: String(safe.tokenId),
         status: safe.status,
@@ -61,6 +77,11 @@ export function parseVerificationResponse(payload: {
         on_chain_hash: text(safe.onChainHash),
         issuer_authorized:
             typeof verification.issuerAuthorized === 'boolean' ? verification.issuerAuthorized : null,
+        stale,
+        checked_at: checkedAtValid ? checkedAt : null,
+        // Unless the server says otherwise, a stale unrevoked answer may be out of date.
+        revocation_may_be_outdated:
+            stale && safe.status !== 'revoked' && verification.revocationStatusMayBeOutdated !== false,
     };
 }
 

@@ -53,6 +53,7 @@ describe('parseShareResponse', () => {
             issuedAt: '2026-06-01T09:00:00.000Z',
             expiresAt: null,
             revocationSource: null,
+            staleAsOf: null,
             institutionName: 'Uni Example',
             issuerWallet: 'GISSUER',
             studentWallet: 'GSTUDENT',
@@ -65,6 +66,21 @@ describe('parseShareResponse', () => {
             document: { url: 'https://storage.test/signed', sha256: 'd'.repeat(64) },
             documentStatus: 'available',
         });
+    });
+
+    it('dates the card with a stale answer\'s check time (issue #313)', () => {
+        const view = parseShareResponse(
+            SHARE,
+            payload({ verification: { verified: false, stale: true, checkedAt: '2029-12-31T23:00:00.000Z' } }),
+        );
+        expect(view.status).toMatchObject({ stale: true, revocation_may_be_outdated: true });
+        expect(view.card?.staleAsOf).toBe('2029-12-31T23:00:00.000Z');
+    });
+
+    it('refuses a stale share answer without its age', () => {
+        expect(() =>
+            parseShareResponse(SHARE, payload({ verification: { verified: false, stale: true } })),
+        ).toThrow(/unexpected response/);
     });
 
     it('builds no card when the content did not match the chain', () => {

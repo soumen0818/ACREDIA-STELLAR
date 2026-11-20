@@ -1,7 +1,8 @@
 'use client';
 
-import { AlertCircle, AlertTriangle, CheckCircle2, Clock, HelpCircle, ShieldOff } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, Clock, HelpCircle, History, ShieldOff } from 'lucide-react';
 import Link from 'next/link';
+import { formatUtcDateTime } from '@/lib/credentialStatus';
 import { cn } from '@/lib/utils';
 
 export type VerdictKind =
@@ -78,11 +79,33 @@ export function VerificationVerdict({
     kind,
     /** Replaces the default supporting line — used to add e.g. a revocation date. */
     line,
+    /**
+     * Issue #313: set when this is the last known answer because the ledger
+     * could not be read; when it was last confirmed (ISO 8601).
+     */
+    staleAsOf,
+    /** With `staleAsOf`: the credential may have been revoked since then. */
+    revocationMayBeOutdated = false,
 }: {
     kind: VerdictKind;
     line?: string;
+    staleAsOf?: string | null;
+    revocationMayBeOutdated?: boolean;
 }) {
-    const verdict = VERDICTS[kind];
+    const asOf = staleAsOf ? formatUtcDateTime(staleAsOf) : null;
+    // A last known "valid" must not read as a live confirmation: no check
+    // mark, no green, and its date in the headline.
+    const verdict =
+        asOf && kind === 'verified'
+            ? {
+                  ...VERDICTS.verified,
+                  icon: History,
+                  container: 'border-warning/30 bg-warning/8',
+                  chip: 'bg-warning/15 text-warning',
+                  title: `Verified as of ${asOf}`,
+                  line: `This credential was recorded on the Stellar ledger and valid when Acredia last checked it, ${asOf}.`,
+              }
+            : VERDICTS[kind];
     const Icon = verdict.icon;
 
     return (
@@ -110,6 +133,22 @@ export function VerificationVerdict({
                     <p className="mt-1.5 max-w-prose text-sm leading-6 text-muted-foreground">
                         {line ?? verdict.line}
                     </p>
+                    {asOf && (
+                        <p
+                            data-testid="stale-answer-notice"
+                            className="mt-3 max-w-prose rounded-xl border border-warning/30 bg-warning/8 px-3 py-2 text-sm leading-6 text-foreground"
+                        >
+                            <strong className="font-semibold">As of {asOf}.</strong>{' '}
+                            Acredia cannot reach the Stellar ledger right now, so this is the last
+                            confirmed answer, not a live check.
+                            {revocationMayBeOutdated &&
+                                ' Its revocation status may be out of date: the credential could have been revoked since.'}{' '}
+                            <Link href="/status" className="font-medium text-primary underline">
+                                Check system status
+                            </Link>
+                            .
+                        </p>
+                    )}
                     {kind === 'unavailable' && (
                         // An outage and a bad credential look alike to a
                         // verifier; the status page tells them apart (#312).
