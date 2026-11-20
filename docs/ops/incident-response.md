@@ -292,8 +292,13 @@ credentials it did not issue, or a verifier report.
 
 ### 8.1 Where status is posted
 
-There is no status page yet ([§11](#11-prerequisites-before-this-plan-is-live)).
-Until one exists:
+The public [`/status`](../../frontend/src/app/status/page.tsx) page (Issue #312)
+shows whether verification, sign-in and consoles, shared credentials and
+abuse protection are working, from automated checks of Soroban RPC, Supabase
+and Upstash Redis repeated at most every 30 s. The same report is at
+`GET /api/health` (`503` on an outage) for uptime monitors. It reports
+dependency health only and carries no written updates, so incident
+communication still goes through:
 
 | Audience | Channel |
 |---|---|
@@ -374,6 +379,6 @@ This plan is decided; these pieces of it are not yet in place.
 - [ ] On-chain event monitoring that pages on `issuer_authorized`, `owner_transfer_proposed`, `upgrade_proposed`, `paused`, `unpaused` and `credential_revoked_by_owner` — today these are only noticed if someone looks.
 - [ ] A hosting and monitoring decision for the indexer (`npm run indexer`): verifiers' `issuerStatus` depends on it, and it has no documented home.
 - [ ] A private security-report channel named in `SECURITY.md` (e.g. GitHub private vulnerability reporting). `SECURITY.md` also refers to a `SECRETS_ROTATION.md` that does not exist.
-- [ ] A public status page (Issue 26); until then, §8.1.
+- [x] A public status page: `/status` and `GET /api/health` (Issue #312). It shows automated dependency health only; written incident updates still go to the pinned issue (§8.1).
 - [ ] Owner multisig in place ([custody §5](../owner-key-custody.md#5-acceptance-criteria-tracking)) — until then one person can pull every lever in §5.1.
 - [ ] A tabletop with the real on-call team (§10).

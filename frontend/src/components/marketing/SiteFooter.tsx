@@ -27,6 +27,7 @@ const footerNav: { heading: string; links: { label: string; href: string; extern
         links: [
             { label: 'Stellar Network', href: 'https://stellar.org', external: true },
             { label: 'Stellar Explorer', href: 'https://stellar.expert', external: true },
+            { label: 'System status', href: '/status' },
             { label: 'Contact us', href: '/contact' },
         ],
     },

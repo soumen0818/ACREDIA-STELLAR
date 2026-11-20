@@ -16,6 +16,7 @@ const SITEMAP_ROUTES: Record<string, Entry> = {
     '/solutions/students': { changeFrequency: 'weekly', priority: 0.8 },
     '/contact': { changeFrequency: 'monthly', priority: 0.6 },
     '/docs/api': { changeFrequency: 'monthly', priority: 0.6 },
+    '/status': { changeFrequency: 'always', priority: 0.5 },
     '/legal/privacy': { changeFrequency: 'yearly', priority: 0.3 },
     '/legal/terms': { changeFrequency: 'yearly', priority: 0.3 },
     '/legal/dpa': { changeFrequency: 'yearly', priority: 0.3 },

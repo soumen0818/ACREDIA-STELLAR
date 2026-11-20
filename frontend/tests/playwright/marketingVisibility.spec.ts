@@ -19,6 +19,7 @@ const MARKETING_PAGES = [
     '/issuers',
     '/contact',
     '/legal/privacy',
+    '/status',
 ];
 
 async function opacityOf(page: Page, selector: string): Promise<string> {
