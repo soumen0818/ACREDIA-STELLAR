@@ -11,7 +11,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ExternalLink } from 'lucide-react';
 import {
     issueCredential,
     type CredentialData,
@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { captureException } from '@/lib/debug';
 import { CredentialUploadFormSections } from '@/components/institution/credential-upload/CredentialUploadFormSections';
 import { useStellarAccount } from '@/contexts/StellarContext';
+import { getExplorerTxUrl } from '@/lib/stellar';
 
 interface Subject {
     id: string;
@@ -55,6 +56,7 @@ export function CredentialUploadForm({
     const [progressStep, setProgressStep] = useState<
         'validate' | CredentialIssueProgressStep | null
     >(null);
+    const [txHash, setTxHash] = useState<string | null>(null);
 
     const [formData, setFormData] = useState({
         studentName: '',
@@ -134,7 +136,10 @@ export function CredentialUploadForm({
     const progressSteps: Array<{ key: 'validate' | CredentialIssueProgressStep; label: string }> = [
         { key: 'validate', label: 'Validate' },
         { key: 'store-document', label: 'Store document' },
-        { key: 'sign-transaction', label: 'Sign transaction' },
+        { key: 'simulating', label: 'Simulating' },
+        { key: 'awaiting-signature', label: 'Awaiting signature' },
+        { key: 'submitting', label: 'Submitting' },
+        { key: 'confirming', label: 'Confirming' },
         { key: 'save-database', label: 'Save database' },
     ];
 
@@ -235,9 +240,15 @@ export function CredentialUploadForm({
                 subjects: activeSubjects.length > 0 ? activeSubjects : undefined,
             };
 
+            setTxHash(null);
             toast.loading('Issuing credential...', { id: 'issue-credential' });
 
-            const result = await issueCredential(credentialData, signer, setProgressStep);
+            const result = await issueCredential(credentialData, signer, (step, hash) => {
+                setProgressStep(step);
+                if (hash) {
+                    setTxHash(hash);
+                }
+            });
 
             toast.success('Credential issued successfully!', { id: 'issue-credential' });
             toast.success(`Token ID: ${result.tokenId}`, { duration: 5000 });
@@ -262,6 +273,7 @@ export function CredentialUploadForm({
             setSubjects([]);
             setValidationErrors([]);
             setProgressStep(null);
+            setTxHash(null);
 
             // Call success callback
             if (onSuccess) {
@@ -308,7 +320,7 @@ export function CredentialUploadForm({
                 {/* Submit Button */}
                 <div className="pt-4">
                     {progressStep && (
-                        <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+                        <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-7">
                             {progressSteps.map((step, index) => {
                                 const activeIndex = progressSteps.findIndex(
                                     (item) => item.key === progressStep,
@@ -334,6 +346,21 @@ export function CredentialUploadForm({
                                     </div>
                                 );
                             })}
+                        </div>
+                    )}
+                    {txHash && (
+                        <div className="mb-4 flex items-center justify-between rounded-lg border border-primary/25 bg-primary/8 p-3 text-xs">
+                            <span className="font-mono text-muted-foreground">
+                                Tx: {txHash.slice(0, 10)}...{txHash.slice(-8)}
+                            </span>
+                            <a
+                                href={getExplorerTxUrl(txHash)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+                            >
+                                View on Stellar Explorer <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
                         </div>
                     )}
                     <Button

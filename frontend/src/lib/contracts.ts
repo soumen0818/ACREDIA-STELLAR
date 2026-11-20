@@ -42,6 +42,14 @@ export function expiresAtToScVal(expiresAt: number | null): xdr.ScVal {
         : nativeToScVal(BigInt(expiresAt), { type: 'u64' });
 }
 
+export type ContractProgressStage =
+    | 'simulating'
+    | 'awaiting-signature'
+    | 'submitting'
+    | 'confirming';
+
+export type ContractProgressCallback = (stage: ContractProgressStage, txHash?: string) => void;
+
 interface ContractInvocationResult<T = unknown> {
     transactionHash: string;
     returnValue: T | null;
@@ -100,6 +108,7 @@ export async function invokeContractMethod(
     method: string,
     args: xdr.ScVal[],
     signer: StellarSigner,
+    onProgress?: ContractProgressCallback,
 ): Promise<ContractInvocationResult> {
     const signerAddress = signer.address;
     const contract = new Contract(contractId);
@@ -114,6 +123,7 @@ export async function invokeContractMethod(
 
     const transaction = txBuilder.build();
 
+    onProgress?.('simulating');
     debugLog(`Simulating contract method "${method}".`);
     const simResult = await sorobanServer.simulateTransaction(transaction as never);
 
@@ -137,6 +147,7 @@ export async function invokeContractMethod(
     debugLog(`Preparing contract method "${method}".`);
     const preparedTx = await sorobanServer.prepareTransaction(transaction as never);
 
+    onProgress?.('awaiting-signature');
     debugLog('Requesting signature from the signer.');
     let finalXdr: string;
     try {
@@ -171,6 +182,7 @@ export async function invokeContractMethod(
     }
 
     const signedTx = TransactionBuilder.fromXDR(finalXdr, activeNetwork.networkPassphrase);
+    onProgress?.('submitting');
     debugLog('Submitting signed transaction to Stellar.');
     const sendResponse = await sorobanServer.sendTransaction(signedTx as never);
 
@@ -184,11 +196,10 @@ export async function invokeContractMethod(
     const resultValue = getSorobanTransactionResult(simResult);
 
     // Wait for on-chain confirmation
-    // eslint-disable-next-line no-console
-    console.log(`⏳ Waiting for confirmation (hash: ${sendResponse.hash})...`);
+    onProgress?.('confirming', sendResponse.hash);
+    debugLog(`⏳ Waiting for confirmation (hash: ${sendResponse.hash})...`);
     const confirmation = await waitForConfirmation(sendResponse.hash);
-    // eslint-disable-next-line no-console
-    console.log(`✅ ${method} confirmed on-chain.`);
+    debugLog(`✅ ${method} confirmed on-chain.`);
 
     return {
         transactionHash: sendResponse.hash,
@@ -353,11 +364,12 @@ export async function isAuthorizedIssuer(
 export async function authorizeIssuer(
     admin: StellarSigner,
     issuerAddress: string,
+    onProgress?: ContractProgressCallback,
 ): Promise<string> {
     return executeLedgerOperation('authorize_issuer', [issuerAddress], admin, async () => {
         const contractId = getContractAddress('CREDENTIAL_NFT');
         const args = [new Address(issuerAddress).toScVal()];
-        const result = await invokeContractMethod(contractId, 'authorize_issuer', args, admin);
+        const result = await invokeContractMethod(contractId, 'authorize_issuer', args, admin, onProgress);
         return result.transactionHash;
     });
 }
@@ -371,6 +383,7 @@ export async function issueCredentialOnStellar(
     credentialHash: string,
     expiresAt: number | null,
     issuer: StellarSigner,
+    onProgress?: ContractProgressCallback,
 ): Promise<{ tokenId: string; transactionHash: string }> {
     return executeLedgerOperation('issue_credential', [], issuer, async () => {
         const issuerAddress = issuer.address;
@@ -394,13 +407,11 @@ export async function issueCredentialOnStellar(
             expiresAtToScVal(expiresAt),
         ];
 
-        const result = await invokeContractMethod(contractId, 'issue_credential', args, issuer);
+        const result = await invokeContractMethod(contractId, 'issue_credential', args, issuer, onProgress);
         const tokenId = normalizeTokenId(result.returnValue);
 
-        // eslint-disable-next-line no-console
-        console.log('✅ Credential issued on Stellar Network. Token ID:', tokenId);
-        // eslint-disable-next-line no-console
-        console.log('✅ Transaction:', result.transactionHash);
+        debugLog(`Credential issued on Stellar Network. Token ID: ${tokenId}`);
+        debugLog(`Transaction: ${result.transactionHash}`);
         return {
             tokenId,
             transactionHash: result.transactionHash,
@@ -504,6 +515,7 @@ function normalizeBatchIssueRow(row: unknown, fallbackIndex: number): BatchIssue
 export async function batchIssueCredentialOnStellar(
     items: BatchCredentialInputItem[],
     issuer: StellarSigner,
+    onProgress?: ContractProgressCallback,
 ): Promise<BatchIssueOutcome> {
     if (items.length === 0) {
         throw new Error('Cannot issue an empty batch.');
@@ -537,17 +549,16 @@ export async function batchIssueCredentialOnStellar(
             'batch_issue_credential',
             args,
             issuer,
+            onProgress,
         );
 
         const rawRows = Array.isArray(result.returnValue) ? result.returnValue : [];
         const results = rawRows.map((row, index) => normalizeBatchIssueRow(row, index));
 
-        // eslint-disable-next-line no-console
-        console.log(
-            `✅ Credential batch issued on Stellar Network. ${results.filter((r) => r.success).length}/${results.length} succeeded.`,
+        debugLog(
+            `Credential batch issued on Stellar Network. ${results.filter((r) => r.success).length}/${results.length} succeeded.`,
         );
-        // eslint-disable-next-line no-console
-        console.log('✅ Transaction:', result.transactionHash);
+        debugLog(`Transaction: ${result.transactionHash}`);
 
         return { transactionHash: result.transactionHash, results };
     });
@@ -556,14 +567,14 @@ export async function batchIssueCredentialOnStellar(
 export async function revokeCredentialOnStellar(
     tokenId: string,
     issuer: StellarSigner,
+    onProgress?: ContractProgressCallback,
 ): Promise<string> {
     return executeLedgerOperation(
         'revoke_credential',
         [normalizeTokenId(tokenId)],
         issuer,
         async () => {
-            // eslint-disable-next-line no-console
-            console.log('🗑️ Revoking credential on Stellar Network...');
+            debugLog('Revoking credential on Stellar Network...');
             const contractId = getContractAddress('CREDENTIAL_NFT');
             const validatedTokenId = normalizeTokenId(tokenId);
 
@@ -577,9 +588,9 @@ export async function revokeCredentialOnStellar(
                 'revoke_credential',
                 args,
                 issuer,
+                onProgress,
             );
-            // eslint-disable-next-line no-console
-            console.log('✅ Credential revoked on Stellar Network. Tx:', result.transactionHash);
+            debugLog(`Credential revoked on Stellar Network. Tx: ${result.transactionHash}`);
             return result.transactionHash;
         },
     );
