@@ -26,7 +26,13 @@ import type { OnChainCredential } from './contractReads';
 const IMMUTABLE_TTL_SECONDS = 4 * 60 * 60; // 4 hours
 
 /** Revocation and issuer authorization can change — keep the stale window short. */
-const REVOCATION_TTL_SECONDS = 45;
+export const REVOCATION_TTL_SECONDS = 45;
+
+/**
+ * How long the last known answer is kept for use during an outage (issue
+ * #313). Older than this, "we cannot check right now" is the honest answer.
+ */
+export const LAST_KNOWN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 // ---------------------------------------------------------------------------
 // Upstash REST helpers (mirrors the pattern in rateLimit.ts)
@@ -91,6 +97,14 @@ function revocationKey(tokenId: string): string {
 
 function issuerKey(issuerAddress: string): string {
     return `verify:issuer:${issuerAddress}`;
+}
+
+function lastKnownKey(tokenId: string): string {
+    return `verify:last-known:${tokenId}`;
+}
+
+function revokedSeenKey(tokenId: string): string {
+    return `verify:revoked-seen:${tokenId}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +201,77 @@ export async function setCachedIssuerAuthorization(
 ): Promise<void> {
     await redisSet(issuerKey(issuerAddress), authorized ? '1' : '0', REVOCATION_TTL_SECONDS);
     recordMetric('verification.cache.write', 1, { kind: 'issuer' });
+}
+
+// ---------------------------------------------------------------------------
+// Last known answer (served, clearly dated, only when the chain is unreachable)
+// ---------------------------------------------------------------------------
+
+/** The last complete answer read from the chain, and when it was confirmed. */
+export interface LastKnownVerification {
+    onChain: OnChainCredential;
+    revoked: boolean;
+    issuerAuthorized: boolean;
+    /**
+     * Unix milliseconds at which every field was last confirmed from the
+     * chain: the oldest of its parts, never newer than the truth.
+     */
+    checkedAt: number;
+}
+
+function isLastKnownVerification(value: unknown): value is LastKnownVerification {
+    if (!value || typeof value !== 'object') return false;
+    const record = value as Record<string, unknown>;
+    const onChain = record.onChain as Record<string, unknown> | null | undefined;
+    return (
+        typeof record.revoked === 'boolean' &&
+        typeof record.issuerAuthorized === 'boolean' &&
+        typeof record.checkedAt === 'number' &&
+        Number.isFinite(record.checkedAt) &&
+        record.checkedAt > 0 &&
+        !!onChain &&
+        typeof onChain === 'object' &&
+        typeof onChain.hash === 'string' &&
+        onChain.hash.length > 0 &&
+        typeof onChain.issuer === 'string' &&
+        typeof onChain.student === 'string' &&
+        typeof onChain.issuedAt === 'number' &&
+        (onChain.expiresAt === null || typeof onChain.expiresAt === 'number')
+    );
+}
+
+/**
+ * The last known answer for `tokenId`, or null when there is none or it
+ * cannot be trusted (unreadable, malformed). Never throws.
+ *
+ * A credential ever seen revoked is reported revoked, whatever the record
+ * says: revocation is permanent on the contract, and two record writes can
+ * land out of order, so an older "not revoked" may have overwritten a newer
+ * "revoked". The separate, write-once flag closes that gap.
+ */
+export async function getLastKnownVerification(tokenId: string): Promise<LastKnownVerification | null> {
+    const [raw, revokedSeen] = await Promise.all([redisGet(lastKnownKey(tokenId)), redisGet(revokedSeenKey(tokenId))]);
+    if (!raw) return null;
+
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        return null;
+    }
+    if (!isLastKnownVerification(parsed)) return null;
+
+    return revokedSeen === '1' ? { ...parsed, revoked: true } : parsed;
+}
+
+/** Stores the last known answer for `tokenId`. Never throws. */
+export async function setLastKnownVerification(tokenId: string, data: LastKnownVerification): Promise<void> {
+    await Promise.all([
+        redisSet(lastKnownKey(tokenId), JSON.stringify(data), LAST_KNOWN_TTL_SECONDS),
+        // Only ever set, never cleared: see getLastKnownVerification.
+        data.revoked ? redisSet(revokedSeenKey(tokenId), '1', LAST_KNOWN_TTL_SECONDS) : Promise.resolve(),
+    ]);
+    recordMetric('verification.cache.write', 1, { kind: 'last-known', tokenId });
 }
 
 // ---------------------------------------------------------------------------

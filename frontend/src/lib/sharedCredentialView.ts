@@ -49,6 +49,7 @@ export function parseShareResponse(shareToken: string, payload: Payload): Shared
             issuedAt: status.issued_at,
             expiresAt: status.expires_at,
             revocationSource: status.revocation_source,
+            staleAsOf: status.stale ? status.checked_at : null,
             institutionName: status.institution_name ?? details.institutionName,
             issuerWallet: status.issuer_wallet_address ?? '',
             studentWallet: text(credential.studentWallet) ?? '',

@@ -16,7 +16,8 @@ import {
     contract as sorobanContract,
 } from '@stellar/stellar-sdk';
 import { credentialHashBytesToHex } from './credentialHashEncoding';
-import { runtimeConfig } from './runtimeConfig';
+import { runtimeConfig, serverRuntimeConfig } from './runtimeConfig';
+import { captureException, recordMetric } from './debug';
 import { getE2eState } from './e2e';
 
 const RPC_URL = runtimeConfig.stellar.sorobanRpcUrl;
@@ -30,7 +31,101 @@ const CONTRACT_ID = runtimeConfig.contracts.CREDENTIAL_NFT;
 // chain read failed before reaching the RPC (review §3.11b).
 const SIMULATION_SOURCE = sorobanContract.NULL_ACCOUNT;
 
-const server = new rpc.Server(RPC_URL);
+// ---------------------------------------------------------------------------
+// RPC endpoints and failover — Issue #313
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-request bound for one RPC endpoint. A hanging endpoint used to hold a
+ * verification open until the platform killed the function; now it fails
+ * over (or answers from the last known result) within this bound.
+ */
+export const RPC_REQUEST_TIMEOUT_MS = 4_000;
+
+/** How long an endpoint that just failed is tried last instead of first. */
+export const RPC_ENDPOINT_COOLDOWN_MS = 30_000;
+
+interface RpcEndpoint {
+    /** `primary` or `fallback-N`: endpoint URLs can carry API keys, so our messages name this instead. */
+    label: string;
+    primary: boolean;
+    server: rpc.Server;
+    /**
+     * Fallbacks are free-form server configuration, so each must prove it
+     * serves our network before it is trusted: one on another network would
+     * answer "not found" for every real credential.
+     */
+    network: 'trusted' | 'unchecked' | 'mismatch';
+    failedUntil: number;
+}
+
+let endpoints: RpcEndpoint[] | null = null;
+
+function createServer(url: string): rpc.Server {
+    return new rpc.Server(url, {
+        timeout: RPC_REQUEST_TIMEOUT_MS,
+        // A local RPC in development only. In production every endpoint must
+        // be HTTPS (runtimeConfig rejects an HTTP fallback there too).
+        allowHttp: url.startsWith('http:') && !runtimeConfig.isProduction,
+    });
+}
+
+function rpcEndpoints(): RpcEndpoint[] {
+    if (endpoints) return endpoints;
+    const fallbackUrls = serverRuntimeConfig.stellar?.sorobanRpcFallbackUrls ?? [];
+    endpoints = [
+        // The primary is the network profile's own RPC, so its network is known.
+        { label: 'primary', primary: true, server: createServer(RPC_URL), network: 'trusted', failedUntil: 0 },
+        ...fallbackUrls.map((url, index): RpcEndpoint => ({
+            label: `fallback-${index + 1}`,
+            primary: false,
+            server: createServer(url),
+            network: 'unchecked',
+            failedUntil: 0,
+        })),
+    ];
+    return endpoints;
+}
+
+/** Drops the endpoints and their health, so the next read rebuilds them from config. */
+export function resetRpcEndpointsForTests(): void {
+    endpoints = null;
+}
+
+/**
+ * Endpoints in the order to try them: configured order, except that one
+ * which failed within the cooldown goes last. It is still tried, as a last
+ * resort, so a single blip cannot take every endpoint out of rotation.
+ */
+function endpointsInTryOrder(now: number): RpcEndpoint[] {
+    const usable = rpcEndpoints().filter((endpoint) => endpoint.network !== 'mismatch');
+    return [
+        ...usable.filter((endpoint) => endpoint.failedUntil <= now),
+        ...usable.filter((endpoint) => endpoint.failedUntil > now),
+    ];
+}
+
+async function assertSameNetwork(endpoint: RpcEndpoint): Promise<void> {
+    if (endpoint.network === 'trusted') return;
+    let passphrase: string;
+    try {
+        passphrase = (await endpoint.server.getNetwork()).passphrase;
+    } catch (error) {
+        // Unreachable: an ordinary failure, checked again on the next try.
+        throw new BlockchainUnavailableError(
+            `RPC ${endpoint.label} network check failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
+    if (passphrase !== NETWORK_PASSPHRASE) {
+        endpoint.network = 'mismatch';
+        captureException(new Error(`Soroban RPC ${endpoint.label} serves another network; it is not used.`), {
+            context: 'contractReads.rpcFailover',
+            endpoint: endpoint.label,
+        });
+        throw new BlockchainUnavailableError(`RPC ${endpoint.label} serves another network`);
+    }
+    endpoint.network = 'trusted';
+}
 
 export class ContractConfigurationError extends Error {
     constructor(message: string = 'Missing contract configuration') {
@@ -67,6 +162,47 @@ export interface OnChainCredential {
     revoked: boolean;
 }
 
+/** A contract-level answer (`Error(Contract, #N)`): the same on every endpoint, so never failed over. */
+class ContractAnswerError extends BlockchainUnavailableError {}
+
+/** The simulation's return value, or the contract's answer as an error. */
+function interpretSimulation(method: string, sim: unknown): unknown {
+    if (sim && typeof sim === 'object' && 'error' in sim) {
+        const errStr = String((sim as { error: unknown }).error);
+        // The RPC renders contract errors as `Error(Contract, #4)`; 4 is
+        // CredentialNotFound. The exact match keeps #40 from counting.
+        if (/Error\(Contract, #?4\)/.test(errStr)) {
+            throw new CredentialNotFoundError(errStr);
+        }
+        // Any other contract error is still an answer, not an outage of this
+        // endpoint, but the caller cannot use it: fail closed as unavailable.
+        if (/Error\(Contract, #?\d+\)/.test(errStr)) {
+            throw new ContractAnswerError(`Simulation error (${method}): ${errStr}`);
+        }
+        throw new BlockchainUnavailableError(`Simulation error (${method}): ${errStr}`);
+    }
+    const retval = (sim as { result?: { retval?: unknown } } | null)?.result?.retval;
+    if (retval === undefined || retval === null) return null;
+
+    // retval may be an xdr.ScVal object or a base64 string depending on SDK version
+    try {
+        return scValToNative(typeof retval === 'string' ? xdr.ScVal.fromXDR(retval, 'base64') : (retval as xdr.ScVal));
+    } catch (error) {
+        throw new BlockchainUnavailableError(
+            `Failed to decode return value of ${method}: ${error instanceof Error ? error.message : String(error)}`
+        );
+    }
+}
+
+/**
+ * Simulates a read-only contract call, trying each RPC endpoint in turn
+ * (issue #313). It moves to the next endpoint only when this one cannot
+ * answer: a transport error, a timeout, an RPC-level error or an unreadable
+ * reply. A contract answer, above all "not found", is returned or thrown at
+ * once, never retried elsewhere in the hope of a different one.
+ *
+ * Throws `BlockchainUnavailableError` once every endpoint has failed.
+ */
 async function simulate(method: string, args: xdr.ScVal[]): Promise<unknown> {
     if (!CONTRACT_ID) {
         throw new ContractConfigurationError('Missing contract configuration: CONTRACT_ID not configured');
@@ -81,51 +217,56 @@ async function simulate(method: string, args: xdr.ScVal[]): Promise<unknown> {
     // Sequence "0" is fine: the transaction is only simulated, never submitted.
     const source = new Account(SIMULATION_SOURCE, '0');
 
-    let sim;
+    let tx;
     try {
-        const tx = new TransactionBuilder(source, {
+        tx = new TransactionBuilder(source, {
             fee: '100',
             networkPassphrase: NETWORK_PASSPHRASE,
         })
             .addOperation(contract.call(method, ...args))
             .setTimeout(TimeoutInfinite)
             .build();
-        sim = await server.simulateTransaction(tx as never);
     } catch (error) {
         throw new BlockchainUnavailableError(
-            `RPC error during simulation of ${method}: ${error instanceof Error ? error.message : String(error)}`
+            `Could not build the ${method} simulation: ${error instanceof Error ? error.message : String(error)}`
         );
     }
 
-    if ('error' in sim) {
-        const errStr = String((sim as { error: string }).error);
-        // The RPC renders contract errors as `Error(Contract, #4)`; 4 is
-        // CredentialNotFound. The exact match keeps #40 from counting.
-        if (/Error\(Contract, #?4\)/.test(errStr)) {
-            throw new CredentialNotFoundError(errStr);
-        }
-        throw new BlockchainUnavailableError(`Simulation error (${method}): ${errStr}`);
-    }
-    const retval = (sim as { result?: { retval?: unknown } }).result?.retval;
-    if (retval === undefined || retval === null) return null;
-
-    // retval may be an xdr.ScVal object or a base64 string depending on SDK version
-    if (typeof retval === 'string') {
+    const failures: string[] = [];
+    for (const endpoint of endpointsInTryOrder(Date.now())) {
         try {
-            return scValToNative(xdr.ScVal.fromXDR(retval, 'base64'));
+            await assertSameNetwork(endpoint);
+            let sim: unknown;
+            try {
+                sim = await endpoint.server.simulateTransaction(tx as never);
+            } catch (error) {
+                throw new BlockchainUnavailableError(
+                    `RPC error during simulation of ${method}: ${error instanceof Error ? error.message : String(error)}`
+                );
+            }
+            const value = interpretSimulation(method, sim);
+            endpoint.failedUntil = 0;
+            if (!endpoint.primary) {
+                recordMetric('verification.rpc.fallback_answered', 1, { method, endpoint: endpoint.label });
+            }
+            return value;
         } catch (error) {
-            throw new BlockchainUnavailableError(
-                `Failed to decode return value of ${method}: ${error instanceof Error ? error.message : String(error)}`
-            );
+            if (error instanceof CredentialNotFoundError || error instanceof ContractAnswerError) {
+                // The endpoint answered; the answer is the contract's.
+                endpoint.failedUntil = 0;
+                throw error;
+            }
+            endpoint.failedUntil = Date.now() + RPC_ENDPOINT_COOLDOWN_MS;
+            failures.push(`${endpoint.label}: ${error instanceof Error ? error.message : String(error)}`);
+            recordMetric('verification.rpc.endpoint_failed', 1, { method, endpoint: endpoint.label });
         }
     }
-    try {
-        return scValToNative(retval as xdr.ScVal);
-    } catch (error) {
-        throw new BlockchainUnavailableError(
-            `Failed to decode return value of ${method}: ${error instanceof Error ? error.message : String(error)}`
-        );
-    }
+
+    throw new BlockchainUnavailableError(
+        failures.length > 0
+            ? `Every Soroban RPC endpoint failed for ${method}. ${failures.join(' | ')}`
+            : `No usable Soroban RPC endpoint for ${method}`,
+    );
 }
 
 function nativeStructToRecord(value: unknown): Record<string, unknown> | null {

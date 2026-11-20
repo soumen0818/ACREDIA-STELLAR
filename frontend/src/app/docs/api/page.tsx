@@ -102,7 +102,11 @@ export default function ApiDocsPage() {
     "revocationSource": null,
     "onChainFound": true,
     "issuerAuthorized": true,
-    "issuerStatus": "active"
+    "issuerStatus": "active",
+    "stale": false,
+    "checkedAt": "2026-11-20T09:15:00.000Z",
+    "revocationStatusMayBeOutdated": false,
+    "issuerStatusMayBeOutdated": false
   }
 }`}
                                     </pre>
@@ -116,6 +120,10 @@ export default function ApiDocsPage() {
                                         <li><code className="bg-muted px-1 py-0.5 rounded">revocationSource</code> - <code>issuer</code> or <code>platform</code> when revoked; a platform revocation is reserved for incident response.</li>
                                         <li><code className="bg-muted px-1 py-0.5 rounded">issuerAuthorized</code> - Whether the issuer may still issue credentials. A credential issued while the issuer was authorized stays valid after the issuer loses authorization.</li>
                                         <li><code className="bg-muted px-1 py-0.5 rounded">institutionName</code> - The name registered with Acredia for the issuing wallet, or <code>null</code> if none is registered.</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">stale</code> - <code>true</code> when the Stellar ledger could not be read and this is the last known answer. A stale answer always has <code>verified: false</code>, whatever its <code>status</code>: it is not a live confirmation. Never cache it.</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">checkedAt</code> - When the answer was last confirmed from the ledger (ISO 8601). For a live answer it is at most 45 seconds old; for a stale one, show it, as in &quot;valid as of&quot;.</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">revocationStatusMayBeOutdated</code> - <code>true</code> for a stale answer about an unrevoked credential: it may have been revoked since <code>checkedAt</code>. A revocation is permanent, so a stale <code>revoked</code> is never in doubt.</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">issuerStatusMayBeOutdated</code> - <code>true</code> for a stale answer: <code>issuerAuthorized</code> may have changed since <code>checkedAt</code>.</li>
                                     </ul>
                                 </div>
 
@@ -125,7 +133,7 @@ export default function ApiDocsPage() {
                                         <li><code className="bg-muted px-1 py-0.5 rounded">400</code> - The token is not a valid token ID.</li>
                                         <li><code className="bg-muted px-1 py-0.5 rounded">404</code> - The contract has no credential with this token ID.</li>
                                         <li><code className="bg-muted px-1 py-0.5 rounded">429</code> - Rate limit exceeded; see the <code>Retry-After</code> header.</li>
-                                        <li><code className="bg-muted px-1 py-0.5 rounded">503</code> - The Stellar ledger could not be read. Retry later; the API never guesses a status while the ledger is unreachable.</li>
+                                        <li><code className="bg-muted px-1 py-0.5 rounded">503</code> - The Stellar ledger could not be read and no last known answer is available. Retry later; the API never guesses a status while the ledger is unreachable.</li>
                                     </ul>
                                 </div>
                             </div>

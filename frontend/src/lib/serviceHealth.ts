@@ -1,5 +1,5 @@
 import { probeRateLimiterHealth } from './rateLimit';
-import { runtimeConfig } from './runtimeConfig';
+import { runtimeConfig, serverRuntimeConfig } from './runtimeConfig';
 
 /**
  * Public service health (Issue #312): whether each dependency Acredia relies
@@ -50,11 +50,9 @@ async function answers(
 
 const toState = (up: boolean): HealthState => (up ? 'operational' : 'outage');
 
-/** Soroban RPC's own health method: verification reads the chain through it. */
-const probeBlockchain: Probe = async () => {
-    const url = runtimeConfig.stellar.sorobanRpcUrl;
-    if (!url) return 'outage';
-    const up = await answers(
+/** Whether one Soroban RPC endpoint reports itself healthy. */
+function rpcHealthy(url: string): Promise<boolean> {
+    return answers(
         url,
         {
             method: 'POST',
@@ -67,7 +65,24 @@ const probeBlockchain: Probe = async () => {
             return body.result?.status === 'healthy';
         },
     );
-    return toState(up);
+}
+
+/**
+ * Soroban RPC: verification reads the chain through it. With fallback
+ * endpoints configured (issue #313), a down primary is degraded, not an
+ * outage, as long as one fallback answers: verification fails over to it.
+ */
+const probeBlockchain: Probe = async () => {
+    const primary = runtimeConfig.stellar.sorobanRpcUrl;
+    const fallbacks = serverRuntimeConfig?.stellar?.sorobanRpcFallbackUrls ?? [];
+    if (!primary && fallbacks.length === 0) return 'outage';
+
+    const [primaryUp, ...fallbacksUp] = await Promise.all([
+        primary ? rpcHealthy(primary) : Promise.resolve(false),
+        ...fallbacks.map(rpcHealthy),
+    ]);
+    if (primaryUp) return 'operational';
+    return fallbacksUp.some(Boolean) ? 'degraded' : 'outage';
 };
 
 function supabaseProbe(path: string, accept?: (response: Response) => boolean): Probe {

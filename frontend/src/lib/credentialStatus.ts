@@ -40,3 +40,14 @@ export function formatValidThrough(expiresAtIso: string): string {
         day: 'numeric',
     });
 }
+
+/**
+ * A moment as a UTC date and time ("November 20, 2026 at 4:05 PM UTC"), or
+ * the input unchanged if it is not a date. UTC, like `formatValidThrough`, so
+ * the server and every viewer render the same text.
+ */
+export function formatUtcDateTime(iso: string): string {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    return `${date.toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'UTC' })} UTC`;
+}

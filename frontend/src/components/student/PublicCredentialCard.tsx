@@ -9,6 +9,7 @@ import {
     CheckCircle2,
     Clock,
     Download,
+    History,
     QrCode,
     Share2,
     Shield,
@@ -21,7 +22,7 @@ import { Card } from '@/components/ui/card';
 import QRCodeModal from './QRCodeModal';
 import { CredentialDocumentCheck } from './CredentialDocumentCheck';
 import { buildStandardsExportDocument, downloadJsonFile, getLinkedInShareUrl } from '@/lib/standardsExport';
-import { formatValidThrough, type CredentialStatus } from '@/lib/credentialStatus';
+import { formatUtcDateTime, formatValidThrough, type CredentialStatus } from '@/lib/credentialStatus';
 import { shareUrl as buildShareUrl } from '@/lib/sharedCredential';
 import type { SharedCredentialDetails } from '@/lib/sharedCredential';
 import { captureException } from '@/lib/debug';
@@ -48,6 +49,11 @@ export interface PublicCredentialCardData {
     hashAlgorithm: string | null;
     document: { url: string; sha256: string } | null;
     documentStatus: 'available' | 'none' | 'unavailable';
+    /**
+     * Issue #313: when the ledger could not be read and this is the last
+     * known status, when it was confirmed (ISO 8601). Null for a live answer.
+     */
+    staleAsOf?: string | null;
 }
 
 function StatusBadge({ credential }: { credential: PublicCredentialCardData }) {
@@ -67,6 +73,14 @@ function StatusBadge({ credential }: { credential: PublicCredentialCardData }) {
         return (
             <Badge variant="outline" className="flex items-center gap-1 text-warning border-warning/30 bg-warning/10">
                 <Clock className="h-3.5 w-3.5" /> Expired
+            </Badge>
+        );
+    }
+    if (credential.staleAsOf) {
+        // A last known "valid" is not a live confirmation.
+        return (
+            <Badge variant="outline" className="flex items-center gap-1 text-warning border-warning/30 bg-warning/10">
+                <History className="h-3.5 w-3.5" /> Verified as of {formatUtcDateTime(credential.staleAsOf)}
             </Badge>
         );
     }

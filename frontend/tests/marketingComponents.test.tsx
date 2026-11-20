@@ -57,3 +57,48 @@ describe('marketing and verification components', () => {
         expect(HOMEPAGE_FEATURES[0]?.title).toBeTruthy();
     });
 });
+
+describe('stale answers on the verdict (issue #313)', () => {
+    const AS_OF = '2029-12-31T23:05:00.000Z';
+    const SHOWN = 'December 31, 2029 at 11:05 PM UTC';
+
+    it('never shows a stale valid answer as a live, green "Verified ✓"', () => {
+        const html = renderToStaticMarkup(
+            <VerificationVerdict kind="verified" staleAsOf={AS_OF} revocationMayBeOutdated />,
+        );
+
+        expect(html).toContain(`Verified as of ${SHOWN}`);
+        expect(html).not.toContain('Credential Verified ✓');
+        expect(html).not.toContain('is currently valid');
+        expect(html).not.toContain('bg-success');
+    });
+
+    it('dates the answer and says its revocation status may be out of date', () => {
+        const html = renderToStaticMarkup(
+            <VerificationVerdict kind="verified" staleAsOf={AS_OF} revocationMayBeOutdated />,
+        );
+
+        expect(html).toContain(`As of ${SHOWN}.`);
+        expect(html).toContain('cannot reach the Stellar ledger right now');
+        expect(html).toContain('revocation status may be out of date');
+        expect(html).toContain('href="/status"');
+    });
+
+    it('dates a stale revocation without casting doubt on it', () => {
+        const html = renderToStaticMarkup(
+            <VerificationVerdict kind="revoked" staleAsOf={AS_OF} revocationMayBeOutdated={false} />,
+        );
+
+        expect(html).toContain('Credential Revoked');
+        expect(html).toContain(`As of ${SHOWN}.`);
+        expect(html).not.toContain('revocation status may be out of date');
+    });
+
+    it('shows a live answer exactly as before', () => {
+        const html = renderToStaticMarkup(<VerificationVerdict kind="verified" staleAsOf={null} />);
+
+        expect(html).toContain('Credential Verified ✓');
+        expect(html).not.toContain('stale-answer-notice');
+        expect(html).not.toContain('As of');
+    });
+});

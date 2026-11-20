@@ -47,7 +47,10 @@ vi.mock('@/lib/serverAuth', () => ({
     }),
 }));
 
-vi.mock('@/lib/onChainStatus', () => chain);
+vi.mock('@/lib/onChainStatus', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/onChainStatus')>()),
+    ...chain,
+}));
 
 import { GET } from '@/app/api/credentials/share/[shareToken]/route';
 
@@ -85,7 +88,23 @@ function chainStatus(overrides: Partial<OnChainStatus> = {}): OnChainStatus {
         revoked: false,
         issuerAuthorized: true,
         cache: { immutableHit: false, revocationHit: false },
+        freshness: {
+            stale: false,
+            checkedAt: '2030-01-01T00:00:00.000Z',
+            revocationMayBeOutdated: false,
+            issuerAuthorizationMayBeOutdated: false,
+        },
         ...overrides,
+    };
+}
+
+/** The last known answer, as readOnChainStatus returns it during an outage (issue #313). */
+function staleFreshness(revocationMayBeOutdated = true): OnChainStatus['freshness'] {
+    return {
+        stale: true,
+        checkedAt: '2029-12-31T23:00:00.000Z',
+        revocationMayBeOutdated,
+        issuerAuthorizationMayBeOutdated: true,
     };
 }
 
@@ -273,5 +292,48 @@ describe('GET /api/credentials/share/:shareToken', () => {
 
         expect(response.status).toBe(503);
         expect(payload).toEqual({ success: false, error: 'Blockchain verification unavailable' });
+    });
+
+    it('states a live answer\'s freshness', async () => {
+        const { payload } = await share();
+        expect(payload.verification).toMatchObject({
+            verified: true,
+            stale: false,
+            checkedAt: '2030-01-01T00:00:00.000Z',
+            revocationStatusMayBeOutdated: false,
+            issuerStatusMayBeOutdated: false,
+        });
+    });
+
+    it('serves a stale valid answer with its age and content, but not as verified (issue #313)', async () => {
+        chain.readOnChainStatus.mockResolvedValue(chainStatus({ freshness: staleFreshness() }));
+
+        const { response, payload } = await share();
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+        // The content is still proven against the (immutable) on-chain hash.
+        expect(payload.verification).toMatchObject({
+            verified: false,
+            status: 'valid',
+            contentMatches: true,
+            stale: true,
+            checkedAt: '2029-12-31T23:00:00.000Z',
+            revocationStatusMayBeOutdated: true,
+            issuerStatusMayBeOutdated: true,
+        });
+        expect(payload.credential.details).not.toBeNull();
+        expect(db.logInsert.mock.calls.at(-1)?.[0]?.verification_result).toMatchObject({ error_category: 'stale_answer' });
+    });
+
+    it('serves a stale revoked answer as revoked, its revocation not in doubt', async () => {
+        chain.readOnChainStatus.mockResolvedValue(
+            chainStatus({ status: 'revoked', revoked: true, freshness: staleFreshness(false) }),
+        );
+
+        const { payload } = await share();
+
+        expect(payload.credential).toMatchObject({ status: 'revoked', revoked: true });
+        expect(payload.verification).toMatchObject({ verified: false, stale: true, revocationStatusMayBeOutdated: false });
     });
 });

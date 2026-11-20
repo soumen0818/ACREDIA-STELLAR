@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 const SUPABASE_URL = 'https://secret-project-ref.supabase.co';
 const RPC_URL = 'https://private-rpc.internal.example';
 const REDIS_URL = 'https://hidden-redis.upstash.io';
+const FALLBACK_RPC_URL = 'https://backup-rpc.internal.example';
 
 vi.mock('@/lib/runtimeConfig', () => ({
     runtimeConfig: {
@@ -18,6 +19,7 @@ vi.mock('@/lib/runtimeConfig', () => ({
         debug: { enableLogs: false },
     },
     serverRuntimeConfig: {
+        stellar: { sorobanRpcFallbackUrls: [] as string[] },
         admin: { emailAllowlist: [] },
         auth: { serviceRoleKey: '' },
         verification: { hashSecret: '' },
@@ -36,16 +38,21 @@ vi.mock('@/lib/rateLimit', async (importOriginal) => {
 
 const { GET } = await import('@/app/api/health/route');
 const { resetServiceHealthCacheForTests, HEALTH_CACHE_SECONDS, overallState } = await import('@/lib/serviceHealth');
+const { serverRuntimeConfig } = await import('@/lib/runtimeConfig');
 
 type Outcome = 'up' | 'down' | 'error' | 'unhealthy';
 
 /** A fetch that answers each dependency according to `outcomes`. */
-function stubDependencies(outcomes: Partial<Record<'rpc' | 'rest' | 'auth' | 'storage' | 'redis', Outcome>> = {}) {
+function stubDependencies(
+    outcomes: Partial<Record<'rpc' | 'fallback' | 'rest' | 'auth' | 'storage' | 'redis', Outcome>> = {},
+) {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         const key = url.startsWith(RPC_URL)
             ? 'rpc'
-            : url.startsWith(REDIS_URL)
+            : url.startsWith(FALLBACK_RPC_URL)
+              ? 'fallback'
+              : url.startsWith(REDIS_URL)
               ? 'redis'
               : url.includes('/rest/v1/')
                 ? 'rest'
@@ -61,7 +68,7 @@ function stubDependencies(outcomes: Partial<Record<'rpc' | 'rest' | 'auth' | 'st
         if (outcome === 'down') {
             return new Response(`upstream ${new URL(url).hostname} 502 Bad Gateway`, { status: 502 });
         }
-        if (key === 'rpc') {
+        if (key === 'rpc' || key === 'fallback') {
             const status = outcome === 'unhealthy' ? 'unhealthy' : 'healthy';
             return Response.json({ jsonrpc: '2.0', id: 1, result: { status, latestLedger: 123, version: '22.1.0' } });
         }
@@ -85,6 +92,7 @@ async function get() {
 
 beforeEach(() => {
     resetServiceHealthCacheForTests();
+    (serverRuntimeConfig as { stellar: { sorobanRpcFallbackUrls: string[] } }).stellar.sorobanRpcFallbackUrls = [];
     enforceRateLimit.mockReset().mockResolvedValue(null);
     vi.stubEnv('UPSTASH_REDIS_REST_URL', REDIS_URL);
     vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', 'redis-token');
@@ -283,6 +291,48 @@ describe('GET /api/health', () => {
         const fetchMock = stubDependencies();
         await Promise.all([get(), get(), get()]);
         expect(fetchMock).toHaveBeenCalledTimes(5);
+    });
+});
+
+describe('GET /api/health — RPC fallbacks (issue #313)', () => {
+    beforeEach(() => {
+        (serverRuntimeConfig as { stellar: { sorobanRpcFallbackUrls: string[] } }).stellar.sorobanRpcFallbackUrls = [
+            FALLBACK_RPC_URL,
+        ];
+    });
+
+    it('probes the fallback too', async () => {
+        const fetchMock = stubDependencies();
+        await get();
+        expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain(FALLBACK_RPC_URL);
+    });
+
+    it('is degraded, not an outage, while a fallback answers for a down primary', async () => {
+        stubDependencies({ rpc: 'error' });
+        const { response, body } = await get();
+
+        expect(response.status).toBe(200);
+        expect(body.dependencies.blockchain).toBe('degraded');
+        expect(body.status).toBe('degraded');
+    });
+
+    it('is an outage when the primary and every fallback are down', async () => {
+        stubDependencies({ rpc: 'down', fallback: 'error' });
+        const { response, body } = await get();
+
+        expect(response.status).toBe(503);
+        expect(body.dependencies.blockchain).toBe('outage');
+    });
+
+    it('is operational while the primary answers, whatever the fallback does', async () => {
+        stubDependencies({ fallback: 'error' });
+        expect((await get()).body.dependencies.blockchain).toBe('operational');
+    });
+
+    it('reveals nothing about the fallback', async () => {
+        stubDependencies({ rpc: 'error', fallback: 'error' });
+        const { body } = await get();
+        expect(JSON.stringify(body)).not.toContain('backup-rpc');
     });
 });
 

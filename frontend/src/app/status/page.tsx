@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { SiteNavbar } from '@/components/marketing/SiteNavbar';
 import { SiteFooter } from '@/components/marketing/SiteFooter';
+import { formatUtcDateTime } from '@/lib/credentialStatus';
 import { pageMetadata } from '@/lib/pageMetadata';
 import { getServiceHealth, HEALTH_CACHE_SECONDS, type HealthReport, type HealthState } from '@/lib/serviceHealth';
 import { cn } from '@/lib/utils';
@@ -76,14 +77,6 @@ function services(report: HealthReport) {
     ];
 }
 
-function formatCheckedAt(iso: string): string {
-    return new Date(iso).toLocaleString('en-US', {
-        dateStyle: 'long',
-        timeStyle: 'short',
-        timeZone: 'UTC',
-    }) + ' UTC';
-}
-
 export default async function StatusPage() {
     const report = await getServiceHealth();
     const headline = HEADLINE[report.status];
@@ -139,7 +132,7 @@ export default async function StatusPage() {
                         </ul>
 
                         <p className="mt-4 text-sm text-muted-foreground">
-                            Last checked {formatCheckedAt(report.checkedAt)}. Checks are repeated at most every{' '}
+                            Last checked {formatUtcDateTime(report.checkedAt)}. Checks are repeated at most every{' '}
                             {HEALTH_CACHE_SECONDS} seconds; reload the page for the latest.
                         </p>
 

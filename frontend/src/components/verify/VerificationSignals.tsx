@@ -1,7 +1,7 @@
 'use client';
 
 import { Card } from '@/components/ui/card';
-import { formatValidThrough } from '@/lib/credentialStatus';
+import { formatUtcDateTime, formatValidThrough } from '@/lib/credentialStatus';
 import { cn } from '@/lib/utils';
 import type { CredentialStatusRecord } from '@/hooks/useCredentialVerification';
 
@@ -85,8 +85,11 @@ export function VerificationSignals({
                 : revocationSource === 'issuer'
                   ? 'Revoked by issuer'
                   : 'Revoked'
-            : 'Not revoked',
-        tone: revoked ? 'caution' : 'positive',
+            : credential.revocation_may_be_outdated
+              ? 'Not revoked when last checked'
+              : 'Not revoked',
+        // A stale "not revoked" is not a reassurance (issue #313).
+        tone: revoked || credential.revocation_may_be_outdated ? 'caution' : 'positive',
         means: revoked
             ? revocationSource === 'platform'
                 ? 'Acredia (the platform) revoked this credential, not the issuing institution. This override is reserved for incident response — such as a compromised issuer key — and is recorded under a separate on-chain event.'
@@ -149,7 +152,11 @@ export function VerificationSignals({
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                     Verification signals
                 </h2>
-                <p className="text-xs text-muted-foreground">Checked {checkedAt}</p>
+                <p className="text-xs text-muted-foreground">
+                    {credential.stale && credential.checked_at
+                        ? `Last known answer, checked ${formatUtcDateTime(credential.checked_at)}`
+                        : `Checked ${checkedAt}`}
+                </p>
             </div>
 
             <div className="mt-4 divide-y divide-border">
