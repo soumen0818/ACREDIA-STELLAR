@@ -20,7 +20,12 @@ import { revokeCredentialById } from '@/lib/credentialService';
 import { CredentialDocumentCheck } from '@/components/student/CredentialDocumentCheck';
 import { getCredentialDocumentUrl } from '@/lib/credentialDocumentAccess';
 import { formatValidThrough } from '@/lib/credentialStatus';
-import { getExplorerTxUrl } from '@/lib/stellar';
+import { getExplorerTxUrl, activeNetwork } from '@/lib/stellar';
+import {
+    WalletNetworkMismatchError,
+    WalletUserRejectedError,
+    WALLET_MESSAGES,
+} from '@/lib/wallet/types';
 import {
     ExternalLink,
     Search,
@@ -168,18 +173,18 @@ const res = await fetch(`/api/institution/credentials?${params}`, {
             // Show user-friendly error messages
             let errorMessage = 'Failed to revoke credential';
 
-            if ((err instanceof Error ? err.message : String(err))?.includes('canceled') || (err instanceof Error ? err.message : String(err))?.includes('rejected')) {
-                errorMessage = 'Revocation was canceled or rejected by you';
-            } else if ((err instanceof Error ? err.message : String(err))?.includes('Network')) {
-                errorMessage = 'Network mismatch. Please check your wallet’s network settings.';
+            if (err instanceof WalletUserRejectedError) {
+                errorMessage = WALLET_MESSAGES.canceled;
+            } else if (err instanceof WalletNetworkMismatchError) {
+                errorMessage = WALLET_MESSAGES.networkMismatch(err.expected || activeNetwork.networkName);
             } else if ((err instanceof Error ? err.message : String(err))?.includes('same wallet')) {
                 errorMessage = 'You must connect the same wallet that issued this credential';
             } else if ((err instanceof Error ? err.message : String(err))?.includes('Not authorized')) {
                 errorMessage = 'Only the institution that issued this credential can revoke it';
             } else if ((err instanceof Error ? err.message : String(err))?.includes('already revoked')) {
                 errorMessage = 'This credential has already been revoked';
-            } else if ((err instanceof Error ? err.message : String(err))) {
-                errorMessage = (err instanceof Error ? err.message : String(err));
+            } else if (err instanceof Error) {
+                errorMessage = err.message;
             }
             toast.error(errorMessage, { duration: 5000 });
         } finally {

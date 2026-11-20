@@ -120,3 +120,30 @@ describe('getSorobanTransactionResult', () => {
         expect(getSorobanTransactionResult({ result: { retval: 'not-valid-base64!' } })).toBeNull();
     });
 });
+
+describe('WALLET_MESSAGES and network mismatch detection (Issue #309)', () => {
+    it('provides unified user-facing messages for wallet errors', async () => {
+        const { WALLET_MESSAGES } = await import('../src/lib/wallet/types');
+        expect(WALLET_MESSAGES.canceled).toBe('Transaction was canceled.');
+        expect(WALLET_MESSAGES.networkMismatch('testnet')).toContain('testnet');
+        expect(WALLET_MESSAGES.signingFailed('something broke')).toContain('something broke');
+    });
+
+    it('identifies explicit network mismatch errors', async () => {
+        const { isNetworkMismatchError } = await import('../src/lib/wallet/types');
+        expect(isNetworkMismatchError('Wallet is on the wrong network')).toBe(true);
+        expect(isNetworkMismatchError('Network mismatch detected')).toBe(true);
+        expect(isNetworkMismatchError('Different network selected')).toBe(true);
+        expect(isNetworkMismatchError('Passphrase mismatch: expected testnet')).toBe(true);
+    });
+
+    it('does not classify generic connection errors as network mismatch', async () => {
+        const { isNetworkMismatchError } = await import('../src/lib/wallet/types');
+        expect(isNetworkMismatchError('Network request failed')).toBe(false);
+        expect(isNetworkMismatchError('Network error: failed to fetch')).toBe(false);
+        expect(isNetworkMismatchError('Failed to fetch from RPC')).toBe(false);
+        expect(isNetworkMismatchError('Network timeout')).toBe(false);
+        expect(isNetworkMismatchError('Connection refused')).toBe(false);
+        expect(isNetworkMismatchError('net::ERR_CONNECTION_REFUSED')).toBe(false);
+    });
+});
