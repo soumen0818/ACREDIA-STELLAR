@@ -190,7 +190,9 @@ export const StellarProvider = ({ children }: { children: React.ReactNode }) => 
         setWalletId(null);
         setWalletName(null);
         setCapabilities(null);
-        toast.info('Wallet disconnected from app level.');
+        toast.info("Wallet disconnected. Acredia won't use it until you connect again.", {
+            description: "You can also remove this site's permission in your wallet's settings.",
+        });
     }, []);
 
     /**

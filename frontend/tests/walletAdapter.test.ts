@@ -612,6 +612,37 @@ describe('kit lifecycle', () => {
         expect(kitMock.disconnect).toHaveBeenCalled();
     });
 
+    it('proves disconnect survives a reload: restore returns null and never prompts (Issue #311)', async () => {
+        const { stellarKitAdapter, __resetAdapterForTests } = await loadAdapter();
+        window.localStorage.setItem('acredia.wallet.selectedId', 'freighter');
+
+        // Initial connect / restore
+        const initial = await stellarKitAdapter.restore();
+        expect(initial).not.toBeNull();
+
+        // Disconnect
+        await stellarKitAdapter.disconnect();
+        expect(window.localStorage.getItem('acredia.wallet.selectedId')).toBeNull();
+
+        // Simulate page reload by resetting the adapter
+        __resetAdapterForTests();
+        kitMock.getAddress.mockClear();
+        kitMock.fetchAddress.mockClear();
+        kitMock.authModal.mockClear();
+
+        // After reload: restore() returns null and never prompts
+        const afterReload = await stellarKitAdapter.restore();
+        expect(afterReload).toBeNull();
+        expect(kitMock.getAddress).not.toHaveBeenCalled();
+        expect(kitMock.fetchAddress).not.toHaveBeenCalled();
+        expect(kitMock.authModal).not.toHaveBeenCalled();
+
+        // Connect still works right after disconnecting
+        const reconnected = await stellarKitAdapter.connect();
+        expect(reconnected).not.toBeNull();
+        expect(reconnected.address).toBe('GADDRESS');
+    });
+
     it('does not load the kit merely to disconnect', async () => {
         const { stellarKitAdapter } = await loadAdapter();
 
