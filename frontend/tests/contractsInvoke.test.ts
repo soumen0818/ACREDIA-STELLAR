@@ -107,6 +107,40 @@ describe('invokeContractMethod with a keypair signer', () => {
         expect(result.returnValue).toBe(BigInt(7));
     });
 
+    it('reports progress stages (simulating, awaiting-signature, submitting, confirming) with txHash', async () => {
+        const { invokeContractMethod } = await loadContracts();
+        const { createKeypairSigner } = await import('../src/lib/stellarSigner');
+        const signer = createKeypairSigner(issuerKeypair);
+        const stages: Array<{ stage: string; txHash?: string }> = [];
+
+        await settle(
+            invokeContractMethod(CONTRACT_ID, 'issue_credential', [], signer, (stage, txHash) => {
+                stages.push({ stage, txHash });
+            }),
+        );
+
+        expect(stages).toEqual([
+            { stage: 'simulating', txHash: undefined },
+            { stage: 'awaiting-signature', txHash: undefined },
+            { stage: 'submitting', txHash: undefined },
+            { stage: 'confirming', txHash: 'stub-tx-hash' },
+        ]);
+    });
+
+    it('uses debugLog and never calls console.log during contract calls (Issue #310)', async () => {
+        const { invokeContractMethod } = await loadContracts();
+        const { createKeypairSigner } = await import('../src/lib/stellarSigner');
+        const signer = createKeypairSigner(issuerKeypair);
+        const consoleSpy = vi.spyOn(console, 'log');
+
+        await settle(
+            invokeContractMethod(CONTRACT_ID, 'issue_credential', [], signer),
+        );
+
+        expect(consoleSpy).not.toHaveBeenCalled();
+        consoleSpy.mockRestore();
+    });
+
     it('sources the transaction from the signer’s own address', async () => {
         const { invokeContractMethod } = await loadContracts();
         const { createKeypairSigner } = await import('../src/lib/stellarSigner');

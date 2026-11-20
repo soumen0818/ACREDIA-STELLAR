@@ -49,12 +49,35 @@ export interface CredentialData {
  */
 export type CredentialMetadata = AcrediaVerifiableCredential;
 
-export type CredentialIssueProgressStep = 'store-document' | 'sign-transaction' | 'save-database';
+export type CredentialIssueProgressStep =
+    | 'store-document'
+    | 'simulating'
+    | 'awaiting-signature'
+    | 'submitting'
+    | 'confirming'
+    | 'sign-transaction'
+    | 'save-database';
+
+export type CredentialIssueProgressCallback = (
+    step: CredentialIssueProgressStep,
+    txHash?: string,
+) => void;
+
+export type CredentialRevokeProgressStep =
+    | 'simulating'
+    | 'awaiting-signature'
+    | 'submitting'
+    | 'confirming';
+
+export type CredentialRevokeProgressCallback = (
+    step: CredentialRevokeProgressStep,
+    txHash?: string,
+) => void;
 
 export async function issueCredential(
     data: CredentialData,
     issuer: StellarSigner,
-    onProgress?: (step: CredentialIssueProgressStep) => void,
+    onProgress?: CredentialIssueProgressCallback,
 ): Promise<{
     tokenId: string;
     transactionHash: string;
@@ -142,6 +165,7 @@ export async function issueCredential(
             credentialHash,
             expiresAt,
             issuer,
+            (stage, hash) => onProgress?.(stage, hash),
         );
         debugLog(`Credential issued on Stellar. Token ID: ${tokenId}`);
 
@@ -249,6 +273,7 @@ export async function getCredentialById(credentialId: string) {
 export async function revokeCredentialById(
     credentialId: string,
     issuer: StellarSigner,
+    onProgress?: CredentialRevokeProgressCallback,
 ): Promise<void> {
     const e2eState = getE2eState();
     if (e2eState?.enabled) {
@@ -299,7 +324,7 @@ export async function revokeCredentialById(
         }
 
         if (credential.token_id) {
-            await revokeCredentialOnStellar(credential.token_id, issuer);
+            await revokeCredentialOnStellar(credential.token_id, issuer, onProgress);
             debugLog('Credential revoked on Stellar network.');
         }
 

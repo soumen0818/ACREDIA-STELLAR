@@ -16,7 +16,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { revokeCredentialById } from '@/lib/credentialService';
+import { revokeCredentialById, type CredentialRevokeProgressStep } from '@/lib/credentialService';
 import { CredentialDocumentCheck } from '@/components/student/CredentialDocumentCheck';
 import { getCredentialDocumentUrl } from '@/lib/credentialDocumentAccess';
 import { formatValidThrough } from '@/lib/credentialStatus';
@@ -67,6 +67,13 @@ import { captureException } from '@/lib/debug';
 
 const PAGE_SIZE = 10;
 
+const revokeStageLabels: Record<CredentialRevokeProgressStep, string> = {
+    simulating: 'Simulating transaction...',
+    'awaiting-signature': 'Awaiting signature in wallet...',
+    submitting: 'Submitting transaction to Stellar...',
+    confirming: 'Confirming on-chain...',
+};
+
 export function IssuedCredentialsList({ refreshTrigger }: IssuedCredentialsListProps) {
     const router     = useRouter();
     const pathname   = usePathname();
@@ -86,6 +93,8 @@ export function IssuedCredentialsList({ refreshTrigger }: IssuedCredentialsListP
     const [revokeDialogOpen, setRevokeDialogOpen]   = useState(false);
     const [credentialToRevoke, setCredentialToRevoke] = useState<Credential | null>(null);
     const [isRevoking, setIsRevoking]     = useState(false);
+    const [revokeStage, setRevokeStage]   = useState<CredentialRevokeProgressStep | null>(null);
+    const [revokeTxHash, setRevokeTxHash] = useState<string | null>(null);
     const { address, signer } = useStellarAccount();
 
     const updateParams = useCallback((updates: Record<string, string>) => {
@@ -156,11 +165,20 @@ const res = await fetch(`/api/institution/credentials?${params}`, {
         if (!credentialToRevoke) { toast.error('No credential selected'); return; }
 
         setIsRevoking(true);
+        setRevokeStage(null);
+        setRevokeTxHash(null);
         try {
-            await revokeCredentialById(credentialToRevoke.id, signer);
+            await revokeCredentialById(credentialToRevoke.id, signer, (stage, txHash) => {
+                setRevokeStage(stage);
+                if (txHash) {
+                    setRevokeTxHash(txHash);
+                }
+            });
             toast.success('Credential revoked successfully');
             setRevokeDialogOpen(false);
             setCredentialToRevoke(null);
+            setRevokeStage(null);
+            setRevokeTxHash(null);
             await loadCredentials(); // Refresh list
         } catch (err: unknown) {
             captureException(err, { context: 'handleRevokeConfirm' });
@@ -411,6 +429,29 @@ const res = await fetch(`/api/institution/credentials?${params}`, {
                                     </div>
                                 </div>
                             </div>
+                            {isRevoking && revokeStage && (
+                                <div className="rounded-lg border border-primary/25 bg-primary/8 p-3 text-sm space-y-2">
+                                    <div className="flex items-center space-x-2 text-primary font-medium">
+                                        <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+                                        <span>{revokeStageLabels[revokeStage]}</span>
+                                    </div>
+                                    {revokeTxHash && (
+                                        <div className="flex items-center justify-between text-xs pt-1 border-t border-primary/20">
+                                            <span className="font-mono text-muted-foreground">
+                                                Tx: {revokeTxHash.slice(0, 10)}...{revokeTxHash.slice(-8)}
+                                            </span>
+                                            <a
+                                                href={getExplorerTxUrl(revokeTxHash)}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+                                            >
+                                                View on Stellar Explorer <ExternalLink className="h-3.5 w-3.5" />
+                                            </a>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
                     <DialogFooter>
