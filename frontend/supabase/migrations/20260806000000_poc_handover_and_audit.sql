@@ -96,6 +96,15 @@ CREATE INDEX IF NOT EXISTS idx_institution_users_user
 ALTER TABLE IF EXISTS public.institution_users ENABLE ROW LEVEL SECURITY;
 
 -- Institution members can view colleagues in their institution
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 DROP POLICY IF EXISTS "Institution members can view colleagues" ON public.institution_users;
 CREATE POLICY "Institution members can view colleagues"
     ON public.institution_users FOR SELECT
@@ -106,6 +115,10 @@ CREATE POLICY "Institution members can view colleagues"
             SELECT institution_id FROM public.institution_users WHERE auth_user_id = auth.uid() AND is_active = true
         )
     );
+END IF;
+END
+$guard$;
+
 
 -- Admins can view and manage all institution users
 DROP POLICY IF EXISTS "Admin can view all institution users" ON public.institution_users;
@@ -122,10 +135,23 @@ CREATE POLICY "Admin can manage all institution users"
 -- ---------------------------------------------------------------------
 -- 4. Backfill institution_users from existing institutions
 -- ---------------------------------------------------------------------
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 INSERT INTO public.institution_users (institution_id, auth_user_id, role, is_active)
 SELECT id, auth_user_id, 'poc', true
 FROM public.institutions
 WHERE auth_user_id IS NOT NULL
 ON CONFLICT (institution_id, auth_user_id) DO NOTHING;
+END IF;
+END
+$guard$;
+
 
 COMMIT;

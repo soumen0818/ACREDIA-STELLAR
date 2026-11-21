@@ -319,12 +319,24 @@ function selectedWalletId(activeKit: Kit): string {
     }
 }
 
-/** Refresh permissions/account only during an explicit signing action. */
-async function validateSigningAccount(activeKit: Kit, expectedAddress: string): Promise<void> {
-    const { address } = await activeKit.fetchAddress();
-    if (address !== expectedAddress) {
+/** What `fetchAddress` returns; some wallets also report their network there. */
+interface FetchedAccount {
+    address: string;
+    network?: string;
+    networkPassphrase?: string;
+}
+
+/**
+ * Refresh permissions/account only during an explicit signing action.
+ * Returns the wallet's answer so the network check can reuse it rather than
+ * asking the wallet a second time.
+ */
+async function validateSigningAccount(activeKit: Kit, expectedAddress: string): Promise<FetchedAccount> {
+    const account = (await activeKit.fetchAddress()) as FetchedAccount;
+    if (account.address !== expectedAddress) {
         throw new Error('Your wallet account changed. Reconnect your wallet before signing.');
     }
+    return account;
 }
 
 function networksMatch(reported: string, expectedPassphrase: string, expectedName: string): boolean {
@@ -348,55 +360,57 @@ function networksMatch(reported: string, expectedPassphrase: string, expectedNam
     return false;
 }
 
+/** The network a `getNetwork`-style answer names, if it names one. */
+function reportedNetwork(answer: unknown): string | null {
+    if (typeof answer === 'string') return answer.trim() || null;
+    if (answer && typeof answer === 'object') {
+        const { networkPassphrase, network } = answer as { networkPassphrase?: unknown; network?: unknown };
+        if (typeof networkPassphrase === 'string' && networkPassphrase.trim()) return networkPassphrase;
+        if (typeof network === 'string' && network.trim()) return network;
+    }
+    return null;
+}
+
+/** The kit's optional network readers, which not every wallet module implements. */
+interface NetworkReaders {
+    getNetwork?: () => Promise<unknown>;
+    selectedModule?: { getNetwork?: () => Promise<unknown>; getNetworkDetails?: () => Promise<unknown> };
+}
+
 /**
  * Checks whether the wallet reports the network the app expects, and raises
  * `WalletNetworkMismatchError` if not (Issue #309).
  *
- * Before asking for a signature, we inspect what the wallet or kit exposes:
- * - `getNetwork` on activeKit or selectedModule
- * - `getNetworkDetails` on selectedModule
- * - `network` / `networkPassphrase` from `fetchAddress`
- *
- * If a network is reported and does not match our expected network, we refuse
- * with `WalletNetworkMismatchError` before any signature is requested.
- * If no network is reported, we allow execution to proceed.
+ * Asks the kit's `getNetwork` (or the module's `getNetwork` /
+ * `getNetworkDetails`); most wallets reject that as unsupported, in which
+ * case the network the wallet gave with its address, if any, is used. When
+ * no network is reported at all, signing proceeds: the wallet itself still
+ * signs for the passphrase we pass.
  */
 async function checkWalletNetwork(
     activeKit: Kit,
+    account: FetchedAccount,
     expectedPassphrase: string,
     expectedName: string,
 ): Promise<void> {
-    try {
-        const anyKit = activeKit as any;
-        let reported: string | null = null;
+    const readers = activeKit as unknown as NetworkReaders;
+    const read =
+        readers.getNetwork?.bind(readers) ??
+        readers.selectedModule?.getNetwork?.bind(readers.selectedModule) ??
+        readers.selectedModule?.getNetworkDetails?.bind(readers.selectedModule);
 
-        if (typeof anyKit.getNetwork === 'function') {
-            const res = await anyKit.getNetwork();
-            reported = typeof res === 'string' ? res : res?.networkPassphrase || res?.network || null;
-        } else if (anyKit.selectedModule && typeof anyKit.selectedModule.getNetwork === 'function') {
-            const res = await anyKit.selectedModule.getNetwork();
-            reported = typeof res === 'string' ? res : res?.networkPassphrase || res?.network || null;
-        } else if (anyKit.selectedModule && typeof anyKit.selectedModule.getNetworkDetails === 'function') {
-            const res = await anyKit.selectedModule.getNetworkDetails();
-            reported = typeof res === 'string' ? res : res?.networkPassphrase || res?.network || null;
+    let reported: string | null = null;
+    if (read) {
+        try {
+            reported = reportedNetwork(await read());
+        } catch {
+            // "Not supported" (most wallets) or unavailable: fall through.
         }
+    }
+    reported ??= reportedNetwork(account);
 
-        if (!reported && typeof anyKit.fetchAddress === 'function') {
-            const result = (await anyKit.fetchAddress()) as {
-                address?: string;
-                network?: string;
-                networkPassphrase?: string;
-            };
-            reported = result?.networkPassphrase || result?.network || null;
-        }
-
-        if (reported === null || reported === undefined || reported === '') return;
-
-        if (!networksMatch(reported, expectedPassphrase, expectedName)) {
-            throw new WalletNetworkMismatchError(expectedName, reported);
-        }
-    } catch (error) {
-        if (error instanceof WalletNetworkMismatchError) throw error;
+    if (reported && !networksMatch(reported, expectedPassphrase, expectedName)) {
+        throw new WalletNetworkMismatchError(expectedName, reported);
     }
 }
 
@@ -473,12 +487,8 @@ export const stellarKitAdapter: WalletAdapter = {
         const activeKit = await kit();
 
         try {
-            await validateSigningAccount(activeKit, options.address);
-            await checkWalletNetwork(
-                activeKit,
-                options.networkPassphrase,
-                activeNetwork.networkName,
-            );
+            const account = await validateSigningAccount(activeKit, options.address);
+            await checkWalletNetwork(activeKit, account, options.networkPassphrase, activeNetwork.networkName);
             const { signedTxXdr } = await activeKit.signTransaction(xdr, {
                 networkPassphrase: options.networkPassphrase,
                 address: options.address,
@@ -510,12 +520,8 @@ export const stellarKitAdapter: WalletAdapter = {
         }
 
         try {
-            await validateSigningAccount(activeKit, options.address);
-            await checkWalletNetwork(
-                activeKit,
-                options.networkPassphrase,
-                activeNetwork.networkName,
-            );
+            const account = await validateSigningAccount(activeKit, options.address);
+            await checkWalletNetwork(activeKit, account, options.networkPassphrase, activeNetwork.networkName);
             const { signedMessage } = await activeKit.signMessage(message, {
                 networkPassphrase: options.networkPassphrase,
                 address: options.address,

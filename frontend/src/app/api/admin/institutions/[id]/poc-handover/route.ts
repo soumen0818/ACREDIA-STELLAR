@@ -113,7 +113,7 @@ export async function POST(
         const oldPocEmail = institution.email;
 
         // 2. Find the current active owner via institution_users and deactivate them (never delete).
-        const { data: currentOwner } = await supabase
+        const { data: currentOwner, error: currentOwnerError } = await supabase
             .from('institution_users')
             .select('auth_user_id')
             .eq('institution_id', institution.id)
@@ -122,6 +122,20 @@ export async function POST(
             .order('created_at', { ascending: true })
             .limit(1)
             .maybeSingle();
+
+        // Fail closed: with the legacy column gone this lookup is the only
+        // record of who the outgoing POC is. Treating an error as "no owner"
+        // would hand over the institution while the old POC kept access.
+        if (currentOwnerError) {
+            structuredLog('ERROR', 'Failed to look up the current POC membership', requestId, {
+                error: currentOwnerError,
+                institutionId: institution.id,
+            });
+            return NextResponse.json(
+                { success: false, error: 'Failed to look up the current POC' },
+                { status: 500 },
+            );
+        }
 
         const oldAuthUserId = (currentOwner?.auth_user_id as string | undefined) ?? null;
 
@@ -148,12 +162,25 @@ export async function POST(
                 );
             }
 
-            // Also mark as inactive in institution_users
-            await supabase
+            // Also mark as inactive in institution_users. This is what actually
+            // revokes the old POC's access, so it must not fail silently.
+            const { error: deactivateMembershipError } = await supabase
                 .from('institution_users')
                 .update({ status: 'deactivated' })
                 .eq('institution_id', institution.id)
                 .eq('auth_user_id', oldAuthUserId);
+
+            if (deactivateMembershipError) {
+                structuredLog('ERROR', 'Failed to deactivate the old POC membership', requestId, {
+                    error: deactivateMembershipError,
+                    institutionId: institution.id,
+                    oldAuthUserId,
+                });
+                return NextResponse.json(
+                    { success: false, error: 'Failed to deactivate the current POC' },
+                    { status: 500 },
+                );
+            }
         }
 
         // 3. Provision or locate new POC user in Supabase Auth

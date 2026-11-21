@@ -212,6 +212,7 @@ describe('Academic Credential E2E Integration / Lifecycle', () => {
             expect.any(String),
             Date.UTC(2100, 0, 1) / 1000,
             issuerSigner,
+            expect.any(Function), // progress callback (#310)
         );
         expect(mockSupabaseInsert).toHaveBeenCalledWith(
             expect.objectContaining({ expires_at: '2100-01-01T00:00:00.000Z' }),

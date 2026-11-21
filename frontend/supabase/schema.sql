@@ -14,7 +14,7 @@
 --   • DROP POLICY / TRIGGER IF EXISTS before each CREATE
 -- Existing objects are skipped; missing ones are created. No data is dropped.
 --
--- Generated: 2026-10-30T02:15:46Z
+-- Generated: 2026-11-21T05:10:23Z
 -- ============================================================================
 
 
@@ -269,7 +269,20 @@ CREATE TRIGGER on_auth_user_created_student
 -- ---------------------------------------------------------------------
 -- Indexes
 -- ---------------------------------------------------------------------
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 CREATE INDEX IF NOT EXISTS idx_institutions_auth_user      ON public.institutions (auth_user_id);
+END IF;
+END
+$guard$;
+
 CREATE INDEX IF NOT EXISTS idx_institutions_wallet         ON public.institutions (wallet_address);
 CREATE INDEX IF NOT EXISTS idx_students_auth_user          ON public.students (auth_user_id);
 CREATE INDEX IF NOT EXISTS idx_students_wallet             ON public.students (wallet_address);
@@ -387,6 +400,15 @@ CREATE POLICY "Admin can view all profiles"
 -- ---------------------------------------------------------------------
 -- Institutions policies
 -- ---------------------------------------------------------------------
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 DROP POLICY IF EXISTS "Institutions can view own data" ON public.institutions;
 CREATE POLICY "Institutions can view own data"
   ON public.institutions FOR SELECT
@@ -402,6 +424,10 @@ DROP POLICY IF EXISTS "Institutions can insert own data" ON public.institutions;
 CREATE POLICY "Institutions can insert own data"
   ON public.institutions FOR INSERT
   WITH CHECK (auth.uid() = auth_user_id);
+END IF;
+END
+$guard$;
+
 
 DROP POLICY IF EXISTS "Authenticated users can read institution names" ON public.institutions;
 CREATE POLICY "Authenticated users can read institution names"
@@ -461,6 +487,15 @@ CREATE POLICY "Students can view own credentials"
     )
   );
 
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 DROP POLICY IF EXISTS "Institutions can view issued credentials" ON public.credentials;
 CREATE POLICY "Institutions can view issued credentials"
   ON public.credentials FOR SELECT
@@ -493,6 +528,10 @@ CREATE POLICY "Institutions can update own credentials"
     )
   );
 
+END IF;
+END
+$guard$;
+
 DROP POLICY IF EXISTS "Admin can view all credentials" ON public.credentials;
 CREATE POLICY "Admin can view all credentials"
   ON public.credentials FOR SELECT
@@ -514,6 +553,15 @@ CREATE POLICY "Admin can insert verification logs"
 -- ---------------------------------------------------------------------
 -- API Keys policies
 -- ---------------------------------------------------------------------
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 DROP POLICY IF EXISTS "Institutions can view own api keys" ON public.api_keys;
 CREATE POLICY "Institutions can view own api keys"
   ON public.api_keys FOR SELECT
@@ -545,6 +593,10 @@ CREATE POLICY "Institutions can update own api keys"
       SELECT id FROM public.institutions WHERE auth_user_id = auth.uid()
     )
   );
+
+END IF;
+END
+$guard$;
 
 DROP POLICY IF EXISTS "Admin can manage all api keys" ON public.api_keys;
 CREATE POLICY "Admin can manage all api keys"
@@ -730,6 +782,15 @@ CREATE INDEX IF NOT EXISTS idx_credential_pins_credential
 
 ALTER TABLE IF EXISTS public.credential_pins ENABLE ROW LEVEL SECURITY;
 
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 DROP POLICY IF EXISTS "Institutions can view own credential pins" ON public.credential_pins;
 CREATE POLICY "Institutions can view own credential pins"
     ON public.credential_pins FOR SELECT
@@ -740,6 +801,10 @@ CREATE POLICY "Institutions can view own credential pins"
             WHERE i.auth_user_id = auth.uid()
         )
     );
+END IF;
+END
+$guard$;
+
 
 DROP POLICY IF EXISTS "Students can view own credential pins" ON public.credential_pins;
 CREATE POLICY "Students can view own credential pins"
@@ -1705,6 +1770,15 @@ CREATE INDEX IF NOT EXISTS idx_institution_users_user
 ALTER TABLE IF EXISTS public.institution_users ENABLE ROW LEVEL SECURITY;
 
 -- Institution members can view colleagues in their institution
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 DROP POLICY IF EXISTS "Institution members can view colleagues" ON public.institution_users;
 CREATE POLICY "Institution members can view colleagues"
     ON public.institution_users FOR SELECT
@@ -1715,6 +1789,10 @@ CREATE POLICY "Institution members can view colleagues"
             SELECT institution_id FROM public.institution_users WHERE auth_user_id = auth.uid() AND is_active = true
         )
     );
+END IF;
+END
+$guard$;
+
 
 -- Admins can view and manage all institution users
 DROP POLICY IF EXISTS "Admin can view all institution users" ON public.institution_users;
@@ -1731,11 +1809,24 @@ CREATE POLICY "Admin can manage all institution users"
 -- ---------------------------------------------------------------------
 -- 4. Backfill institution_users from existing institutions
 -- ---------------------------------------------------------------------
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 INSERT INTO public.institution_users (institution_id, auth_user_id, role, is_active)
 SELECT id, auth_user_id, 'poc', true
 FROM public.institutions
 WHERE auth_user_id IS NOT NULL
 ON CONFLICT (institution_id, auth_user_id) DO NOTHING;
+END IF;
+END
+$guard$;
+
 
 COMMIT;
 
@@ -1951,6 +2042,15 @@ CREATE INDEX IF NOT EXISTS idx_institution_users_active_membership
 -- 2. Backfill — every institution keeps access
 -- ---------------------------------------------------------------------
 -- Institutions whose owner was only ever recorded in the deprecated column.
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 INSERT INTO public.institution_users (institution_id, auth_user_id, role, status, is_active)
 SELECT id, auth_user_id, 'owner', 'active', true
 FROM public.institutions
@@ -1968,6 +2068,10 @@ WHERE iu.role = 'poc'
       WHERE i.id = iu.institution_id
         AND i.auth_user_id = iu.auth_user_id
   );
+END IF;
+END
+$guard$;
+
 
 -- ---------------------------------------------------------------------
 -- 3. Membership helpers used by the policies below
@@ -2105,6 +2209,15 @@ CREATE POLICY "Institution members can view colleagues"
 -- ON DELETE CASCADE is the dangerous part — deleting a departing member's
 -- auth user would cascade away the whole institution — so that is dropped
 -- now even though the column stays.
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 ALTER TABLE public.institutions
     DROP CONSTRAINT IF EXISTS institutions_auth_user_id_fkey;
 
@@ -2117,6 +2230,10 @@ ALTER TABLE public.institutions
 
 COMMENT ON COLUMN public.institutions.auth_user_id IS
     'DEPRECATED (Issue #238): superseded by public.institution_users. Retained nullable and unread so the membership migration stays reversible; a later migration drops it. Do not add new reads.';
+END IF;
+END
+$guard$;
+
 
 COMMIT;
 
@@ -2471,8 +2588,21 @@ COMMIT;
 -- 3. Add a trigger to block DELETEs on the credentials table outright.
 
 -- Fix Institutions
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 ALTER TABLE public.institutions DROP CONSTRAINT IF EXISTS institutions_auth_user_id_fkey;
 ALTER TABLE public.institutions ADD CONSTRAINT institutions_auth_user_id_fkey FOREIGN KEY (auth_user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+END IF;
+END
+$guard$;
+
 
 -- Fix Students
 ALTER TABLE public.students DROP CONSTRAINT IF EXISTS students_auth_user_id_fkey;
@@ -3367,6 +3497,231 @@ ON CONFLICT (id) DO UPDATE
 SET public             = false,
     file_size_limit    = EXCLUDED.file_size_limit,
     allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+COMMIT;
+
+
+-- ============================================================================
+-- migration: 20261121000000_drop_institutions_auth_user_id.sql
+-- ============================================================================
+
+-- =====================================================================
+-- ACREDIA-STELLAR — DROP institutions.auth_user_id (Issue #308)
+-- =====================================================================
+-- Prerequisites:
+--   - 20260808000000_institution_membership.sql has run (every institution
+--     now has at least one row in public.institution_users).
+--   - Advisory: the query below lists institutions whose recorded login has
+--     no matching membership. It is worth running and recording in the issue
+--     before applying, but no longer required: the migration itself backfills
+--     the users the old fallback admitted (see the DO block below).
+--
+--     SELECT i.id, i.name
+--     FROM public.institutions i
+--     WHERE i.auth_user_id IS NOT NULL
+--       AND NOT EXISTS (
+--         SELECT 1
+--         FROM public.institution_users iu
+--         WHERE iu.institution_id = i.id
+--           AND iu.auth_user_id = i.auth_user_id
+--           AND iu.removed_at IS NULL
+--       );
+--
+-- What this file does:
+--   1. Drops the deprecated `institutions.auth_user_id` column now that all
+--      application code routes membership through `institution_users`.
+--
+-- NOTE: `students.auth_user_id` is a completely different column on a
+--       completely different table and is intentionally NOT touched here.
+-- =====================================================================
+
+BEGIN;
+
+-- Self-protecting backfill: do not rely on the manual check above having been
+-- run. Until #308 the app let a user act as owner through this column when they
+-- had no membership row at all (in any status, at any institution). Give
+-- exactly those users the membership that access becomes, so dropping the
+-- column locks nobody out. A user with any membership row — including a
+-- removed (`deactivated`) one — was already refused by the old fallback, and
+-- is not given access back here. Guarded so re-applying schema.sql after the
+-- column is gone is a no-op.
+DO $backfill$
+DECLARE
+    v_backfilled INTEGER;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+    ) THEN
+        INSERT INTO public.institution_users (institution_id, auth_user_id, role, status, is_active)
+        SELECT i.id, i.auth_user_id, 'owner', 'active', true
+        FROM public.institutions i
+        WHERE i.auth_user_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM public.institution_users iu
+              WHERE iu.auth_user_id = i.auth_user_id
+          )
+        ON CONFLICT (institution_id, auth_user_id) DO NOTHING;
+
+        GET DIAGNOSTICS v_backfilled = ROW_COUNT;
+        IF v_backfilled > 0 THEN
+            RAISE NOTICE '#308: backfilled % owner membership(s) from institutions.auth_user_id before dropping it', v_backfilled;
+        END IF;
+    END IF;
+END
+$backfill$;
+
+-- Drop the foreign key constraint first (it was changed to ON DELETE SET NULL
+-- in 20260808000000_institution_membership.sql, but must be removed before
+-- the column itself can be dropped).
+ALTER TABLE public.institutions
+    DROP CONSTRAINT IF EXISTS institutions_auth_user_id_fkey;
+
+-- Drop the deprecated single-login column.
+-- All memberships are now expressed through public.institution_users.
+-- students.auth_user_id is a separate column on a separate table and is kept.
+ALTER TABLE public.institutions
+    DROP COLUMN IF EXISTS auth_user_id;
+
+COMMENT ON TABLE public.institutions IS
+    'Registered issuing institutions. Membership is expressed through '
+    'public.institution_users; the deprecated single-login auth_user_id column '
+    'was removed in Issue #308.';
+
+COMMIT;
+
+
+-- ============================================================================
+-- migration: 20261121000100_change_institution_member_without_auth_user_id.sql
+-- ============================================================================
+
+-- =====================================================================
+-- ACREDIA-STELLAR — change_institution_member() without the dropped column
+-- Issue #308 follow-up
+-- =====================================================================
+-- 20261121000000 dropped public.institutions.auth_user_id, but
+-- change_institution_member() — the RPC behind "remove member" and "change
+-- role" (src/lib/institutionMembers.ts) — still ended with
+--
+--     UPDATE public.institutions SET auth_user_id = ... WHERE ... ;
+--
+-- PL/pgSQL bodies are not dependency-tracked, so the DROP COLUMN succeeded
+-- and every removal or demotion of an owner then failed at runtime with
+-- `column "auth_user_id" does not exist`.
+--
+-- That block only kept the legacy column pointing at a remaining owner for
+-- the app's legacy fallback, which #308 removed. Everything else — the
+-- per-institution lock, the last_owner / last_issuer guards, the removal
+-- record — is unchanged. CREATE OR REPLACE keeps the existing grants
+-- (service_role only; 20261017000000 and 20261029010000).
+-- =====================================================================
+
+BEGIN;
+
+CREATE OR REPLACE FUNCTION public.change_institution_member(
+    p_institution_id UUID,
+    p_member_id      UUID,
+    p_action         TEXT,
+    p_new_role       TEXT DEFAULT NULL,
+    p_actor_id       UUID DEFAULT NULL
+)
+RETURNS public.institution_users
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+    v_target          public.institution_users;
+    v_result          public.institution_users;
+    v_manager_roles   CONSTANT TEXT[] := ARRAY['owner', 'poc'];
+    v_issuer_roles    CONSTANT TEXT[] := ARRAY['owner', 'issuer', 'admin', 'poc'];
+    v_role_after      TEXT;
+    v_loses_manage    BOOLEAN;
+    v_loses_issue     BOOLEAN;
+    v_other_managers  INTEGER;
+    v_other_issuers   INTEGER;
+BEGIN
+    IF p_action NOT IN ('remove', 'set_role') THEN
+        RAISE EXCEPTION 'invalid_action' USING ERRCODE = '22023';
+    END IF;
+
+    IF p_action = 'set_role' AND p_new_role NOT IN ('owner', 'issuer', 'viewer') THEN
+        RAISE EXCEPTION 'invalid_role' USING ERRCODE = '22023';
+    END IF;
+
+    -- Serialise every change to this institution's membership: a concurrent
+    -- caller blocks here until this transaction commits, then recounts.
+    PERFORM 1
+    FROM public.institution_users
+    WHERE institution_id = p_institution_id
+    FOR UPDATE;
+
+    SELECT * INTO v_target
+    FROM public.institution_users
+    WHERE id = p_member_id
+      AND institution_id = p_institution_id;
+
+    IF NOT FOUND OR v_target.status = 'deactivated' THEN
+        RAISE EXCEPTION 'member_not_found' USING ERRCODE = 'P0002';
+    END IF;
+
+    -- Only an active member counts towards continuity. Withdrawing a pending
+    -- invite, or re-roling one, can never strand the institution.
+    IF v_target.status = 'active' THEN
+        v_role_after := CASE WHEN p_action = 'remove' THEN NULL ELSE p_new_role END;
+
+        v_loses_manage := v_target.role = ANY (v_manager_roles)
+            AND (v_role_after IS NULL OR NOT v_role_after = ANY (v_manager_roles));
+        v_loses_issue := v_target.role = ANY (v_issuer_roles)
+            AND (v_role_after IS NULL OR NOT v_role_after = ANY (v_issuer_roles));
+
+        IF v_loses_manage THEN
+            SELECT COUNT(*) INTO v_other_managers
+            FROM public.institution_users
+            WHERE institution_id = p_institution_id
+              AND status = 'active'
+              AND id <> p_member_id
+              AND role = ANY (v_manager_roles);
+
+            IF v_other_managers = 0 THEN
+                RAISE EXCEPTION 'last_owner'
+                    USING ERRCODE = 'P0001',
+                          HINT = 'Make another active member an owner first.';
+            END IF;
+        END IF;
+
+        IF v_loses_issue THEN
+            SELECT COUNT(*) INTO v_other_issuers
+            FROM public.institution_users
+            WHERE institution_id = p_institution_id
+              AND status = 'active'
+              AND id <> p_member_id
+              AND role = ANY (v_issuer_roles);
+
+            IF v_other_issuers = 0 THEN
+                RAISE EXCEPTION 'last_issuer'
+                    USING ERRCODE = 'P0001',
+                          HINT = 'Give another active member issuing rights first.';
+            END IF;
+        END IF;
+    END IF;
+
+    IF p_action = 'remove' THEN
+        UPDATE public.institution_users
+        SET status     = 'deactivated',
+            removed_at = NOW(),
+            removed_by = p_actor_id
+        WHERE id = p_member_id
+        RETURNING * INTO v_result;
+    ELSE
+        UPDATE public.institution_users
+        SET role = p_new_role
+        WHERE id = p_member_id
+        RETURNING * INTO v_result;
+    END IF;
+
+    RETURN v_result;
+END;
+$$;
 
 COMMIT;
 

@@ -176,10 +176,6 @@ describe('POST /api/account/erase — institution staff and admins are sent to s
                 ],
             },
         ],
-        [
-            "being an institution's recorded contact",
-            { institutions: [{ id: INST, name: 'Uni', auth_user_id: USER }] },
-        ],
     ])('refuses an account with %s', async (_label, seed) => {
         setup(seed as Partial<Tables>);
 

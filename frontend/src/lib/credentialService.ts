@@ -55,7 +55,6 @@ export type CredentialIssueProgressStep =
     | 'awaiting-signature'
     | 'submitting'
     | 'confirming'
-    | 'sign-transaction'
     | 'save-database';
 
 export type CredentialIssueProgressCallback = (
@@ -159,7 +158,6 @@ export async function issueCredential(
         debugLog('Credential hash generated.');
 
         debugLog('Issuing credential on Stellar network.');
-        onProgress?.('sign-transaction');
         const { tokenId, transactionHash } = await issueCredentialOnStellar(
             data.studentWallet,
             credentialHash,

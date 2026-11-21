@@ -539,6 +539,56 @@ describe('signTransaction', () => {
         expect(kitMock.signTransaction).toHaveBeenCalled();
     });
 
+    it('asks the wallet for its account once per signature, not twice', async () => {
+        const { stellarKitAdapter } = await loadAdapter();
+        await stellarKitAdapter.signTransaction('RAW_XDR', { networkPassphrase: TESTNET_PASSPHRASE, address: 'GSIGNER' });
+        expect(kitMock.fetchAddress).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses on a wrong network reported by the kit getNetwork', async () => {
+        const { stellarKitAdapter } = await loadAdapter();
+        const { WalletNetworkMismatchError } = await import('../src/lib/wallet/types');
+        (kitMock as unknown as { getNetwork: () => Promise<unknown> }).getNetwork = vi.fn().mockResolvedValue({
+            network: 'PUBLIC',
+            networkPassphrase: 'Public Global Stellar Network ; September 2015',
+        });
+
+        await expect(
+            stellarKitAdapter.signTransaction('RAW_XDR', { networkPassphrase: TESTNET_PASSPHRASE, address: 'GSIGNER' }),
+        ).rejects.toBeInstanceOf(WalletNetworkMismatchError);
+        expect(kitMock.signTransaction).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the address answer when the wallet does not support getNetwork', async () => {
+        // Most wallets (xBull, Lobstr, Albedo…) reject getNetwork as unsupported;
+        // that must not skip the network the wallet already reported.
+        const { stellarKitAdapter } = await loadAdapter();
+        const { WalletNetworkMismatchError } = await import('../src/lib/wallet/types');
+        (kitMock as unknown as { getNetwork: () => Promise<unknown> }).getNetwork = vi
+            .fn()
+            .mockRejectedValue({ code: -3, message: 'xBull does not support the "getNetwork" function' });
+        kitMock.fetchAddress.mockResolvedValueOnce({
+            address: 'GSIGNER',
+            networkPassphrase: 'Public Global Stellar Network ; September 2015',
+        } as never);
+
+        await expect(
+            stellarKitAdapter.signTransaction('RAW_XDR', { networkPassphrase: TESTNET_PASSPHRASE, address: 'GSIGNER' }),
+        ).rejects.toBeInstanceOf(WalletNetworkMismatchError);
+        expect(kitMock.signTransaction).not.toHaveBeenCalled();
+    });
+
+    it('signs when getNetwork is unsupported and no network is reported anywhere', async () => {
+        const { stellarKitAdapter } = await loadAdapter();
+        (kitMock as unknown as { getNetwork: () => Promise<unknown> }).getNetwork = vi
+            .fn()
+            .mockRejectedValue({ code: -3, message: 'not supported' });
+
+        await expect(
+            stellarKitAdapter.signTransaction('RAW_XDR', { networkPassphrase: TESTNET_PASSPHRASE, address: 'GSIGNER' }),
+        ).resolves.toBe('SIGNED_XDR');
+    });
+
     it('maps a wallet cancellation to a user rejection', async () => {
         const { stellarKitAdapter } = await loadAdapter();
         const { WalletUserRejectedError } = await import('../src/lib/wallet/types');

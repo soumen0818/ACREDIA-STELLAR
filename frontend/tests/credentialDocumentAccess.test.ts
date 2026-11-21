@@ -94,7 +94,6 @@ describe('GET /api/credentials/:id/document', () => {
     it.each([
         ['the holder', HOLDER],
         ['an active member of the issuing institution', MEMBER],
-        ['the institution’s legacy owner account', OWNER],
     ])('gives %s a short-lived signed URL', async (_label, userId) => {
         state.userId = userId;
 
@@ -110,6 +109,16 @@ describe('GET /api/credentials/:id/document', () => {
         });
         expect(state.bucket).toHaveBeenCalledWith('credential-documents');
         expect(state.createSignedUrl).toHaveBeenCalledWith('inst-1/doc.pdf', 300);
+    });
+
+    it('no longer admits the legacy owner account through the dropped column (#308)', async () => {
+        // OWNER is recorded only in institutions.auth_user_id, with no
+        // membership row: membership is now the only way in.
+        state.userId = OWNER;
+        const { response } = await requestDocument();
+
+        expect(response.status).toBe(404);
+        expect(state.createSignedUrl).not.toHaveBeenCalled();
     });
 
     it('answers anyone else with the same 404 as a missing credential', async () => {
