@@ -1,0 +1,718 @@
+{
+  "capturedAt": "2026-11-21T05:43:14.714Z",
+  "tool": "frontend/scripts/measure-rpc-baselines.ts",
+  "parameters": {
+    "samples": 60,
+    "soakSeconds": 180,
+    "soakRps": 2,
+    "appRpcTimeoutMs": 4000
+  },
+  "networks": {
+    "mainnet": {
+      "rpcUrl": "https://mainnet.sorobanrpc.com",
+      "passphrase": "Public Global Stellar Network ; September 2015",
+      "protocolVersion": 29,
+      "latestLedger": 65590749,
+      "secondsPerLedger": 5,
+      "ledgersPerYear": 6307158,
+      "sorobanInclusionFeeStroops": {
+        "p50": 200,
+        "p70": 200,
+        "p90": 200,
+        "p95": 200,
+        "p99": 200,
+        "max": 200,
+        "mode": 200
+      },
+      "sorobanInclusionFeeLedgerCount": 50
+    },
+    "testnet": {
+      "rpcUrl": "https://soroban-testnet.stellar.org",
+      "passphrase": "Test SDF Network ; September 2015",
+      "protocolVersion": 30,
+      "latestLedger": 5843230,
+      "secondsPerLedger": 5,
+      "ledgersPerYear": 6307231,
+      "sorobanInclusionFeeStroops": {
+        "p50": 100,
+        "p70": 100,
+        "p90": 100,
+        "p95": 100,
+        "p99": 200,
+        "max": 200,
+        "mode": 100
+      },
+      "sorobanInclusionFeeLedgerCount": 50
+    }
+  },
+  "limits": {
+    "mainnet": {
+      "instructions": 400000000,
+      "diskReadBytes": 200000,
+      "diskReadEntries": 200,
+      "writeBytes": 132096,
+      "writeEntries": 200,
+      "footprintEntries": 400,
+      "contractEventsBytes": 16384,
+      "txSizeBytes": 132096,
+      "maxEntryTtl": 3110400
+    },
+    "testnet": {
+      "instructions": 400000000,
+      "diskReadBytes": 200000,
+      "diskReadEntries": 200,
+      "writeBytes": 132096,
+      "writeEntries": 200,
+      "footprintEntries": 400,
+      "contractEventsBytes": 16384,
+      "txSizeBytes": 132096,
+      "maxEntryTtl": 3110400
+    }
+  },
+  "feeSchedules": {
+    "mainnet": {
+      "contract_compute_v0.fee_rate_per_instructions_increment": 3,
+      "contract_ledger_cost_v0.fee_disk_read_ledger_entry": 781,
+      "contract_ledger_cost_v0.fee_write_ledger_entry": 1250,
+      "contract_ledger_cost_v0.fee_disk_read1_kb": 223,
+      "contract_ledger_cost_v0.soroban_state_target_size_bytes": 3000000000,
+      "contract_ledger_cost_v0.rent_fee1_kb_soroban_state_size_low": -17000,
+      "contract_ledger_cost_v0.rent_fee1_kb_soroban_state_size_high": 10000,
+      "contract_ledger_cost_v0.soroban_state_rent_fee_growth_factor": 5000,
+      "contract_ledger_cost_ext_v0.fee_write1_kb": 437,
+      "contract_historical_data_v0.fee_historical1_kb": 2029,
+      "contract_events_v0.fee_contract_events1_kb": 2500,
+      "contract_bandwidth_v0.fee_tx_size1_kb": 203,
+      "state_archival.persistent_rent_rate_denominator": 1215,
+      "state_archival.temp_rent_rate_denominator": 2430
+    },
+    "testnet": {
+      "contract_compute_v0.fee_rate_per_instructions_increment": 3,
+      "contract_ledger_cost_v0.fee_disk_read_ledger_entry": 781,
+      "contract_ledger_cost_v0.fee_write_ledger_entry": 1250,
+      "contract_ledger_cost_v0.fee_disk_read1_kb": 223,
+      "contract_ledger_cost_v0.soroban_state_target_size_bytes": 7000000000,
+      "contract_ledger_cost_v0.rent_fee1_kb_soroban_state_size_low": -17000,
+      "contract_ledger_cost_v0.rent_fee1_kb_soroban_state_size_high": 10000,
+      "contract_ledger_cost_v0.soroban_state_rent_fee_growth_factor": 5000,
+      "contract_ledger_cost_ext_v0.fee_write1_kb": 437,
+      "contract_historical_data_v0.fee_historical1_kb": 2029,
+      "contract_events_v0.fee_contract_events1_kb": 2500,
+      "contract_bandwidth_v0.fee_tx_size1_kb": 203,
+      "state_archival.persistent_rent_rate_denominator": 1215,
+      "state_archival.temp_rent_rate_denominator": 2430
+    }
+  },
+  "throwawayTestnetInstance": {
+    "contractId": "CAFK3LY76SU4H5WCP73IGQMDDQWQJ4GCYT7WHJ6OS5AVAMNPQAOUV6QG",
+    "wasmSha256": "52b340df46b8a6c85d957660d1e11a8aebfda28bf2634961cf1f374a4bd7d4a5",
+    "deployTx": "8a00f8f6419b93e9d5dc7cd4c87262d1b8e205ef19a6a8e7e5e2a881cda333af",
+    "owner": "GDJPBSZ26ZUPIWOSV3KMYLON2JTUM4CXAVPRJIFE3HGSK7K7UUSGWZRE",
+    "issuer": "GCJ74MXNN5LKD76W4XPXTJXE33DQ2ZU7PSG6QANASEJTZXHY6ITXX6DO",
+    "credentialsIssued": 23
+  },
+  "latency": {
+    "mainnet": {
+      "getLatestLedger": {
+        "latencyMs": {
+          "n": 60,
+          "p50": 1921,
+          "p90": 2396,
+          "p95": 2560,
+          "p99": 3373,
+          "max": 3373,
+          "mean": 2015
+        },
+        "errors": {}
+      },
+      "simulate SAC balance (instance + persistent read)": {
+        "latencyMs": {
+          "n": 60,
+          "p50": 362,
+          "p90": 532,
+          "p95": 614,
+          "p99": 771,
+          "max": 771,
+          "mean": 403
+        },
+        "errors": {}
+      },
+      "simulate SAC decimals (instance read)": {
+        "latencyMs": {
+          "n": 60,
+          "p50": 357,
+          "p90": 510,
+          "p95": 570,
+          "p99": 1347,
+          "max": 1347,
+          "mean": 402
+        },
+        "errors": {}
+      },
+      "getLedgerEntries (1 contract-data key)": {
+        "latencyMs": {
+          "n": 60,
+          "p50": 353,
+          "p90": 490,
+          "p95": 557,
+          "p99": 884,
+          "max": 884,
+          "mean": 380
+        },
+        "errors": {}
+      },
+      "cold-cache verification (3 sequential reads)": {
+        "latencyMs": {
+          "n": 30,
+          "p50": 985,
+          "p90": 1264,
+          "p95": 1312,
+          "p99": 1354,
+          "max": 1354,
+          "mean": 1041
+        },
+        "errors": {}
+      }
+    },
+    "testnet": {
+      "getLatestLedger": {
+        "latencyMs": {
+          "n": 60,
+          "p50": 388,
+          "p90": 656,
+          "p95": 797,
+          "p99": 907,
+          "max": 907,
+          "mean": 453
+        },
+        "errors": {}
+      },
+      "simulate get_credential (found)": {
+        "latencyMs": {
+          "n": 60,
+          "p50": 327,
+          "p90": 413,
+          "p95": 465,
+          "p99": 641,
+          "max": 641,
+          "mean": 354
+        },
+        "errors": {}
+      },
+      "simulate is_revoked": {
+        "latencyMs": {
+          "n": 59,
+          "p50": 327,
+          "p90": 453,
+          "p95": 464,
+          "p99": 579,
+          "max": 579,
+          "mean": 348
+        },
+        "errors": {
+          "timeout": 1
+        }
+      },
+      "simulate is_authorized_issuer": {
+        "latencyMs": {
+          "n": 59,
+          "p50": 346,
+          "p90": 463,
+          "p95": 475,
+          "p99": 624,
+          "max": 624,
+          "mean": 350
+        },
+        "errors": {
+          "timeout": 1
+        }
+      },
+      "cold-cache verification (3 sequential reads)": {
+        "latencyMs": {
+          "n": 30,
+          "p50": 1020,
+          "p90": 1285,
+          "p95": 1346,
+          "p99": 1399,
+          "max": 1399,
+          "mean": 1082
+        },
+        "errors": {}
+      }
+    }
+  },
+  "soak": {
+    "mainnet": {
+      "rps": 2,
+      "seconds": 180,
+      "verifications": 360,
+      "rpcCalls": 1080,
+      "succeeded": 202,
+      "errorRate": 0.4389,
+      "errors": {
+        "rate-limited (429)": 158
+      },
+      "verificationLatencyMs": {
+        "n": 202,
+        "p50": 932,
+        "p90": 3183,
+        "p95": 4492,
+        "p99": 5522,
+        "max": 6319,
+        "mean": 1367
+      },
+      "drift": [
+        926,
+        1143,
+        898
+      ],
+      "elapsedSeconds": 179.6
+    },
+    "testnet": {
+      "rps": 2,
+      "seconds": 180,
+      "verifications": 360,
+      "rpcCalls": 1080,
+      "succeeded": 360,
+      "errorRate": 0,
+      "errors": {},
+      "verificationLatencyMs": {
+        "n": 360,
+        "p50": 935,
+        "p90": 1040,
+        "p95": 1088,
+        "p99": 1242,
+        "max": 1485,
+        "mean": 946
+      },
+      "drift": [
+        942,
+        912,
+        931
+      ],
+      "elapsedSeconds": 180.4
+    }
+  },
+  "keeper": {
+    "method": "one step per token exactly as the cron route runs it, timed on testnet",
+    "stepMs": {
+      "n": 12,
+      "p50": 4045,
+      "p90": 6405,
+      "p95": 6408,
+      "p99": 6408,
+      "max": 6408,
+      "mean": 4931
+    },
+    "pageSize": 50,
+    "maxDurationSeconds": 300,
+    "projectedPageSecondsAtP50": 202,
+    "projectedPageSecondsAtP95": 320,
+    "maxStepsIn300sAtP95": 46,
+    "inclusionFeeBidStroops": 100,
+    "capacityCredentials": 4500
+  },
+  "batch": {
+    "scan": [
+      {
+        "size": 1,
+        "instructions": 1311428,
+        "diskReadBytes": 0,
+        "writeBytes": 872,
+        "readOnlyEntries": 2,
+        "readWriteEntries": 4,
+        "footprintEntries": 6,
+        "writeEntries": 4,
+        "contractEventsBytes": 492,
+        "minResourceFee": 1799906,
+        "txSizeBytes": 1276
+      },
+      {
+        "size": 2,
+        "instructions": 1707362,
+        "diskReadBytes": 0,
+        "writeBytes": 1416,
+        "readOnlyEntries": 2,
+        "readWriteEntries": 6,
+        "footprintEntries": 8,
+        "writeEntries": 6,
+        "contractEventsBytes": 804,
+        "minResourceFee": 3587856,
+        "txSizeBytes": 1800
+      },
+      {
+        "size": 4,
+        "instructions": 2536751,
+        "diskReadBytes": 0,
+        "writeBytes": 2504,
+        "readOnlyEntries": 2,
+        "readWriteEntries": 10,
+        "footprintEntries": 12,
+        "writeEntries": 10,
+        "contractEventsBytes": 1428,
+        "minResourceFee": 7163764,
+        "txSizeBytes": 2848
+      },
+      {
+        "size": 8,
+        "instructions": 4426765,
+        "diskReadBytes": 0,
+        "writeBytes": 4680,
+        "readOnlyEntries": 2,
+        "readWriteEntries": 18,
+        "footprintEntries": 20,
+        "writeEntries": 18,
+        "contractEventsBytes": 2676,
+        "minResourceFee": 14316010,
+        "txSizeBytes": 4944
+      },
+      {
+        "size": 12,
+        "instructions": 6507809,
+        "diskReadBytes": 0,
+        "writeBytes": 6856,
+        "readOnlyEntries": 2,
+        "readWriteEntries": 26,
+        "footprintEntries": 28,
+        "writeEntries": 26,
+        "contractEventsBytes": 3924,
+        "minResourceFee": 21468410,
+        "txSizeBytes": 7040
+      },
+      {
+        "size": 16,
+        "instructions": 8861743,
+        "diskReadBytes": 0,
+        "writeBytes": 9032,
+        "readOnlyEntries": 2,
+        "readWriteEntries": 34,
+        "footprintEntries": 36,
+        "writeEntries": 34,
+        "contractEventsBytes": 5172,
+        "minResourceFee": 28620895,
+        "txSizeBytes": 9136
+      },
+      {
+        "size": 20,
+        "instructions": 11464733,
+        "diskReadBytes": 0,
+        "writeBytes": 11208,
+        "readOnlyEntries": 2,
+        "readWriteEntries": 42,
+        "footprintEntries": 44,
+        "writeEntries": 42,
+        "contractEventsBytes": 6420,
+        "minResourceFee": 35773453,
+        "txSizeBytes": 11232
+      }
+    ],
+    "fits": {
+      "instructions": {
+        "intercept": 501563.5754716982,
+        "slope": 528661.0471698113,
+        "maxResidual": 389948.48113207705
+      },
+      "diskReadBytes": {
+        "intercept": 0,
+        "slope": 0,
+        "maxResidual": 0
+      },
+      "writeBytes": {
+        "intercept": 328,
+        "slope": 544,
+        "maxResidual": 0
+      },
+      "writeEntries": {
+        "intercept": 2,
+        "slope": 2,
+        "maxResidual": 0
+      },
+      "footprintEntries": {
+        "intercept": 4,
+        "slope": 2,
+        "maxResidual": 0
+      },
+      "contractEventsBytes": {
+        "intercept": 180,
+        "slope": 312,
+        "maxResidual": 0
+      },
+      "txSizeBytes": {
+        "intercept": 752,
+        "slope": 524,
+        "maxResidual": 0
+      }
+    },
+    "maxRowsByResource": {
+      "mainnet": {
+        "instructions": {
+          "limit": 400000000,
+          "perRow": 528661.05,
+          "fixed": 501564,
+          "maxRows": 755
+        },
+        "diskReadBytes": {
+          "limit": 200000,
+          "perRow": 0,
+          "fixed": 0,
+          "maxRows": null
+        },
+        "writeBytes": {
+          "limit": 132096,
+          "perRow": 544,
+          "fixed": 328,
+          "maxRows": 242
+        },
+        "writeEntries": {
+          "limit": 200,
+          "perRow": 2,
+          "fixed": 2,
+          "maxRows": 99
+        },
+        "footprintEntries": {
+          "limit": 400,
+          "perRow": 2,
+          "fixed": 4,
+          "maxRows": 198
+        },
+        "contractEventsBytes": {
+          "limit": 16384,
+          "perRow": 312,
+          "fixed": 180,
+          "maxRows": 51
+        },
+        "txSizeBytes": {
+          "limit": 132096,
+          "perRow": 524,
+          "fixed": 752,
+          "maxRows": 250
+        }
+      },
+      "testnet": {
+        "instructions": {
+          "limit": 400000000,
+          "perRow": 528661.05,
+          "fixed": 501564,
+          "maxRows": 755
+        },
+        "diskReadBytes": {
+          "limit": 200000,
+          "perRow": 0,
+          "fixed": 0,
+          "maxRows": null
+        },
+        "writeBytes": {
+          "limit": 132096,
+          "perRow": 544,
+          "fixed": 328,
+          "maxRows": 242
+        },
+        "writeEntries": {
+          "limit": 200,
+          "perRow": 2,
+          "fixed": 2,
+          "maxRows": 99
+        },
+        "footprintEntries": {
+          "limit": 400,
+          "perRow": 2,
+          "fixed": 4,
+          "maxRows": 198
+        },
+        "contractEventsBytes": {
+          "limit": 16384,
+          "perRow": 312,
+          "fixed": 180,
+          "maxRows": 51
+        },
+        "txSizeBytes": {
+          "limit": 132096,
+          "perRow": 524,
+          "fixed": 752,
+          "maxRows": 250
+        }
+      }
+    },
+    "bindingResource": {
+      "mainnet": [
+        "contractEventsBytes",
+        {
+          "limit": 16384,
+          "perRow": 312,
+          "fixed": 180,
+          "maxRows": 51
+        }
+      ],
+      "testnet": [
+        "contractEventsBytes",
+        {
+          "limit": 16384,
+          "perRow": 312,
+          "fixed": 180,
+          "maxRows": 51
+        }
+      ]
+    }
+  },
+  "storage": {
+    "entryBytes": [
+      396,
+      132
+    ],
+    "credentialStorageBytes": 528,
+    "issueLedger": 5843236,
+    "liveUntilLedger": 8953635,
+    "effectiveTtlLedgers": 3110399,
+    "contractBumpAmount": 6312000,
+    "contractThreshold": 3110400,
+    "ledgerAfterIssue": 5843239
+  },
+  "fees": {
+    "singleIssue": [
+      {
+        "hash": "0b1a859b4cbd0105e29a584d7deb38b4a7eb2d18c80c22b892392850df8886c3",
+        "feeChargedStroops": 1861054
+      },
+      {
+        "hash": "c4fac2ab022f2ee516c07a99d0f37d2b81d906156bbe374b813710eba38265a2",
+        "feeChargedStroops": 1565178
+      },
+      {
+        "hash": "850d28302d914ba8108617760006f06b79e1c042e6806a53440a72f2b996350b",
+        "feeChargedStroops": 1565178
+      }
+    ],
+    "batchIssue": {
+      "rows": 20,
+      "hash": "a47e53d9e3277623c17e232709c552118689c96ed8bb9e39b7514e4c2d6abd0c",
+      "feeChargedStroops": 31117041,
+      "perCredentialStroops": 1555852,
+      "mainnetExpectedPerCredentialStroops": 1362386
+    },
+    "bumpCredentialNoExtension": {
+      "hash": "0d14efcbb6e94fd9274c006ab4f17f419257b7c612d97935b2df1f5899f2b71e",
+      "feeChargedStroops": 8992
+    },
+    "keeperStepFeeChargedStroops": {
+      "n": 12,
+      "p50": 8989,
+      "p90": 8992,
+      "p95": 8992,
+      "p99": 8992,
+      "max": 8992,
+      "mean": 8990
+    },
+    "rent": {
+      "credentialEntriesTestnet": {
+        "remaining": 3110239,
+        "extendToLow": 3110240,
+        "extendToHigh": 3110399,
+        "feeLowStroops": 9221,
+        "feeHighStroops": 9311,
+        "perLedgerStroops": 0.5660377358490566,
+        "perByteLedger": 0.001072041166380789
+      },
+      "instanceEntryTestnet": {
+        "bytes": 216,
+        "remaining": 2735590,
+        "extendToLow": 2745590,
+        "extendToHigh": 3110399,
+        "feeLowStroops": 9774,
+        "feeHighStroops": 95731,
+        "perLedgerStroops": 0.23562192818707872,
+        "perByteLedger": 0.0010908422601253645,
+        "entry": "Acredia production testnet contract instance"
+      },
+      "instanceEntryMainnet": {
+        "bytes": 240,
+        "remaining": 3087304,
+        "extendToLow": 3097304,
+        "extendToHigh": 3110399,
+        "feeLowStroops": 9711,
+        "feeHighStroops": 12713,
+        "perLedgerStroops": 0.22924780450553647,
+        "perByteLedger": 0.0009551991854397353,
+        "entry": "native XLM SAC instance"
+      },
+      "mainnetToTestnetRatio": 0.875652897175032
+    },
+    "annualRentPerCredentialStroops": {
+      "testnet": 3570089,
+      "mainnet": 3126159
+    },
+    "multiEntryExtendSimulated": [
+      {
+        "credentials": 1,
+        "entries": 2,
+        "minResourceFeeStroops": 5853
+      },
+      {
+        "credentials": 5,
+        "entries": 10,
+        "minResourceFeeStroops": 19347
+      },
+      {
+        "credentials": 10,
+        "entries": 20,
+        "minResourceFeeStroops": 36201
+      },
+      {
+        "credentials": 20,
+        "entries": 40,
+        "minResourceFeeStroops": 73538
+      }
+    ],
+    "maxCredentialsPerExtendTx": {
+      "byFootprintEntries": 200,
+      "byDiskReadBytes": 378
+    },
+    "mainnetSorobanInclusionFeeP90Stroops": 200
+  },
+  "projections": {
+    "1000": {
+      "issuanceOneTimeXlm": 155.59,
+      "issuanceOneTimeExpectedXlm": 136.24,
+      "rentPerYearXlm": 312.62,
+      "currentKeeper": {
+        "coversAllCredentials": true,
+        "txPerYear": 18250,
+        "txOverheadPerYearXlm": 16.78
+      },
+      "batchedKeeper": {
+        "credentialsPerTx": 20,
+        "txPerYear": 250,
+        "txOverheadPerYearXlm": 1.84
+      }
+    },
+    "10000": {
+      "issuanceOneTimeXlm": 1555.86,
+      "issuanceOneTimeExpectedXlm": 1362.4,
+      "rentPerYearXlm": 3126.16,
+      "currentKeeper": {
+        "coversAllCredentials": false,
+        "txPerYear": 18250,
+        "txOverheadPerYearXlm": 16.78
+      },
+      "batchedKeeper": {
+        "credentialsPerTx": 20,
+        "txPerYear": 2500,
+        "txOverheadPerYearXlm": 18.43
+      }
+    },
+    "100000": {
+      "issuanceOneTimeXlm": 15558.62,
+      "issuanceOneTimeExpectedXlm": 13623.96,
+      "rentPerYearXlm": 31261.59,
+      "currentKeeper": {
+        "coversAllCredentials": false,
+        "txPerYear": 18250,
+        "txOverheadPerYearXlm": 16.78
+      },
+      "batchedKeeper": {
+        "credentialsPerTx": 20,
+        "txPerYear": 25000,
+        "txOverheadPerYearXlm": 184.34
+      }
+    }
+  }
+}

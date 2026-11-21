@@ -128,6 +128,15 @@ CREATE INDEX IF NOT EXISTS idx_institution_users_active_membership
 -- 2. Backfill — every institution keeps access
 -- ---------------------------------------------------------------------
 -- Institutions whose owner was only ever recorded in the deprecated column.
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 INSERT INTO public.institution_users (institution_id, auth_user_id, role, status, is_active)
 SELECT id, auth_user_id, 'owner', 'active', true
 FROM public.institutions
@@ -145,6 +154,10 @@ WHERE iu.role = 'poc'
       WHERE i.id = iu.institution_id
         AND i.auth_user_id = iu.auth_user_id
   );
+END IF;
+END
+$guard$;
+
 
 -- ---------------------------------------------------------------------
 -- 3. Membership helpers used by the policies below
@@ -282,6 +295,15 @@ CREATE POLICY "Institution members can view colleagues"
 -- ON DELETE CASCADE is the dangerous part — deleting a departing member's
 -- auth user would cascade away the whole institution — so that is dropped
 -- now even though the column stays.
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 ALTER TABLE public.institutions
     DROP CONSTRAINT IF EXISTS institutions_auth_user_id_fkey;
 
@@ -294,5 +316,9 @@ ALTER TABLE public.institutions
 
 COMMENT ON COLUMN public.institutions.auth_user_id IS
     'DEPRECATED (Issue #238): superseded by public.institution_users. Retained nullable and unread so the membership migration stays reversible; a later migration drops it. Do not add new reads.';
+END IF;
+END
+$guard$;
+
 
 COMMIT;

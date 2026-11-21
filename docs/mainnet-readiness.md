@@ -87,7 +87,8 @@ configuration booted successfully and served the testnet contract.
 Enforced at the database level, verified against a live PostgreSQL 16 instance:
 
 - `credentials.institution_id` and `credentials.student_id` are `ON DELETE RESTRICT`
-- `institutions.auth_user_id` and `students.auth_user_id` are `ON DELETE SET NULL`
+- `students.auth_user_id` and `institution_users.auth_user_id` are `ON DELETE SET NULL`
+  (`institutions.auth_user_id` was dropped in #308; membership lives in `institution_users`)
 - A `BEFORE DELETE` trigger refuses any deletion of a `credentials` row outright
 - Deleting an auth user leaves the institution and its credentials intact
 
@@ -159,11 +160,21 @@ credentials, in rotating pages of 50. It reads each entry's TTL, bumps entries
 near expiry, submits sequentially with the configured network/signer, retries
 failed IDs, reconciles the database count, and records outcomes/cursor in
 `cron_run_log`. It reports failed/partial states and exposes the latest run in
-`/api/admin/stats`. The 300-second function and page size require a live capacity
-measurement; a run is marked unhealthy above 4,500 credentials.
+`/api/admin/stats`. A run is marked unhealthy above 4,500 credentials.
+
+**Measured 2026-11-21** ([mainnet-latency baselines](./testing/mainnet-rpc-baselines.md), #314):
+a credential lives **~180 days**, not a year (the network clamps the contract's
+bump to `max_entry_ttl`). A keeper step takes p50 4.0 s / p95 6.4 s, so a page of
+50 takes **320 s at p95, over the 300 s function limit**. The keeper bids a fixed
+100-stroop inclusion fee while mainnet's is 200. Above 4,500 credentials the
+one-transaction-per-credential design cannot keep up; a batched
+`ExtendFootprintTTL` keeper (up to 200 credentials per transaction) can. Storage
+rent, not transactions, is the cost: **~0.31 XLM per credential per year**
+(31k XLM/year at 100k credentials).
 
 **Remaining gates before mainnet:** apply the keeper SQL migration; provision and
-fund the keeper account and cron secret; measure fees, duration and TTL margin;
+fund the keeper account and cron secret (budget from the measured rent above);
+fit a keeper page inside 300 s and bid the inclusion fee from `getFeeStats`;
 configure an independent missed-run/failure/low-balance alert; and record a
 real testnet sweep plus archived-entry restore rehearsal. See the
 [keeper runbook](./ops/ttl-keeper-runbook.md). A timestamp in the admin console
@@ -187,6 +198,15 @@ is observability, not an independently configured alert.
   HTTP 503 on mainnet when Redis is unavailable.
 
 **To clear this blocker:**
+Cold starts with Upstash are **not yet measured**: there was no Upstash database
+for the #314 run; the method is in the
+[baselines](./testing/mainnet-rpc-baselines.md#not-measured). The same run found
+that the **public mainnet RPC rate-limits**: 44% of cold-cache verifications got
+HTTP 429 at just 2 verifications/s. Mainnet needs a provider with a contracted
+rate limit as the primary RPC and an independent one in
+`SOROBAN_RPC_FALLBACK_URLS` (#313). Verification on a cache miss measured p50
+985 ms, p95 1.31 s.
+
 1. Provision Upstash Redis and size it for measured traffic.
 2. Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` in Vercel →
    Production environment.

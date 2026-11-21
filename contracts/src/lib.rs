@@ -7,11 +7,20 @@ use soroban_sdk::{
 // ---------------------------------------------------------------------------
 // TTL / archival constants
 //
-// Soroban protocol-26 limits (both testnet and mainnet):
-//   max_entry_ttl          = 6_312_000 ledgers  (~1 year at 5 s/ledger)
-//   min_persistent_entry_ttl = 4_096 ledgers
+// Network limits as read from both networks' config settings on 2026-11-21
+// (mainnet protocol 29, testnet 30; issue #314,
+// docs/testing/mainnet-rpc-baselines.md):
+//   max_entry_ttl            = 3_110_400 ledgers  (~180 days at 5 s/ledger)
+//   min_persistent_ttl       = 2_073_600 ledgers
+// The host clamps an extension to max_entry_ttl - 1, so PERSISTENT_BUMP_AMOUNT
+// below (written for an older 6_312_000 limit) yields ~180 days, not a year:
+// a credential issued on testnet measured live_until = issue + 3_110_399. And
+// since no TTL can reach PERSISTENT_THRESHOLD, every `bump_credential` call
+// re-extends to the maximum. That is safe (rent is charged per ledger of life,
+// whoever extends), but the keeper must reach every credential well within
+// ~180 days. Leave these values unchanged unless the contract is redeployed.
 //
-// Strategy:
+// Strategy (as originally intended):
 //   • PERSISTENT_BUMP_AMOUNT   – extend to 1 year every write / bump call.
 //   • PERSISTENT_THRESHOLD     – only re-extend when fewer than ~6 months remain,
 //                                so a bump call costs a fee only when it matters.
@@ -26,18 +35,26 @@ const INSTANCE_THRESHOLD: u32 = 3_110_400;
 // Maximum number of credentials accepted per `batch_issue_credential` call.
 // Each successful row writes two persistent entries (Credential + HashIndex),
 // on top of the shared NextTokenId/TotalCredentials writes for the whole
-// call. This isn't just a guess: the soroban-env-host test harness
-// (`cargo test`) actually simulates real network resource limits, and 25
-// items measurably exceeds them — "write ledger entries: 53 > 50, total
-// footprint ledger entries: 109 > 100" (see
-// `test_batch_issue_at_max_size_boundary_succeeds`, which pins this value by
-// asserting a full batch at MAX_BATCH_SIZE succeeds under simulation). 20
-// keeps a comfortable margin under both ceilings while still cutting
-// signature/latency overhead by 20x versus one-by-one issuance. Callers with
-// larger CSVs are expected to split into multiple `batch_issue_credential`
-// calls (chunks). Revisit this number if the persistent-entry TTL-bump
-// overhead changes, or against measured mainnet resource costs (see
-// MAINNET_CHECKLIST.md).
+// call. `test_batch_issue_at_max_size_boundary_succeeds` pins this value by
+// asserting a full batch succeeds under the test harness's resource limits.
+//
+// Re-derived against the live networks' own limits (issue #314,
+// docs/testing/mainnet-rpc-baselines.md, 2026-11-21). Simulating real batches
+// of 1..20 rows on testnet and fitting each resource per row, then solving
+// against mainnet's config settings (protocol 29, same as testnet):
+//   contract events  312 B/row + 180  vs 16,384  -> 51 rows  (binding)
+//   write entries      2/row  + 2    vs 200     -> 99 rows
+//   footprint entries  2/row  + 4    vs 400     -> 198 rows
+//   write bytes      544 B/row + 328 vs 132,096 -> 242 rows
+//   tx size          524 B/row + 752 vs 132,096 -> 250 rows
+//   instructions    ~0.53M/row      vs 400M    -> 756 rows
+// The harness's old ceilings ("write ledger entries: 53 > 50, footprint
+// 109 > 100" at 25 rows) are no longer the network's. 20 still holds: it uses
+// 39% of the binding events budget, and the fee per credential is the same
+// at 1 or 20 rows (it is almost all storage rent), so a larger batch saves
+// signatures, not XLM. Raising it (to at most ~40, leaving events margin)
+// needs the harness test above updated and a redeploy. Callers with larger
+// CSVs split into multiple `batch_issue_credential` calls (chunks).
 const MAX_BATCH_SIZE: u32 = 20;
 
 // Issuer profile size caps (see IssuerProfile) — kept small and fixed so an

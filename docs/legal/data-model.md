@@ -120,8 +120,9 @@ POST /api/account/erase   (bearer token required)
   │
   ├─► Refuse with 403 self_deletion_not_available if the account has any
   │   institution tie (profile role institution/admin, trusted admin email,
-  │   any institution_users row, or institutions.auth_user_id) — support
-  │   handles those (docs/support-procedures.md §4)
+  │   or any institution_users row) — support handles those
+  │   (docs/support-procedures.md §4). The legacy institutions.auth_user_id
+  │   column was dropped in #308; membership is the only institution tie.
   │
   ├─► INSERT erasure_requests (status = 'processing')
   │

@@ -245,7 +245,20 @@ CREATE TRIGGER on_auth_user_created_student
 -- ---------------------------------------------------------------------
 -- Indexes
 -- ---------------------------------------------------------------------
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 CREATE INDEX IF NOT EXISTS idx_institutions_auth_user      ON public.institutions (auth_user_id);
+END IF;
+END
+$guard$;
+
 CREATE INDEX IF NOT EXISTS idx_institutions_wallet         ON public.institutions (wallet_address);
 CREATE INDEX IF NOT EXISTS idx_students_auth_user          ON public.students (auth_user_id);
 CREATE INDEX IF NOT EXISTS idx_students_wallet             ON public.students (wallet_address);
@@ -363,6 +376,15 @@ CREATE POLICY "Admin can view all profiles"
 -- ---------------------------------------------------------------------
 -- Institutions policies
 -- ---------------------------------------------------------------------
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 DROP POLICY IF EXISTS "Institutions can view own data" ON public.institutions;
 CREATE POLICY "Institutions can view own data"
   ON public.institutions FOR SELECT
@@ -378,6 +400,10 @@ DROP POLICY IF EXISTS "Institutions can insert own data" ON public.institutions;
 CREATE POLICY "Institutions can insert own data"
   ON public.institutions FOR INSERT
   WITH CHECK (auth.uid() = auth_user_id);
+END IF;
+END
+$guard$;
+
 
 DROP POLICY IF EXISTS "Authenticated users can read institution names" ON public.institutions;
 CREATE POLICY "Authenticated users can read institution names"
@@ -437,6 +463,15 @@ CREATE POLICY "Students can view own credentials"
     )
   );
 
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 DROP POLICY IF EXISTS "Institutions can view issued credentials" ON public.credentials;
 CREATE POLICY "Institutions can view issued credentials"
   ON public.credentials FOR SELECT
@@ -469,6 +504,10 @@ CREATE POLICY "Institutions can update own credentials"
     )
   );
 
+END IF;
+END
+$guard$;
+
 DROP POLICY IF EXISTS "Admin can view all credentials" ON public.credentials;
 CREATE POLICY "Admin can view all credentials"
   ON public.credentials FOR SELECT
@@ -490,6 +529,15 @@ CREATE POLICY "Admin can insert verification logs"
 -- ---------------------------------------------------------------------
 -- API Keys policies
 -- ---------------------------------------------------------------------
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 DROP POLICY IF EXISTS "Institutions can view own api keys" ON public.api_keys;
 CREATE POLICY "Institutions can view own api keys"
   ON public.api_keys FOR SELECT
@@ -521,6 +569,10 @@ CREATE POLICY "Institutions can update own api keys"
       SELECT id FROM public.institutions WHERE auth_user_id = auth.uid()
     )
   );
+
+END IF;
+END
+$guard$;
 
 DROP POLICY IF EXISTS "Admin can manage all api keys" ON public.api_keys;
 CREATE POLICY "Admin can manage all api keys"
@@ -706,6 +758,15 @@ CREATE INDEX IF NOT EXISTS idx_credential_pins_credential
 
 ALTER TABLE IF EXISTS public.credential_pins ENABLE ROW LEVEL SECURITY;
 
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 DROP POLICY IF EXISTS "Institutions can view own credential pins" ON public.credential_pins;
 CREATE POLICY "Institutions can view own credential pins"
     ON public.credential_pins FOR SELECT
@@ -716,6 +777,10 @@ CREATE POLICY "Institutions can view own credential pins"
             WHERE i.auth_user_id = auth.uid()
         )
     );
+END IF;
+END
+$guard$;
+
 
 DROP POLICY IF EXISTS "Students can view own credential pins" ON public.credential_pins;
 CREATE POLICY "Students can view own credential pins"

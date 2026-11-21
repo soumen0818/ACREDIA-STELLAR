@@ -182,7 +182,7 @@ export async function POST(
             // pending membership must move to the same window — otherwise a
             // regenerated link would be refused as expired.
             // Look up the owner's membership rather than the deprecated column.
-            const { data: ownerMembership } = await supabase
+            const { data: ownerMembership, error: ownerMembershipError } = await supabase
                 .from('institution_users')
                 .select('auth_user_id')
                 .eq('institution_id', institution.id)
@@ -191,6 +191,19 @@ export async function POST(
                 .order('created_at', { ascending: true })
                 .limit(1)
                 .maybeSingle();
+
+            // Without the membership the regenerated link would be refused as
+            // expired; say so now rather than hand the admin a dead link.
+            if (ownerMembershipError) {
+                structuredLog('ERROR', 'Failed to look up the pending POC membership', requestId, {
+                    error: ownerMembershipError,
+                    institutionId: institution.id,
+                });
+                return NextResponse.json(
+                    { success: false, error: 'Failed to refresh the invitation window' },
+                    { status: 500 },
+                );
+            }
 
             const pocMemberUserId = ownerMembership?.auth_user_id ?? null;
 

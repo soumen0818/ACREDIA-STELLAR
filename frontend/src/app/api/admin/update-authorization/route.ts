@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
             }
 
             // Enqueue verified notification to the institution's owner.
-            const ownerId = await resolveInstitutionOwnerId(supabase, institution.id, institution.auth_user_id);
+            const ownerId = await resolveInstitutionOwnerId(supabase, institution.id);
 
             const { data: userProfile } = ownerId
                 ? await supabase.from('profiles').select('email').eq('id', ownerId).single()

@@ -120,7 +120,9 @@ describe('POST /api/auth/accept-invite', () => {
         expect(await response.json()).toMatchObject({ success: true, alreadyAccepted: true, role: 'owner' });
     });
 
-    it('still serves a legacy POC who has no membership row at all', async () => {
+    it('no longer admits a user through the dropped institutions.auth_user_id column (#308)', async () => {
+        // Formerly the "legacy POC" path: no membership row at all. Membership
+        // is now the only way in, so this is a 404 and nothing is written.
         tables.institution_users = [];
         tables.institutions[0].invite_accepted_at = null;
         mockGetServiceRoleClient.mockReturnValue(createFakeSupabase(tables).client);
@@ -128,8 +130,8 @@ describe('POST /api/auth/accept-invite', () => {
 
         const response = await call();
 
-        expect(response.status).toBe(200);
-        expect(tables.institutions[0].invite_accepted_at).toEqual(expect.any(String));
+        expect(response.status).toBe(404);
+        expect(tables.institutions[0].invite_accepted_at).toBeNull();
     });
 
     it('404s for an account with no institution at all', async () => {

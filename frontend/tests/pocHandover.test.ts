@@ -2,12 +2,17 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 type MockDbState = {
-    institution: { id: string; name: string; email: string; auth_user_id: string } | null;
+    // No auth_user_id: the column was dropped (#308); the POC is found by membership.
+    institution: { id: string; name: string; email: string } | null;
     profiles: Record<string, { id: string; email: string; role: string; is_active: boolean; deactivated_at?: string | null; deactivated_reason?: string | null }>;
     institutionUsers: Array<{ institution_id: string; auth_user_id: string; role: string; is_active: boolean }>;
     auditLogs: Array<Record<string, unknown>>;
     authUserEmail: string;
     profileRole: string;
+    /** Makes the current-owner membership lookup fail (#308: it is the only record of the POC). */
+    ownerLookupError: { message: string } | null;
+    /** Makes deactivating the old POC's membership fail. */
+    deactivateMembershipError: { message: string } | null;
 };
 
 const state: MockDbState = {
@@ -15,7 +20,6 @@ const state: MockDbState = {
         id: '11111111-1111-4111-a111-111111111111',
         name: 'Oxford University',
         email: 'old.poc@oxford.edu',
-        auth_user_id: 'user-old-poc',
     },
     profiles: {
         'user-old-poc': {
@@ -36,7 +40,23 @@ const state: MockDbState = {
     auditLogs: [],
     authUserEmail: 'admin@example.com',
     profileRole: 'admin',
+    ownerLookupError: null,
+    deactivateMembershipError: null,
 };
+
+/** `institution_users` lookup of the current active owner/POC, as the route chains it. */
+function ownerLookup() {
+    const builder: Record<string, unknown> = {};
+    for (const method of ['eq', 'in', 'order', 'limit']) builder[method] = () => builder;
+    builder.maybeSingle = async () => {
+        if (state.ownerLookupError) return { data: null, error: state.ownerLookupError };
+        const owner = state.institutionUsers.find(
+            (u) => u.is_active && (u as { status?: string }).status !== 'deactivated' && ['owner', 'poc'].includes(u.role),
+        );
+        return { data: owner ? { auth_user_id: owner.auth_user_id } : null, error: null };
+    };
+    return builder;
+}
 
 vi.mock('@supabase/supabase-js', () => ({
     createClient: vi.fn((_url: string, key: string) => {
@@ -89,7 +109,7 @@ vi.mock('@supabase/supabase-js', () => ({
                 },
             },
             from: vi.fn((tableName: string) => ({
-                select: vi.fn(() => ({
+                select: vi.fn(() => tableName === 'institution_users' ? ownerLookup() : ({
                     eq: vi.fn((col: string, val: string) => ({
                         maybeSingle: vi.fn(async () => {
                             if (tableName === 'profiles') {
@@ -123,6 +143,9 @@ vi.mock('@supabase/supabase-js', () => ({
                         return {
                             eq: vi.fn((col2: string, val2: string) => {
                                 if (tableName === 'institution_users') {
+                                    if (state.deactivateMembershipError) {
+                                        return Promise.resolve({ error: state.deactivateMembershipError });
+                                    }
                                     const match = state.institutionUsers.find(
                                         (u) => u.institution_id === val1 && u.auth_user_id === val2,
                                     );
@@ -175,7 +198,6 @@ describe('POST /api/admin/institutions/[id]/poc-handover', () => {
             id: '11111111-1111-4111-a111-111111111111',
             name: 'Oxford University',
             email: 'old.poc@oxford.edu',
-            auth_user_id: 'user-old-poc',
         };
         state.profiles = {
             'user-old-poc': {
@@ -194,6 +216,8 @@ describe('POST /api/admin/institutions/[id]/poc-handover', () => {
             },
         ];
         state.auditLogs = [];
+        state.ownerLookupError = null;
+        state.deactivateMembershipError = null;
     });
 
     it('successfully completes POC handover, deactivates old POC, provisions new POC and logs audit record', async () => {
@@ -232,6 +256,15 @@ describe('POST /api/admin/institutions/[id]/poc-handover', () => {
         expect(state.profiles['user-old-poc'].is_active).toBe(false);
         expect(state.profiles['user-old-poc'].deactivated_reason).toContain('Replaced during POC handover');
 
+        // The old POC's membership, found via institution_users (#308), is deactivated
+        // and the new POC becomes the active owner.
+        expect(state.institutionUsers.find((u) => u.auth_user_id === 'user-old-poc')).toMatchObject({ status: 'deactivated' });
+        expect(state.institutionUsers.find((u) => u.auth_user_id === 'user-alistair.finch')).toMatchObject({
+            role: 'owner',
+            status: 'active',
+        });
+        expect(state.auditLogs[0]).toMatchObject({ previous_poc_id: 'user-old-poc' });
+
         // Verify institution record updated with new POC email
         expect(state.institution?.email).toBe('alistair.finch@oxford.edu');
 
@@ -243,6 +276,51 @@ describe('POST /api/admin/institutions/[id]/poc-handover', () => {
             new_poc_email: 'alistair.finch@oxford.edu',
             requester_email: 'registrar@oxford.edu',
         });
+    });
+
+    function handoverRequest() {
+        return new NextRequest(
+            'http://localhost:3000/api/admin/institutions/11111111-1111-4111-a111-111111111111/poc-handover',
+            {
+                method: 'POST',
+                headers: new Headers({ authorization: 'Bearer valid-admin-token', 'content-type': 'application/json' }),
+                body: JSON.stringify({
+                    newPocName: 'Dr. Alistair Finch',
+                    newPocEmail: 'alistair.finch@oxford.edu',
+                    requesterEmail: 'registrar@oxford.edu',
+                    verificationMethod: 'Official registrar letter on university letterhead',
+                }),
+            },
+        );
+    }
+
+    it('fails closed when the current POC cannot be looked up, changing nothing (#308)', async () => {
+        const { POST } = await import('../src/app/api/admin/institutions/[id]/poc-handover/route');
+        state.ownerLookupError = { message: 'connection reset' };
+
+        const response = await POST(handoverRequest(), {
+            params: Promise.resolve({ id: '11111111-1111-4111-a111-111111111111' }),
+        });
+
+        expect(response.status).toBe(500);
+        // The old POC keeps neither more nor less than before, and no one new got in.
+        expect(state.profiles['user-old-poc'].is_active).toBe(true);
+        expect(state.institution?.email).toBe('old.poc@oxford.edu');
+        expect(state.institutionUsers).toHaveLength(1);
+        expect(state.auditLogs).toHaveLength(0);
+    });
+
+    it('stops before provisioning a new POC when the old membership cannot be deactivated', async () => {
+        const { POST } = await import('../src/app/api/admin/institutions/[id]/poc-handover/route');
+        state.deactivateMembershipError = { message: 'permission denied' };
+
+        const response = await POST(handoverRequest(), {
+            params: Promise.resolve({ id: '11111111-1111-4111-a111-111111111111' }),
+        });
+
+        expect(response.status).toBe(500);
+        expect(state.institution?.email).toBe('old.poc@oxford.edu');
+        expect(state.institutionUsers.some((u) => u.auth_user_id === 'user-alistair.finch')).toBe(false);
     });
 
     it('rejects handover without required fields', async () => {

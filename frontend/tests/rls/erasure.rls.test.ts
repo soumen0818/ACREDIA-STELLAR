@@ -39,10 +39,11 @@ beforeAll(async () => {
         [STUDENT_USER, POC_USER, PLAIN_USER, STAFF_ACTIVE, STAFF_INVITED, STAFF_REMOVED],
     );
     await db.query(
-        `INSERT INTO public.institutions (id, name, email, status, verified, auth_user_id)
-         VALUES ($1, 'Uni E', 'poc@uni-e.test', 'verified', true, $2)
+        // The POC is an owner membership below; institutions.auth_user_id is gone (#308).
+        `INSERT INTO public.institutions (id, name, email, status, verified)
+         VALUES ($1, 'Uni E', 'poc@uni-e.test', 'verified', true)
          ON CONFLICT (id) DO NOTHING`,
-        [UNI_E, POC_USER],
+        [UNI_E],
     );
     await db.query(
         `INSERT INTO public.institution_users (institution_id, auth_user_id, role, status)

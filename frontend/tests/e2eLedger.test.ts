@@ -217,7 +217,8 @@ describe('contracts.ts decoupling', () => {
     it('takes signers on every writing function', () => {
         for (const signature of [
             /export async function authorizeIssuer\(\s*admin: StellarSigner/,
-            /issuer: StellarSigner,\s*\): Promise<\{ tokenId: string; transactionHash: string \}>/,
+            // #310 added an optional progress callback after the signer.
+            /issuer: StellarSigner,\s*onProgress\?: ContractProgressCallback,\s*\): Promise<\{ tokenId: string; transactionHash: string \}>/,
             /export async function batchIssueCredentialOnStellar\([\s\S]*?issuer: StellarSigner/,
             /export async function revokeCredentialOnStellar\(\s*tokenId: string,\s*issuer: StellarSigner/,
         ]) {

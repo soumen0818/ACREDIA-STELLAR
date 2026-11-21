@@ -45,7 +45,10 @@ async function isHolder(supabase: ServiceRoleClient, userId: string, studentId: 
     return Boolean(data);
 }
 
-/** Any active member of the issuing institution, or its legacy owner account. */
+/**
+ * Any active member of the issuing institution. Membership is the only route
+ * since the legacy `institutions.auth_user_id` column was dropped (#308).
+ */
 async function isIssuingInstitutionMember(
     supabase: ServiceRoleClient,
     userId: string,
@@ -59,15 +62,7 @@ async function isIssuingInstitutionMember(
         .eq('institution_id', institutionId)
         .eq('status', 'active')
         .maybeSingle();
-    if (membership) return true;
-
-    const { data: owner } = await supabase
-        .from('institutions')
-        .select('id')
-        .eq('id', institutionId)
-        .eq('auth_user_id', userId)
-        .maybeSingle();
-    return Boolean(owner);
+    return Boolean(membership);
 }
 
 /**

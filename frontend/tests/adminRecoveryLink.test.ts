@@ -2,7 +2,14 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 type MockDbState = {
-    institution: { id: string; name: string; email: string; auth_user_id: string } | null;
+    // No auth_user_id: the column was dropped (#308); the POC is a membership row.
+    institution: { id: string; name: string; email: string } | null;
+    /** The POC's pending owner membership, or null. */
+    pendingOwner: { auth_user_id: string } | null;
+    /** Makes the pending-owner lookup fail. */
+    ownerLookupError: { message: string } | null;
+    /** Every `institution_users` update, with its filters. */
+    membershipUpdates: Array<{ values: Record<string, unknown>; filters: Array<[string, unknown]> }>;
     auditLogs: Array<Record<string, unknown>>;
     authUserEmail: string;
     profileRole: string;
@@ -13,8 +20,10 @@ const state: MockDbState = {
         id: '22222222-2222-4222-a222-222222222222',
         name: 'Cambridge University',
         email: 'poc@cambridge.edu',
-        auth_user_id: 'user-cambridge-poc',
     },
+    pendingOwner: { auth_user_id: 'user-cambridge-poc' },
+    ownerLookupError: null,
+    membershipUpdates: [],
     auditLogs: [],
     authUserEmail: 'admin@example.com',
     profileRole: 'admin',
@@ -68,11 +77,12 @@ vi.mock('@supabase/supabase-js', () => ({
                         if (tableName === 'profiles' && matched('id', 'admin-user-id')) {
                             return { data: { role: state.profileRole }, error: null };
                         }
-                        // No membership row is seeded, so the resolver falls
-                        // through to the legacy institutions.auth_user_id path —
-                        // which is exactly what this suite is exercising.
+                        // The POC's pending owner membership (#308: the
+                        // institutions.auth_user_id column is gone).
                         if (tableName === 'institution_users') {
-                            return { data: null, error: null };
+                            return state.ownerLookupError
+                                ? { data: null, error: state.ownerLookupError }
+                                : { data: state.pendingOwner, error: null };
                         }
                         if (tableName === 'institutions') {
                             return { data: state.institution, error: null };
@@ -85,6 +95,7 @@ vi.mock('@supabase/supabase-js', () => ({
                             filters.push([col, val]);
                             return chain;
                         }),
+                        in: vi.fn(() => chain),
                         order: vi.fn(() => chain),
                         limit: vi.fn(() => chain),
                         maybeSingle: vi.fn(resolve),
@@ -102,12 +113,17 @@ vi.mock('@supabase/supabase-js', () => ({
                 // link is generated, so `update(...).eq(...)` must resolve.
                 // Chainable and awaitable at any depth, like the real
                 // builder: `update(...).eq(...).eq(...)` resolves too.
-                update: vi.fn(() => {
+                update: vi.fn((values: Record<string, unknown>) => {
+                    const filters: Array<[string, unknown]> = [];
+                    if (tableName === 'institution_users') state.membershipUpdates.push({ values, filters });
                     const chain: Record<string, unknown> = {
                         then: (resolve: (value: unknown) => void) =>
                             resolve({ data: null, error: null }),
                     };
-                    chain.eq = vi.fn(() => chain);
+                    chain.eq = vi.fn((col: string, val: unknown) => {
+                        filters.push([col, val]);
+                        return chain;
+                    });
                     return chain;
                 }),
             })),
@@ -126,8 +142,10 @@ describe('POST /api/admin/institutions/[id]/recovery-link', () => {
             id: '22222222-2222-4222-a222-222222222222',
             name: 'Cambridge University',
             email: 'poc@cambridge.edu',
-            auth_user_id: 'user-cambridge-poc',
         };
+        state.pendingOwner = { auth_user_id: 'user-cambridge-poc' };
+        state.ownerLookupError = null;
+        state.membershipUpdates = [];
         state.auditLogs = [];
     });
 
@@ -197,5 +215,51 @@ describe('POST /api/admin/institutions/[id]/recovery-link', () => {
         expect(response.status).toBe(200);
         expect(json.success).toBe(true);
         expect(json.link).toContain('single-use-invite');
+
+        // The POC's pending membership, found via institution_users (#308), moves
+        // to the new invite window, so the regenerated link is not refused.
+        expect(state.membershipUpdates).toHaveLength(1);
+        expect(state.membershipUpdates[0].values).toHaveProperty('invite_expires_at');
+        expect(state.membershipUpdates[0].filters).toEqual(
+            expect.arrayContaining([
+                ['auth_user_id', 'user-cambridge-poc'],
+                ['status', 'invited'],
+            ]),
+        );
+    });
+
+    function inviteRequest() {
+        return new NextRequest(
+            'http://localhost:3000/api/admin/institutions/22222222-2222-4222-a222-222222222222/recovery-link',
+            {
+                method: 'POST',
+                headers: new Headers({ authorization: 'Bearer valid-admin-token', 'content-type': 'application/json' }),
+                body: JSON.stringify({ type: 'invite', reason: 'Initial POC onboarding fallback link' }),
+            },
+        );
+    }
+
+    it('reports a failed membership lookup instead of handing out a link that would be refused', async () => {
+        const { POST } = await import('../src/app/api/admin/institutions/[id]/recovery-link/route');
+        state.ownerLookupError = { message: 'connection reset' };
+
+        const response = await POST(inviteRequest(), {
+            params: Promise.resolve({ id: '22222222-2222-4222-a222-222222222222' }),
+        });
+
+        expect(response.status).toBe(500);
+        expect(state.membershipUpdates).toHaveLength(0);
+    });
+
+    it('still issues the link when there is no pending membership to move', async () => {
+        const { POST } = await import('../src/app/api/admin/institutions/[id]/recovery-link/route');
+        state.pendingOwner = null;
+
+        const response = await POST(inviteRequest(), {
+            params: Promise.resolve({ id: '22222222-2222-4222-a222-222222222222' }),
+        });
+
+        expect(response.status).toBe(200);
+        expect(state.membershipUpdates).toHaveLength(0);
     });
 });

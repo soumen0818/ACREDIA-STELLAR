@@ -5,8 +5,21 @@
 -- 3. Add a trigger to block DELETEs on the credentials table outright.
 
 -- Fix Institutions
+-- Re-run safety (#308): only while institutions.auth_user_id exists. On a
+-- fresh install it always does here; after the column is dropped, re-applying
+-- schema.sql skips this legacy block (a later migration supersedes it).
+DO $guard$
+BEGIN
+IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'institutions' AND column_name = 'auth_user_id'
+) THEN
 ALTER TABLE public.institutions DROP CONSTRAINT IF EXISTS institutions_auth_user_id_fkey;
 ALTER TABLE public.institutions ADD CONSTRAINT institutions_auth_user_id_fkey FOREIGN KEY (auth_user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+END IF;
+END
+$guard$;
+
 
 -- Fix Students
 ALTER TABLE public.students DROP CONSTRAINT IF EXISTS students_auth_user_id_fkey;
