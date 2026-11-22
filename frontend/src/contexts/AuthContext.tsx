@@ -1,12 +1,19 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase, signOut, safeGetSession } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { buildAuthRedirect } from '@/lib/authFlow';
 import { resolveUserRoleClient } from '@/lib/roleResolver';
 import { getE2eState } from '@/lib/e2e';
+import {
+    createRoleSession,
+    INITIAL_SESSION_STATE,
+    routeGate,
+    type RoleSession,
+    type SessionState,
+} from '@/lib/authSession';
 import type { AppRole, RoleState } from '@/types';
 
 interface AuthContextType {
@@ -21,73 +28,55 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-    const [user, setUser] = useState<User | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [userRole, setUserRole] = useState<RoleState>('loading');
-
-    const resolveRole = async (nextUser: User | null) => {
-        if (!nextUser) {
-            setUserRole('unknown');
-            return;
-        }
-
-        try {
-            const role = await resolveUserRoleClient(supabase, nextUser);
-            setUserRole(role);
-        } catch {
-            // Keep the app usable if resolution fails — fall back to unknown.
-            setUserRole('unknown');
-        }
-    };
+    const [state, setState] = useState<SessionState>(INITIAL_SESSION_STATE);
+    const sessionRef = useRef<RoleSession | null>(null);
 
     useEffect(() => {
+        // `loading` stays true until the role is known, and only the latest
+        // lookup applies (issue #342; see src/lib/authSession.ts).
+        const session = createRoleSession(
+            (user) => resolveUserRoleClient(supabase, user),
+            (patch) => setState((previous) => ({ ...previous, ...patch })),
+        );
+        sessionRef.current = session;
+
         const e2eState = getE2eState();
         if (e2eState?.enabled && e2eState.session) {
-            setUser(e2eState.session.user as unknown as User);
-            setUserRole(e2eState.role ?? 'unknown');
-            setLoading(false);
-            return;
+            // Through the same path as a real session, so E2E tests exercise
+            // the ordering above rather than a synchronous shortcut.
+            void session.update(e2eState.session.user as unknown as User);
+            return () => session.stop();
         }
 
         // Check active sessions
         safeGetSession()
-            .then(({ data: { session } }) => {
-                const nextUser = (session?.user ?? null) as User | null;
-                setUser(nextUser);
-                resolveRole(nextUser);
-                setLoading(false);
-            })
-            .catch(() => {
-                setUser(null);
-                setUserRole('unknown');
-                setLoading(false);
-            });
+            .then(({ data: { session: active } }) => session.update((active?.user ?? null) as User | null))
+            .catch(() => session.clear());
 
         // Listen for auth changes
         const {
             data: { subscription },
-        } = supabase.auth.onAuthStateChange((_event, session) => {
-            const nextUser = (session?.user ?? null) as User | null;
-            setUser(nextUser);
-            resolveRole(nextUser);
-            setLoading(false);
+        } = supabase.auth.onAuthStateChange((_event, active) => {
+            void session.update((active?.user ?? null) as User | null);
         });
 
-        return () => subscription.unsubscribe();
+        return () => {
+            session.stop();
+            subscription.unsubscribe();
+        };
     }, []);
 
     const handleSignOut = async () => {
         await signOut();
-        setUser(null);
-        setUserRole('unknown');
+        sessionRef.current?.clear();
     };
 
     return (
         <AuthContext.Provider
             value={{
-                user,
-                loading,
-                userRole,
+                user: state.user,
+                loading: state.loading,
+                userRole: state.userRole,
                 signOut: handleSignOut,
             }}
         >
@@ -122,9 +111,12 @@ export function ProtectedRoute({
 }) {
     const { user, loading, userRole } = useAuth();
     const router = useRouter();
+    // A known user whose role is still being looked up is loading: a
+    // role-gated page must not mount before it is known to be allowed (#342).
+    const gate = routeGate({ user, loading, userRole }, allowedRoles);
 
     useEffect(() => {
-        if (!loading && !user) {
+        if (gate === 'sign-in') {
             const currentPath =
                 typeof window !== 'undefined'
                     ? buildAuthRedirect(window.location.pathname, window.location.search)
@@ -132,18 +124,12 @@ export function ProtectedRoute({
             router.push(currentPath);
         }
 
-        if (
-            !loading &&
-            user &&
-            allowedRoles &&
-            userRole !== 'loading' &&
-            !allowedRoles.includes(userRole as AppRole)
-        ) {
+        if (gate === 'not-allowed') {
             router.push('/dashboard');
         }
-    }, [user, loading, userRole, router, allowedRoles]);
+    }, [gate, router]);
 
-    if (loading) {
+    if (gate === 'loading') {
         return (
             <div className="min-h-dvh bg-gray-50">
                 <nav className="sticky top-0 z-50 border-b border-gray-200 bg-white/90 shadow-sm backdrop-blur-lg">
@@ -175,15 +161,7 @@ export function ProtectedRoute({
         );
     }
 
-    if (!user) {
-        return null;
-    }
-
-    if (
-        allowedRoles &&
-        userRole !== 'loading' &&
-        !allowedRoles.includes(userRole as AppRole)
-    ) {
+    if (gate !== 'render') {
         return null;
     }
 

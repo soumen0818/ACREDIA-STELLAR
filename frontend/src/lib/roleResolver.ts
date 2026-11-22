@@ -78,8 +78,13 @@ export async function resolveUserRoleClient(
     user: User | null,
 ): Promise<RoleState> {
     const e2eState = getE2eState();
-    if (e2eState?.enabled && e2eState.role) {
-        return e2eState.role;
+    if (e2eState?.enabled && (e2eState.role || e2eState.session)) {
+        // Asynchronous like the real lookup, so E2E sessions go through the
+        // same ordering in AuthProvider (issue #342).
+        if (e2eState.roleResolutionDelayMs) {
+            await new Promise((resolve) => setTimeout(resolve, e2eState.roleResolutionDelayMs));
+        }
+        return e2eState.role ?? 'unknown';
     }
 
     return resolveUserRole(client, user);

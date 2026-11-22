@@ -69,6 +69,12 @@ export interface E2eState {
     enabled?: boolean;
     session?: E2eSession | null;
     role?: RoleState;
+    /**
+     * Delay before the role lookup answers, to model a slow lookup in
+     * Playwright: tests of what renders *before* the role is known need the
+     * window to be wide enough to observe (issue #342).
+     */
+    roleResolutionDelayMs?: number;
     walletAddress?: string | null;
     contractOwner?: string;
     authorizedIssuers?: string[];
